@@ -1,0 +1,105 @@
+---
+import '../styles/global.css';
+const base = import.meta.env.BASE_URL;
+---
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="성좌 × 헌터 전투 페어커 소개 홈페이지" />
+  <title>CONSTELLATION × HUNTER</title>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap nav">
+    <a class="brand" href={`${base}#home`}>CONSTELLATION × HUNTER</a>
+    <nav class="menu">
+      <a href={`${base}#world`}>WORLD</a>
+      <a href={`${base}#faction`}>FACTION</a>
+      <a href={`${base}#system`}>SYSTEM</a>
+      <a href={`${base}#tower`}>TOWER</a>
+    </nav>
+  </div>
+</header>
+<main>
+  <section id="home" class="hero">
+    <div class="wrap hero-inner">
+      <div class="kicker">Pair Community · Tower Raid · Battle</div>
+      <h1>별은 인간을 선택했고,<br/>인간은 탑을 올랐다.</h1>
+      <p>성좌와 헌터가 하나의 계약으로 묶여 탑을 공략하는 1:1 전투 페어커. 정부와 민간 길드의 대립, 그리고 탑의 정상에서 기다리는 성좌들의 비밀.</p>
+      <div class="cta-row">
+        <a class="btn primary" href={`${base}#world`}>세계관 읽기</a>
+        <a class="btn" href={`${base}#system`}>시스템 확인</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="world" class="section">
+    <div class="wrap">
+      <div class="section-head"><h2>WORLD</h2><p>십이 년 전 나타난 검은 탑과, 그때부터 인간의 세계에 모습을 드러낸 성좌들.</p></div>
+      <div class="quote">“돌아오라.”<br/><span style="color:var(--muted);font-size:.55em">— 제1탑 상층부에서 반복 수신되는 메시지</span></div>
+      <div class="grid-3" style="margin-top:18px">
+        <article class="card"><span class="badge">THE TOWER</span><h3>탑</h3><p>탑은 파괴되지 않는다. 내부의 괴물을 방치하면 현실을 집어삼키는 침식이 발생하며, 인류는 정상에 도달해 그 원인을 멈춰야 한다.</p></article>
+        <article class="card"><span class="badge">CONSTELLATION</span><h3>성좌</h3><p>현실에 완전히 내려올 수 없는 초월자. 자신이 선택한 헌터에게 권능과 계시를 내리며 필요할 때 일부를 현신한다.</p></article>
+        <article class="card"><span class="badge">HUNTER</span><h3>헌터</h3><p>성좌와 계약해 탑의 힘을 견디고 직접 전투에 나서는 인간. 헌터와 성좌의 계약은 반드시 일대일이다.</p></article>
+      </div>
+      <div class="grid-2" style="margin-top:18px">
+        <article class="card"><h3>계약</h3><p>헌터가 치명상을 입으면 성좌도 손상되고, 성좌가 무리하게 권능을 행사하면 헌터의 신체가 대가를 치른다. 탑을 오르는 힘은 결국 서로에 대한 신뢰에서 나온다.</p></article>
+        <article class="card"><h3>현재 상황</h3><p>수도 중심부의 제1탑 상층부가 개방되며 침식 수치가 급상승했다. 남은 시간은 길어야 한 달. 정부와 민간 길드는 서로를 불신하면서도 공동 공략에 합의한다.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="faction" class="section">
+    <div class="wrap">
+      <div class="section-head"><h2>FACTION</h2><p>같은 탑을 오르지만, 정상에서 원하는 것은 서로 다르다.</p></div>
+      <div class="duel">
+        <article class="card faction gov"><span class="badge">GOVERNMENT</span><h3>정부</h3><p>탑은 국가가 통제해야 할 재난이자 전략 자원이라는 입장. 안정적인 보급과 의료, 축적된 공략 정보를 제공하지만 주요 유물과 정보는 국가에 귀속된다.</p></article>
+        <div class="vs">VS</div>
+        <article class="card faction guild"><span class="badge">PRIVATE GUILD</span><h3>민간 길드</h3><p>목숨을 걸고 공략한 자에게 성과와 권리가 돌아가야 한다는 입장. 자유로운 공략과 높은 보상을 제공하지만 지원의 안정성이 낮고 더 큰 위험을 감수한다.</p></article>
+      </div>
+      <div class="card" style="margin-top:18px"><h3>공동 공략</h3><p>정부는 탑의 핵을 국가 통제 아래 두려 하고, 민간 길드는 파괴하거나 공략자의 권리로 인정받으려 한다. 성좌들 또한 인간에게 밝히지 않은 목적을 품고 있다.</p></div>
+    </div>
+  </section>
+
+  <section id="system" class="section">
+    <div class="wrap">
+      <div class="section-head"><h2>SYSTEM</h2><p>헌터는 직접 싸우고, 성좌는 전황을 조율한다. 상점 포인트와 전투 행동력은 서로 다른 자원이다.</p></div>
+      <div class="grid-2">
+        <article class="card"><span class="badge">HUNTER ACTION</span><h3>헌터</h3><p>공격 · 스킬 · 방어 · 아이템 · 구조 · 기믹 수행</p></article>
+        <article class="card"><span class="badge">CONSTELLATION ACTION</span><h3>성좌</h3><p>버프 · 디버프 · 현신 · 계시 · 아이템</p></article>
+      </div>
+      <div class="card" style="margin-top:18px;overflow:auto">
+        <table class="sys-table">
+          <thead><tr><th>자원</th><th>기본 규칙</th><th>사용처</th></tr></thead>
+          <tbody>
+            <tr><td>행동력</td><td>헌터 5 / 성좌 5, 라운드 시작 시 +2 회복</td><td>공격, 방어, 버프, 디버프, 현신, 계시</td></tr>
+            <tr><td>포인트</td><td>페어 공용 상점 화폐</td><td>중간 휴식 구간의 상점</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="grid-3" style="margin-top:18px">
+        <article class="card"><h3>페어 연계</h3><p>같은 라운드의 행동 조합이 맞으면 공격·방어·제압·구조·현신 연계 효과가 추가로 발생한다.</p></article>
+        <article class="card"><h3>계약 안정도</h3><p>공명과 고조에서는 연계가 강화되고, 불안·균열·붕괴로 내려가면 행동력 회복 감소와 계약 해제 위험이 생긴다.</p></article>
+        <article class="card"><h3>부상과 전투 불능</h3><p>체력이 소진되어도 즉시 사망하지 않는다. 구조와 치료가 가능하지만 방치, 즉사 기믹, 희생 선택 등은 사망으로 이어질 수 있다.</p></article>
+      </div>
+      <div class="card" style="margin-top:18px"><h3>상점</h3><p>헌터 상점, 성좌 상점, 공용 상점으로 나뉜다. 회복제·장비·성유물·현신 보조·계시·층 정보·지도·전리품 감정 등을 포인트로 구매하며, 상품은 공략 진행도와 진영 영향도에 따라 해금된다.</p></div>
+    </div>
+  </section>
+
+  <section id="tower" class="section">
+    <div class="wrap">
+      <div class="section-head"><h2>TOWER RAID</h2><p>전투와 휴식이 반복되며, 층이 올라갈수록 탑의 규칙과 성좌의 과거가 드러난다.</p></div>
+      <div class="timeline">
+        <div class="step"><b>01</b><div><h3>일반 층</h3><p>몬스터 전투, 층별 기믹, 서브 임무, 숨겨진 방, 진영 경쟁이 발생한다.</p></div></div>
+        <div class="step"><b>02</b><div><h3>보스 층</h3><p>다수 페어가 공동으로 참여하는 전투. 단계별 패턴과 진영별 선택 목표가 등장한다.</p></div></div>
+        <div class="step"><b>03</b><div><h3>중간 휴식</h3><p>행동력 회복, 치료, 포인트 정산, 상점, 아이템 교환, 페어 관계 이벤트, 진영 작전 회의를 진행한다.</p></div></div>
+        <div class="step"><b>04</b><div><h3>상층부</h3><p>탑의 괴물들이 성좌의 이름을 부르고, 벽에는 성좌의 문양이 나타난다. 인간보다 성좌에게 익숙한 구조가 드러나기 시작한다.</p></div></div>
+        <div class="step"><b>05</b><div><h3>정상</h3><p>탑의 핵을 정부에 넘길지, 민간 길드에 넘길지, 파괴할지, 성좌에게 돌려줄지, 혹은 직접 계약할지 선택한다.</p></div></div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="footer"><div class="wrap">CONSTELLATION × HUNTER · Pair Community Introduction Site</div></footer>
+</body>
+</html>
