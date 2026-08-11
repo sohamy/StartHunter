@@ -12,7 +12,14 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { findClass } from '../config/characters';
 import { CURRENT_PHASE, UI_RULES } from '../config/rules';
 import { DEFAULT_RAID_PAIR_COUNT, pairPreset, presetSheet } from '../config/scenario';
-import { createBattle, resolveTarget, viewerPair } from '../engine/battle';
+import {
+  createBattle,
+  pairReady,
+  resolveTarget,
+  sideOfAccount,
+  sideReady,
+  viewerPair,
+} from '../engine/battle';
 import { previewCombo } from '../engine/combo';
 import {
   actionAvailability,
@@ -213,12 +220,25 @@ export default function BattleTerminal() {
       const profiles = (await auth.listProfiles(opposite)).filter(
         (profile) => profile.accountId !== found.id,
       );
-      const restored = await storage.loadBattle(`BATTLE-${found.id}`);
+
+      // 운영진이 편성한 전투 중 내 계정이 배정된 것을 찾는다.
+      let joined: BattleState | null = null;
+      for (const summary of await storage.listBattles()) {
+        const candidate = await storage.loadBattle(summary.id);
+        if (!candidate) continue;
+        const myPair = candidate.pairs.find(
+          (row) => row.hunterAccountId === found.id || row.constellationAccountId === found.id,
+        );
+        if (myPair) {
+          joined = { ...candidate, viewerPairId: myPair.id };
+          break;
+        }
+      }
 
       if (cancelled) return;
       setAccount(found);
       setPartners(profiles);
-      setBattle(restored);
+      setBattle(joined);
       setAuthState('READY');
     })();
 
@@ -272,6 +292,9 @@ export default function BattleTerminal() {
           hunterSheet,
           constellationSheet,
           affiliation: hunterSheet.affiliation,
+          // 1인 = 1캐릭터. 내 계정은 내 쪽에만 붙는다.
+          hunterAccountId: mySheet.side === 'HUNTER' ? account.id : partnerId || null,
+          constellationAccountId: mySheet.side === 'CONSTELLATION' ? account.id : partnerId || null,
         },
       }),
     );
@@ -334,20 +357,37 @@ export default function BattleTerminal() {
         </header>
 
         <section className="panel">
-          <h2 className="panel-title">DEPLOYMENT</h2>
-          <p className="hint" style={{ marginBottom: 16 }}>
-            {account.sheet.name} · {mySheetClass?.label ?? '—'} 시트로 출격합니다.
-            페어 상대를 고르고 전투 규모를 선택하세요.
+          <h2 className="panel-title">AWAITING ASSIGNMENT</h2>
+          <p>
+            {account.sheet.name} · {mySheetClass?.label ?? '—'} 시트로 등록되어 있습니다.
+            <br />
+            <b>페어 편성은 관리국(운영진)이 진행합니다.</b> 배정이 완료되면 이 화면에서 자동으로
+            전투 단말이 열립니다.
           </p>
+          <div className="btn-row" style={{ marginTop: 16 }}>
+            <button type="button" className="ctl" onClick={() => window.location.reload()}>
+              배정 확인 · 새로고침
+            </button>
+            <a className="ctl small" href={joinUrl()}>
+              내 시트 보기
+            </a>
+          </div>
+        </section>
 
+        <section className="panel">
+          <h2 className="panel-title">SOLO TEST</h2>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            운영진 편성 없이 규칙을 확인해 보는 테스트 경로입니다. 상대 쪽은 프리셋 캐릭터가 맡고,
+            실제 진행에는 사용하지 않습니다.
+          </p>
           <div className="session-row">
-            <span className="field-label">PAIR PARTNER</span>
+            <span className="field-label">PARTNER</span>
             <select
               className="ctl"
               value={partnerId}
               onChange={(event) => setPartnerId(event.target.value)}
             >
-              <option value="">프리셋 캐릭터와 계약 (등록된 상대 없음)</option>
+              <option value="">프리셋 캐릭터</option>
               {partners.map((profile) => (
                 <option key={profile.accountId} value={profile.accountId}>
                   {profile.name} · {profile.accountId}
@@ -355,7 +395,6 @@ export default function BattleTerminal() {
               ))}
             </select>
           </div>
-
           <div className="session-row">
             <span className="field-label">SCALE</span>
             <div className="btn-row">
@@ -364,21 +403,19 @@ export default function BattleTerminal() {
                 className={`ctl ${setupMode === 'DUEL' ? 'on' : ''}`}
                 onClick={() => setSetupMode('DUEL')}
               >
-                DUEL · 페어 1조 vs 몬스터
+                DUEL · 페어 1조
               </button>
               <button
                 type="button"
                 className={`ctl ${setupMode === 'RAID' ? 'on' : ''}`}
                 onClick={() => setSetupMode('RAID')}
               >
-                RAID · {DEFAULT_RAID_PAIR_COUNT}페어 공동 공략
+                RAID · {DEFAULT_RAID_PAIR_COUNT}페어
               </button>
             </div>
           </div>
-
-          <button type="button" className="confirm-btn" onClick={() => void startBattle()}>
-            START OPERATION
-            <small>전투를 생성하고 단말에 접속합니다</small>
+          <button type="button" className="ctl wide" onClick={() => void startBattle()}>
+            START TEST OPERATION
           </button>
         </section>
       </div>
@@ -395,7 +432,27 @@ export default function BattleTerminal() {
   const hunterClass = findClass('HUNTER', pair.hunter.classId);
   const constellationClass = findClass('CONSTELLATION', pair.constellation.classId);
   const submission = pair.submission;
-  const locked = submission.submitted || battle.status !== 'ENGAGED';
+
+  // 1인 = 1캐릭터. 내 계정이 맡은 쪽만 조작할 수 있다.
+  const mySide = sideOfAccount(pair, account.id);
+  const engaged = battle.status === 'ENGAGED';
+  const hunterLocked =
+    mySide !== 'HUNTER' || submission.hunterSubmitted || !engaged || pair.hunter.control === 'AUTO';
+  const constellationLocked =
+    mySide !== 'CONSTELLATION' ||
+    submission.constellationSubmitted ||
+    !engaged ||
+    pair.constellation.control === 'AUTO';
+  const locked = mySide === null || !engaged;
+  const mySubmitted =
+    mySide === 'HUNTER'
+      ? submission.hunterSubmitted
+      : mySide === 'CONSTELLATION'
+        ? submission.constellationSubmitted
+        : false;
+  const partnerSide: ActorSide | null =
+    mySide === 'HUNTER' ? 'CONSTELLATION' : mySide === 'CONSTELLATION' ? 'HUNTER' : null;
+  const partnerReady = partnerSide ? sideReady(pair, partnerSide) : false;
 
   const hunterAction = resolveActionFor(pair, 'HUNTER', submission.hunterActionId);
   const constellationAction = resolveActionFor(
@@ -410,13 +467,12 @@ export default function BattleTerminal() {
 
   const readiness = battle.pairs.map((candidate) => {
     if (candidate.hunter.hp <= 0) return { pair: candidate, state: 'DOWN' as const };
-    if (candidate.submission.submitted) return { pair: candidate, state: 'READY' as const };
-    if (candidate.hunter.control === 'AUTO' && candidate.constellation.control === 'AUTO') {
+    if (pairReady(candidate)) return { pair: candidate, state: 'READY' as const };
+    if (candidate.hunter.control === 'AUTO' || candidate.constellation.control === 'AUTO') {
       return { pair: candidate, state: 'AUTO' as const };
     }
     return { pair: candidate, state: 'WAITING' as const };
   });
-  const allReady = readiness.every((row) => row.state !== 'WAITING');
 
   const selectAction = (side: ActorSide, actionId: string) => {
     const key = side === 'HUNTER' ? 'hunterActionId' : 'constellationActionId';
@@ -429,10 +485,19 @@ export default function BattleTerminal() {
     update(setControlMode(battle, pair.id, side, currentMode === 'AUTO' ? 'ACTIVE' : 'AUTO'));
   };
 
-  const hunterReady = pair.hunter.control === 'AUTO' || Boolean(submission.hunterActionId);
-  const constellationReady =
-    pair.constellation.control === 'AUTO' || Boolean(submission.constellationActionId);
-  const canConfirm = !locked && hunterReady && constellationReady && !isDown(pair.hunter);
+  // 내 쪽 행동만 고르면 확정할 수 있다. 상대는 상대 단말에서 제출한다.
+  const myActionChosen =
+    mySide === 'HUNTER'
+      ? Boolean(submission.hunterActionId)
+      : mySide === 'CONSTELLATION'
+        ? Boolean(submission.constellationActionId)
+        : false;
+  const canConfirm =
+    mySide !== null &&
+    engaged &&
+    !mySubmitted &&
+    myActionChosen &&
+    !(mySide === 'HUNTER' && isDown(pair.hunter));
 
   const statusLabel: Record<BattleState['status'], string> = {
     PREPARING: 'STANDBY',
@@ -696,7 +761,7 @@ export default function BattleTerminal() {
             side="HUNTER"
             target={target}
             selectedId={submission.hunterActionId}
-            locked={locked || pair.hunter.control === 'AUTO'}
+            locked={hunterLocked}
             onSelect={(id) => selectAction('HUNTER', id)}
           />
 
@@ -857,7 +922,7 @@ export default function BattleTerminal() {
             side="CONSTELLATION"
             target={target}
             selectedId={submission.constellationActionId}
-            locked={locked || pair.constellation.control === 'AUTO'}
+            locked={constellationLocked}
             onSelect={(id) => selectAction('CONSTELLATION', id)}
           />
         </article>
@@ -865,22 +930,37 @@ export default function BattleTerminal() {
 
       {/* ── 행동 확정 ── */}
       <section className="panel confirm">
-        {battle.status !== 'ENGAGED' ? (
+        {!engaged ? (
           <p className="confirm-note">
             {battle.status === 'CLEARED' ? 'OPERATION CLEARED' : 'OPERATION FAILED'}
             <small>RE-DEPLOY 로 새 전투를 편성할 수 있습니다.</small>
           </p>
-        ) : submission.submitted ? (
+        ) : mySide === null ? (
+          <p className="confirm-note">
+            OBSERVING
+            <small>내 페어가 아닙니다 — 조회만 가능합니다.</small>
+          </p>
+        ) : mySubmitted ? (
           <div className="confirm-done">
             <p>
               ACTION SUBMITTED
-              <small>Waiting for Raid Control…</small>
+              <small>
+                {partnerReady
+                  ? 'Waiting for Raid Control…'
+                  : `${partnerSide === 'HUNTER' ? '헌터' : '성좌'} 제출 대기 중…`}
+              </small>
             </p>
             {UI_RULES.allowCancelAfterSubmit && (
               <button
                 type="button"
                 className="ctl"
-                onClick={() => update(submitPairAction(battle, pair.id, { submitted: false }))}
+                onClick={() =>
+                  update(
+                    submitPairAction(battle, pair.id, {
+                      [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: false,
+                    }),
+                  )
+                }
               >
                 CANCEL
               </button>
@@ -891,14 +971,20 @@ export default function BattleTerminal() {
             type="button"
             className="confirm-btn"
             disabled={!canConfirm}
-            onClick={() => update(submitPairAction(battle, pair.id, { submitted: true }))}
+            onClick={() =>
+              update(
+                submitPairAction(battle, pair.id, {
+                  [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: true,
+                }),
+              )
+            }
           >
-            CONFIRM ACTION
+            CONFIRM ACTION · {mySide}
             {!canConfirm && (
               <small>
-                {isDown(pair.hunter)
+                {mySide === 'HUNTER' && isDown(pair.hunter)
                   ? '헌터 전투 불능 — 다른 페어의 구조를 기다립니다'
-                  : '조작 중인 쪽의 행동을 선택하세요 · 자리를 비운 쪽은 AUTO 로 위임'}
+                  : '내 쪽 행동을 선택하세요'}
               </small>
             )}
           </button>
@@ -962,151 +1048,41 @@ export default function BattleTerminal() {
         </section>
       )}
 
-      {/* ── 라운드 처리 ── */}
+      {/* ── 제출 현황 ── */}
       <section className="panel process">
         <div className="process-head">
-          <h2 className="panel-title">ROUND PROCESS</h2>
-          <span className="hint">
-            운영진 화면은 PHASE 5 에서 분리됩니다. 현재는 이 단말에서 직접 처리합니다.
-          </span>
+          <h2 className="panel-title">SUBMISSION STATUS</h2>
+          <span className="hint">라운드 처리는 관리국(운영진) 화면에서 진행됩니다.</span>
         </div>
-
-        {!preview ? (
-          <button
-            type="button"
-            className="ctl wide"
-            disabled={!allReady || battle.status !== 'ENGAGED'}
-            onClick={() => setPreview(previewRound(battle))}
-          >
-            PROCESS ROUND
-            {!allReady && <small>미제출 페어가 있습니다 — 자동 행동으로 위임할 수 있습니다</small>}
-          </button>
-        ) : (
-          <div className="preview">
-            <table className="preview-table">
-              <thead>
-                <tr>
-                  <th>PAIR</th>
-                  <th>HUNTER</th>
-                  <th>CONSTELLATION</th>
-                  <th>LINK</th>
-                  <th>DAMAGE</th>
-                  <th>NOTE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.pairs.map((row) => (
-                  <tr key={row.pairId}>
-                    <td>{row.pairLabel}</td>
-                    <td>
-                      {row.hunterActionLabel}
-                      {row.autoFilled.includes('HUNTER') && <span className="tag auto">AUTO</span>}
-                    </td>
-                    <td>
-                      {row.constellationActionLabel}
-                      {row.autoFilled.includes('CONSTELLATION') && (
-                        <span className="tag auto">AUTO</span>
-                      )}
-                    </td>
-                    <td>
-                      {row.combo ? (
-                        <span className="tag ok" title={row.combo.effects.join(' / ')}>
-                          {row.combo.label}
-                        </span>
-                      ) : (
-                        <span className="dim">—</span>
-                      )}
-                    </td>
-                    <td className="num">{row.damageToEnemy}</td>
-                    <td className="dim small-text">
-                      {[
-                        row.skipped ? row.skipReason : null,
-                        row.rescue ? `구조 ${row.rescue.targetLabel} +${row.rescue.restoredHp}` : null,
-                        row.gimmickProgress > 0 ? `기믹 +${row.gimmickProgress}` : null,
-                        row.appliedStatuses.map((s) => s.label).join(' · ') || null,
-                      ]
-                        .filter(Boolean)
-                        .join(' / ')}
-                    </td>
-                  </tr>
-                ))}
-
-                {preview.enemies.map((row) => (
-                  <tr key={row.enemyId} className="enemy-row">
-                    <td>{row.enemyName}</td>
-                    <td colSpan={3}>
-                      {row.pattern}
-                      {row.aoe && <span className="tag critical">AOE</span>}
-                      {row.blocked && <span className="tag ok">BLOCKED</span>}
-                      {row.telegraph && <span className="tag warn">TELEGRAPH</span>}
-                    </td>
-                    <td className="num danger-text">
-                      {row.damageToHunter > 0 ? `-${row.damageToHunter}` : '—'}
-                    </td>
-                    <td className="dim small-text">{row.notes[0]}</td>
-                  </tr>
-                ))}
-
-                {preview.statusTicks.map((tick) => (
-                  <tr key={`${tick.ownerId}-${tick.defId}`} className="tick-row">
-                    <td>{tick.ownerLabel}</td>
-                    <td colSpan={3}>
-                      {tick.label} <small className="dim">지속 피해</small>
-                    </td>
-                    <td className={`num ${tick.holder === 'ENEMY' ? '' : 'danger-text'}`}>
-                      {tick.holder === 'ENEMY' ? tick.amount : `-${tick.amount}`}
-                    </td>
-                    <td className="dim small-text">ROUND END</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th colSpan={4}>TOTAL</th>
-                  <th className="num">{preview.totals.damageToEnemies}</th>
-                  <th className="num danger-text">-{preview.totals.damageToHunters}</th>
-                </tr>
-              </tfoot>
-            </table>
-
-            {preview.gimmick && (
-              <p className="hint">
-                GIMMICK {preview.gimmick.progress} / {preview.gimmick.required}
-                {preview.gimmick.willClear && <b className="ok-text"> — 해제 예정</b>}
-                {preview.gimmick.willFail && <b className="danger-text"> — 실패 임박</b>}
-              </p>
-            )}
-
-            {preview.alerts.length > 0 && (
-              <ul className="preview-alerts">
-                {preview.alerts.map((item) => (
-                  <li key={`${item.title}-${item.message}`}>
-                    <span className="tag critical">{item.level}</span> {item.title} — {item.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="btn-row">
-              <button
-                type="button"
-                className="ctl primary"
-                onClick={() => {
-                  setBattle(applyRound(battle, preview));
-                  setPreview(null);
-                }}
-              >
-                APPLY
-              </button>
-              <button type="button" className="ctl" onClick={() => setPreview(null)}>
-                CANCEL
-              </button>
-            </div>
-            <p className="hint">
-              자동 계산 결과를 운영진이 직접 수정하는 기능은 PHASE 5 에서 이 화면에 붙습니다.
-            </p>
+        <div className="submit-status">
+          <div className={`submit-side ${sideReady(pair, 'HUNTER') ? 'ready' : ''}`}>
+            <span className="field-label">HUNTER</span>
+            <b>{pair.hunter.name}</b>
+            <span className={`tag ${sideReady(pair, 'HUNTER') ? 'ok' : 'warn'}`}>
+              {pair.hunter.control === 'AUTO'
+                ? 'AUTO'
+                : submission.hunterSubmitted
+                  ? 'READY'
+                  : 'WAITING'}
+            </span>
+            {mySide === 'HUNTER' && <span className="tag blue">MY TERMINAL</span>}
           </div>
-        )}
+          <div className={`submit-side ${sideReady(pair, 'CONSTELLATION') ? 'ready' : ''}`}>
+            <span className="field-label">CONSTELLATION</span>
+            <b>{pair.constellation.name}</b>
+            <span className={`tag ${sideReady(pair, 'CONSTELLATION') ? 'ok' : 'warn'}`}>
+              {pair.constellation.control === 'AUTO'
+                ? 'AUTO'
+                : submission.constellationSubmitted
+                  ? 'READY'
+                  : 'WAITING'}
+            </span>
+            {mySide === 'CONSTELLATION' && <span className="tag gold">MY TERMINAL</span>}
+          </div>
+        </div>
+        <p className="hint">
+          상대가 자리를 비웠다면 해당 쪽의 <b>AUTO</b> 를 켜서 자동 행동으로 진행할 수 있습니다.
+        </p>
       </section>
 
       {/* ── 로그 ── */}

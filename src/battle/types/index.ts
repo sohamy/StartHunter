@@ -213,23 +213,31 @@ export interface ContractState {
   value: number;
 }
 
-/** 해당 라운드에 페어가 제출한 행동 */
+/**
+ * 해당 라운드에 페어가 제출한 행동.
+ *
+ * 헌터와 성좌는 **서로 다른 참가자**다. 각자 자기 쪽만 제출한다.
+ * 한 사람이 양쪽을 조작하는 구조가 아니므로 제출 플래그도 쪽별로 나눈다.
+ */
 export interface RoundSubmission {
   hunterActionId: string | null;
   constellationActionId: string | null;
-  /** 공격 대상 적 */
+  /** 공격 대상 적 (헌터가 지정) */
   targetEnemyId: string | null;
-  /** 구조 · 보호 행동의 대상 페어 */
+  /** 구조 · 보호 행동의 대상 페어 (헌터가 지정) */
   supportTargetPairId: string | null;
-  submitted: boolean;
-  /** 자동 행동으로 채워진 제출인지 */
-  auto: boolean;
+  hunterSubmitted: boolean;
+  constellationSubmitted: boolean;
 }
 
 export interface PairState {
   id: string;
   label: string;
   affiliation: Affiliation;
+  /** 헌터를 조작하는 계정 */
+  hunterAccountId: string | null;
+  /** 성좌를 조작하는 계정. 헌터와 같을 수 없다. */
+  constellationAccountId: string | null;
   hunter: HunterState;
   constellation: ConstellationState;
   contract: ContractState;
@@ -294,6 +302,8 @@ export interface LogEntry {
   pairId: string | null;
   text: string;
   detail?: string;
+  /** 운영진이 수정한 항목 */
+  edited?: boolean;
 }
 
 export interface BattleState {

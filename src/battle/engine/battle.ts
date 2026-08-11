@@ -34,6 +34,10 @@ import { constellationMaxAp } from './status';
 export interface PairInput {
   hunterSheet: CharacterSheet;
   constellationSheet: CharacterSheet;
+  /** 헌터를 조작하는 계정 */
+  hunterAccountId?: string | null;
+  /** 성좌를 조작하는 계정 */
+  constellationAccountId?: string | null;
   /** 생략하면 헌터 시트의 소속을 따른다 */
   affiliation?: PairState['affiliation'];
   hpRatio?: number;
@@ -63,6 +67,8 @@ export function createPair(index: number, input: PairInput): PairState {
     id: pairIdFor(index),
     label: pairLabelFor(index),
     affiliation: input.affiliation ?? input.hunterSheet.affiliation,
+    hunterAccountId: input.hunterAccountId ?? null,
+    constellationAccountId: input.constellationAccountId ?? null,
     hunter,
     constellation,
     contract: { stage: 'RESONANCE', value: 88 },
@@ -189,6 +195,30 @@ export function resolveTarget(state: BattleState, pair: PairState): EnemyState |
 
 export function activePairs(state: BattleState): PairState[] {
   return state.pairs.filter((pair) => pair.hunter.hp > 0);
+}
+
+/** 이 쪽이 제출을 마쳤는지 (자동 위임도 제출로 본다) */
+export function sideReady(pair: PairState, side: 'HUNTER' | 'CONSTELLATION'): boolean {
+  return side === 'HUNTER'
+    ? pair.submission.hunterSubmitted || pair.hunter.control === 'AUTO'
+    : pair.submission.constellationSubmitted || pair.constellation.control === 'AUTO';
+}
+
+/** 페어의 양쪽이 모두 준비되었는지 */
+export function pairReady(pair: PairState): boolean {
+  if (pair.hunter.hp <= 0) return sideReady(pair, 'CONSTELLATION');
+  return sideReady(pair, 'HUNTER') && sideReady(pair, 'CONSTELLATION');
+}
+
+/** 이 계정이 이 페어에서 조작하는 쪽 */
+export function sideOfAccount(
+  pair: PairState,
+  accountId: string | null,
+): 'HUNTER' | 'CONSTELLATION' | null {
+  if (!accountId) return null;
+  if (pair.hunterAccountId === accountId) return 'HUNTER';
+  if (pair.constellationAccountId === accountId) return 'CONSTELLATION';
+  return null;
 }
 
 export function clearSubmissions(pairs: PairState[], enemies: EnemyState[]): PairState[] {

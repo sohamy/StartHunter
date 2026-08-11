@@ -752,6 +752,114 @@ select.ctl { min-width: 260px; }
 a.confirm-btn { text-decoration: none; text-align: center; }
 a.ctl { text-decoration: none; display: inline-block; }
 
+/* ── 운영진 작전실 ───────────────────────────────────── */
+.console.wide { width: min(1720px, calc(100% - 32px)); }
+
+.num-field { display: grid; gap: 4px; }
+.num-field .ctl.input { padding: 7px 9px; font-family: var(--c-mono); font-size: 13px; }
+.ctl.input.tiny { width: 84px; padding: 6px 8px; font-family: var(--c-mono); }
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px 10px;
+  margin: 8px 0;
+}
+.admin-only {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(230, 197, 131, .5);
+  background: rgba(230, 197, 131, .07);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-gimmick {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.admin-skills { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.admin-skills li {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-line);
+}
+.admin-skills b { font-family: var(--c-mono); font-size: 12px; min-width: 120px; }
+
+.monitor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 14px; }
+.monitor-card {
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  padding: 14px 16px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.monitor-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.monitor-head > div:first-child { display: flex; align-items: center; gap: 8px; }
+.monitor-actor { border-top: 1px solid var(--c-line); padding-top: 10px; }
+.monitor-actor-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.monitor-submission {
+  border-top: 1px solid var(--c-line);
+  padding-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.submission-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.status-editor { display: grid; gap: 6px; }
+.tag.removable { cursor: pointer; background: rgba(255, 255, 255, .04); }
+.tag.removable:hover { border-color: var(--c-critical); color: var(--c-critical); }
+
+.pairing-row { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.pairing-row .num-field { min-width: 220px; }
+.pairing-x { font-family: var(--c-display, var(--c-mono)); color: var(--c-gold); font-size: 18px; padding-bottom: 6px; }
+
+.desertion::before { background: var(--c-critical); }
+.desertion-list { display: grid; gap: 6px; }
+.desertion-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.desertion-row b { font-family: var(--c-mono); font-size: 12px; min-width: 70px; }
+
+.preview-table.editable td { vertical-align: middle; }
+
+.roleplay-list { display: grid; gap: 12px; }
+.roleplay-block { border: 1px solid var(--c-line); background: rgba(255, 255, 255, .02); padding: 12px 14px; }
+.roleplay-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.roleplay-text {
+  margin: 0;
+  font-family: var(--c-sans);
+  font-size: 13.5px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  color: var(--c-text);
+}
+.roleplay-edit { font-family: var(--c-sans); font-size: 13.5px; line-height: 1.85; }
+
+.submit-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.submit-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.submit-side.ready { border-color: rgba(95, 224, 205, .5); background: rgba(95, 224, 205, .07); }
+
+@media (max-width: 900px) {
+  .monitor-grid { grid-template-columns: 1fr; }
+}
+
 /* ── 하단 링크 ───────────────────────────────────────── */
 .console-foot {
   display: flex;

@@ -15,8 +15,9 @@ export const CURRENT_PHASE = 4;
  * 상태 구조가 바뀌면 올린다 — 이전 버전 데이터는 불러오지 않고 버린다.
  * 2: 캐릭터 시트 도입 (헌터 방어력 / 성좌 권능 배율 추가)
  * 3: 커스텀 스킬 · 상태이상 · 쿨타임 도입
+ * 4: 연계 · 기믹 · 보스 패턴, 쪽별 제출(헌터/성좌 각각 다른 참가자)
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const AP_RULES = {
   hunterMaxAp: 5,

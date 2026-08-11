@@ -42,6 +42,7 @@ import { detectCombo } from './combo';
 import { enemyAttackDamage, hunterAttackDamage } from './damage';
 import { evaluatePhase, nextPatternLabel, selectPattern } from './enemy';
 import { appendLog, createLogEntry } from './log';
+import { buildRoleplayText } from './roleplay';
 import {
   consumeSkill,
   findSkillRuntime,
@@ -152,7 +153,11 @@ function resolveActorAction(
   const submittedId =
     side === 'HUNTER' ? pair.submission.hunterActionId : pair.submission.constellationActionId;
   const control = side === 'HUNTER' ? pair.hunter.control : pair.constellation.control;
-  const submitted = resolveActionFor(pair, side, submittedId);
+  const hasSubmitted =
+    side === 'HUNTER'
+      ? pair.submission.hunterSubmitted
+      : pair.submission.constellationSubmitted;
+  const submitted = hasSubmitted ? resolveActionFor(pair, side, submittedId) : null;
 
   if (control === 'ACTIVE' && submitted) {
     const availability = actionAvailability(submitted, pair, Boolean(enemy));
@@ -736,6 +741,18 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
 
   log(`ROUND ${String(preview.round).padStart(2, '0')} PROCESSING`);
 
+  // 연출 로그 — 처리 전 상태를 기준으로 만들고, 운영진이 이후 수정한다
+  entries.push(
+    createLogEntry(
+      {
+        round: preview.round,
+        channel: 'ROLEPLAY',
+        text: buildRoleplayText(state, preview),
+      },
+      now,
+    ),
+  );
+
   /* 1) 페어 행동 — 행동력 · 스킬 · 현신 · 상태이상 */
   const pairs = state.pairs.map((pair) => {
     const row = preview.pairs.find((candidate) => candidate.pairId === pair.id);
@@ -1174,7 +1191,8 @@ export function submitPairAction(
     constellationActionId?: string | null;
     targetEnemyId?: string | null;
     supportTargetPairId?: string | null;
-    submitted?: boolean;
+    hunterSubmitted?: boolean;
+    constellationSubmitted?: boolean;
   },
 ): BattleState {
   return {

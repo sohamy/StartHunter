@@ -139,7 +139,8 @@ const pairId = duel.pairs[0].id;
 duel = submitPairAction(duel, pairId, {
   hunterActionId: 'SK-TEST-H1',
   constellationActionId: 'const.debuff',
-  submitted: true,
+  hunterSubmitted: true,
+  constellationSubmitted: true,
 });
 
 const duelPreview = previewRound(duel);
@@ -193,7 +194,8 @@ let combo = createBattle({ mode: 'DUEL', primaryPair: { hunterSheet, constellati
 combo = submitPairAction(combo, combo.pairs[0].id, {
   hunterActionId: 'hunter.defend',
   constellationActionId: 'const.buff',
-  submitted: true,
+  hunterSubmitted: true,
+  constellationSubmitted: true,
 });
 const aegis = previewRound(combo).pairs[0];
 check('방어 + 버프 → AEGIS LINK', aegis.combo?.id === 'combo.aegis', aegis.combo?.label ?? 'none');
@@ -214,7 +216,8 @@ rescue = submitPairAction(rescue, rescue.pairs[0].id, {
   hunterActionId: 'hunter.rescue',
   constellationActionId: 'const.buff',
   supportTargetPairId: rescue.pairs[1].id,
-  submitted: true,
+  hunterSubmitted: true,
+  constellationSubmitted: true,
 });
 const rescuePreview = previewRound(rescue);
 const rescueRow = rescuePreview.pairs[0];
@@ -236,7 +239,8 @@ for (const pair of gimmick.pairs) {
   gimmick = submitPairAction(gimmick, pair.id, {
     hunterActionId: 'hunter.gimmick',
     constellationActionId: 'const.wait',
-    submitted: true,
+    hunterSubmitted: true,
+  constellationSubmitted: true,
   });
 }
 const gimmickPreview = previewRound(gimmick);
@@ -256,7 +260,8 @@ let manifest = createBattle({ mode: 'DUEL', primaryPair: { hunterSheet, constell
 manifest = submitPairAction(manifest, manifest.pairs[0].id, {
   hunterActionId: 'hunter.attack',
   constellationActionId: 'const.manifest',
-  submitted: true,
+  hunterSubmitted: true,
+  constellationSubmitted: true,
 });
 const manifestPreview = previewRound(manifest);
 check('현신 피해 합산', manifestPreview.pairs[0].damageToEnemy > 0);
@@ -283,7 +288,8 @@ for (const pair of boss.pairs) {
   boss = submitPairAction(boss, pair.id, {
     hunterActionId: 'hunter.attack',
     constellationActionId: 'const.wait',
-    submitted: true,
+    hunterSubmitted: true,
+  constellationSubmitted: true,
   });
 }
 const bossPreview = previewRound(boss);
@@ -304,7 +310,8 @@ for (const pair of phaseShift.pairs) {
   phaseShift = submitPairAction(phaseShift, pair.id, {
     hunterActionId: 'hunter.attack',
     constellationActionId: 'const.wait',
-    submitted: true,
+    hunterSubmitted: true,
+  constellationSubmitted: true,
   });
 }
 phaseShift = applyRound(phaseShift, previewRound(phaseShift));
@@ -315,7 +322,8 @@ for (const pair of boss.pairs) {
   boss = submitPairAction(boss, pair.id, {
     hunterActionId: 'hunter.attack',
     constellationActionId: 'const.wait',
-    submitted: true,
+    hunterSubmitted: true,
+  constellationSubmitted: true,
   });
 }
 const aoePreview = previewRound(boss);
@@ -334,7 +342,7 @@ check(
 console.log('\n=== 11. 자동 행동 · 레이드 ===');
 let solo = createBattle({ mode: 'DUEL', gimmickId: null });
 solo = setControlMode(solo, solo.pairs[0].id, 'CONSTELLATION', 'AUTO');
-solo = submitPairAction(solo, solo.pairs[0].id, { hunterActionId: 'hunter.attack', submitted: true });
+solo = submitPairAction(solo, solo.pairs[0].id, { hunterActionId: 'hunter.attack', hunterSubmitted: true, constellationSubmitted: true });
 const soloRow = previewRound(solo).pairs[0];
 check('성좌만 자동 위임', soloRow.autoFilled.length === 1 && soloRow.autoFilled[0] === 'CONSTELLATION');
 check('현신을 자동으로 고르지 않음', soloRow.constellationActionId !== 'const.manifest.full');
@@ -359,7 +367,8 @@ ending = { ...ending, enemies: [{ ...ending.enemies[0], hp: 3 }] };
 ending = submitPairAction(ending, ending.pairs[0].id, {
   hunterActionId: 'hunter.attack',
   constellationActionId: 'const.buff',
-  submitted: true,
+  hunterSubmitted: true,
+  constellationSubmitted: true,
 });
 ending = applyRound(ending, previewRound(ending));
 check('적 처치 → CLEARED', ending.status === 'CLEARED', ending.status);
