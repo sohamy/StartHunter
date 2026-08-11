@@ -10,7 +10,12 @@ import type { ConstellationStage, ContractStage, InjuryStage } from '../types';
 /** 현재 구현 단계. 이 값보다 큰 implementedIn 을 가진 행동은 선택할 수 없다. */
 export const CURRENT_PHASE = 1;
 
-export const SCHEMA_VERSION = 1;
+/**
+ * 저장 데이터 구조 버전.
+ * 상태 구조가 바뀌면 올린다 — 이전 버전 데이터는 불러오지 않고 버린다.
+ * 2: 캐릭터 시트 도입 (헌터 방어력 / 성좌 권능 배율 추가)
+ */
+export const SCHEMA_VERSION = 2;
 
 export const AP_RULES = {
   hunterMaxAp: 5,
@@ -29,9 +34,11 @@ export const UI_RULES = {
   showLogDetail: true,
 } as const;
 
+/** 스탯 이전의 기본값. 최종 수치는 여기에 스탯·클래스 보정을 더해 만든다. */
 export const HUNTER_DEFAULTS = {
-  maxHp: 100,
-  attack: 12,
+  baseHp: 60,
+  baseAttack: 4,
+  baseDefense: 0,
 } as const;
 
 export const DAMAGE_RULES = {

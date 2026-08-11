@@ -3,13 +3,17 @@
  *
  * 이 컴포넌트는 전투 규칙을 계산하지 않는다.
  * 모든 판정은 engine/ 에, 모든 수치는 config/ 에 있다.
+ *
+ * 진입 조건: 계약자 등록(로그인)이 되어 있어야 한다.
+ * 전투 상태는 로그인한 계정의 캐릭터 시트에서 파생된다.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { CONSTELLATION_ACTIONS, HUNTER_ACTIONS, findAction } from '../config/actions';
+import { findClass } from '../config/characters';
 import { CURRENT_PHASE, UI_RULES } from '../config/rules';
-import { DEFAULT_RAID_PAIR_COUNT } from '../config/scenario';
+import { DEFAULT_RAID_PAIR_COUNT, pairPreset, presetSheet } from '../config/scenario';
 import { createBattle, resolveTarget, viewerPair } from '../engine/battle';
 import {
   actionAvailability,
@@ -19,15 +23,23 @@ import {
   submitPairAction,
 } from '../engine/round';
 import { constellationView, contractView, injuryOf, isDown } from '../engine/status';
-import { getStorage } from '../store';
+import { getAuth, getStorage, type PublicProfile } from '../store';
 import type {
   ActionDefinition,
+  Account,
   ActorSide,
+  BattleMode,
   BattleState,
+  CharacterSheet,
   EnemyState,
   PairState,
   RoundPreview,
 } from '../types';
+
+function joinUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/join/`;
+}
 
 /* ── 작은 표시 요소 ────────────────────────────────────── */
 
@@ -41,15 +53,7 @@ function ApDots({ current, max }: { current: number; max: number }) {
   );
 }
 
-function Gauge({
-  value,
-  max,
-  tone = 'ok',
-}: {
-  value: number;
-  max: number;
-  tone?: string;
-}) {
+function Gauge({ value, max, tone = 'ok' }: { value: number; max: number; tone?: string }) {
   const percent = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
     <div className={`gauge tone-${tone}`}>
@@ -90,11 +94,7 @@ function ActionList({ actions, pair, target, selectedId, locked, onSelect }: Act
           <li key={action.id}>
             <button
               type="button"
-              className={[
-                'action',
-                selectedId === action.id ? 'selected' : '',
-                future ? 'future' : '',
-              ]
+              className={['action', selectedId === action.id ? 'selected' : '', future ? 'future' : '']
                 .filter(Boolean)
                 .join(' ')}
               disabled={disabled}
@@ -106,9 +106,7 @@ function ActionList({ actions, pair, target, selectedId, locked, onSelect }: Act
                 <small>{action.labelKo}</small>
               </span>
               <span className="action-cost">AP {action.apCost}</span>
-              {!availability.usable && (
-                <span className="action-block">{availability.reason}</span>
-              )}
+              {!availability.usable && <span className="action-block">{availability.reason}</span>}
             </button>
           </li>
         );
@@ -120,26 +118,54 @@ function ActionList({ actions, pair, target, selectedId, locked, onSelect }: Act
 /* ── 본체 ──────────────────────────────────────────────── */
 
 export default function BattleTerminal() {
+  const storage = useMemo(() => getStorage(), []);
+  const auth = useMemo(() => getAuth(), []);
+
+  const [authState, setAuthState] = useState<'LOADING' | 'GUEST' | 'READY'>('LOADING');
+  const [account, setAccount] = useState<Account | null>(null);
+  const [partners, setPartners] = useState<PublicProfile[]>([]);
+  const [partnerId, setPartnerId] = useState('');
+  const [setupMode, setSetupMode] = useState<BattleMode>('DUEL');
+
   const [battle, setBattle] = useState<BattleState | null>(null);
   const [preview, setPreview] = useState<RoundPreview | null>(null);
-  const storage = useMemo(() => getStorage(), []);
 
-  // 최초 진입 — 저장된 전투를 복구하고, 없으면 새로 만든다.
+  const battleId = account ? `BATTLE-${account.id}` : null;
+
+  // 세션 확인 → 계정 · 페어 상대 목록 · 저장된 전투 복구
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      const list = await storage.listBattles();
-      const latest = [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-      const restored = latest ? await storage.loadBattle(latest.id) : null;
+      const session = await auth.currentSession();
+      if (!session) {
+        if (!cancelled) setAuthState('GUEST');
+        return;
+      }
+
+      const found = await auth.getAccount(session.accountId);
+      if (!found) {
+        if (!cancelled) setAuthState('GUEST');
+        return;
+      }
+
+      const opposite: ActorSide = found.sheet.side === 'HUNTER' ? 'CONSTELLATION' : 'HUNTER';
+      const profiles = (await auth.listProfiles(opposite)).filter(
+        (profile) => profile.accountId !== found.id,
+      );
+      const restored = await storage.loadBattle(`BATTLE-${found.id}`);
+
       if (cancelled) return;
-      setBattle(restored ?? createBattle({ mode: 'DUEL' }));
+      setAccount(found);
+      setPartners(profiles);
+      setBattle(restored);
+      setAuthState('READY');
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [storage]);
+  }, [auth, storage]);
 
   // 상태가 바뀔 때마다 저장한다. 새로고침 후에도 이어서 진행할 수 있어야 한다.
   useEffect(() => {
@@ -151,29 +177,165 @@ export default function BattleTerminal() {
     setPreview(null);
   }, []);
 
-  const startBattle = useCallback(
-    (mode: 'DUEL' | 'RAID') => {
-      setPreview(null);
-      setBattle(
-        createBattle({
-          mode,
-          pairCount: mode === 'RAID' ? DEFAULT_RAID_PAIR_COUNT : 1,
-          monsterCount: mode === 'RAID' ? 1 : 0,
-        }),
+  const startBattle = useCallback(async () => {
+    if (!account || !battleId) return;
+
+    const mySheet = account.sheet;
+    let partnerSheet: CharacterSheet | null = null;
+
+    if (partnerId) {
+      const partnerAccount = await auth.getAccount(partnerId);
+      partnerSheet = partnerAccount?.sheet ?? null;
+    }
+
+    if (!partnerSheet) {
+      // 상대가 아직 등록되지 않았으면 프리셋 캐릭터와 계약한다.
+      const preset = pairPreset(0);
+      const side: ActorSide = mySheet.side === 'HUNTER' ? 'CONSTELLATION' : 'HUNTER';
+      partnerSheet = presetSheet(
+        side === 'HUNTER' ? preset.hunter : preset.constellation,
+        side,
+        mySheet.affiliation,
+        0,
       );
-    },
-    [],
-  );
+    }
+
+    const hunterSheet = mySheet.side === 'HUNTER' ? mySheet : partnerSheet;
+    const constellationSheet = mySheet.side === 'CONSTELLATION' ? mySheet : partnerSheet;
+
+    setPreview(null);
+    setBattle(
+      createBattle({
+        id: battleId,
+        mode: setupMode,
+        pairCount: setupMode === 'RAID' ? DEFAULT_RAID_PAIR_COUNT : 1,
+        monsterCount: setupMode === 'RAID' ? 1 : 0,
+        primaryPair: {
+          hunterSheet,
+          constellationSheet,
+          affiliation: hunterSheet.affiliation,
+        },
+      }),
+    );
+  }, [account, auth, battleId, partnerId, setupMode]);
+
+  /* ── 진입 게이트 ─────────────────────────────────── */
+
+  if (authState === 'LOADING') {
+    return <div className="console-loading">VERIFYING CONTRACT…</div>;
+  }
+
+  if (authState === 'GUEST' || !account) {
+    return (
+      <div className="console">
+        <header className="console-head">
+          <div className="agency">
+            <b>HUNTER MANAGEMENT AGENCY</b>
+            <span>TOWER RAID CONTROL SYSTEM</span>
+          </div>
+          <span className="tag critical">ACCESS DENIED</span>
+        </header>
+        <section className="panel">
+          <h2 className="panel-title">CONTRACT REQUIRED</h2>
+          <p>
+            전투 단말은 계약자 등록을 마친 참가자만 사용할 수 있습니다.
+            <br />
+            캐릭터 시트를 작성하면 그 수치로 페어가 편성됩니다.
+          </p>
+          <div className="btn-row" style={{ marginTop: 16 }}>
+            <a className="ctl primary" href={joinUrl()}>
+              계약자 등록 · 로그인으로 이동
+            </a>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  /* ── 전투 편성 ───────────────────────────────────── */
+
+  const mySheetClass = findClass(account.sheet.side, account.sheet.classId);
 
   if (!battle) {
-    return <div className="console-loading">CONNECTING TO RAID CONTROL…</div>;
+    return (
+      <div className="console">
+        <header className="console-head">
+          <div className="agency">
+            <b>HUNTER MANAGEMENT AGENCY</b>
+            <span>TOWER RAID CONTROL SYSTEM</span>
+          </div>
+          <dl className="ops">
+            <Field label="OPERATOR">{account.id}</Field>
+            <Field label="ROLE">
+              <span className={`tag ${account.sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
+                {account.sheet.side}
+              </span>
+            </Field>
+            <Field label="NAME">{account.sheet.name}</Field>
+          </dl>
+        </header>
+
+        <section className="panel">
+          <h2 className="panel-title">DEPLOYMENT</h2>
+          <p className="hint" style={{ marginBottom: 16 }}>
+            {account.sheet.name} · {mySheetClass?.label ?? '—'} 시트로 출격합니다.
+            페어 상대를 고르고 전투 규모를 선택하세요.
+          </p>
+
+          <div className="session-row">
+            <span className="field-label">PAIR PARTNER</span>
+            <select
+              className="ctl"
+              value={partnerId}
+              onChange={(event) => setPartnerId(event.target.value)}
+            >
+              <option value="">프리셋 캐릭터와 계약 (등록된 상대 없음)</option>
+              {partners.map((profile) => (
+                <option key={profile.accountId} value={profile.accountId}>
+                  {profile.name} · {profile.accountId}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="session-row">
+            <span className="field-label">SCALE</span>
+            <div className="btn-row">
+              <button
+                type="button"
+                className={`ctl ${setupMode === 'DUEL' ? 'on' : ''}`}
+                onClick={() => setSetupMode('DUEL')}
+              >
+                DUEL · 페어 1조 vs 몬스터
+              </button>
+              <button
+                type="button"
+                className={`ctl ${setupMode === 'RAID' ? 'on' : ''}`}
+                onClick={() => setSetupMode('RAID')}
+              >
+                RAID · {DEFAULT_RAID_PAIR_COUNT}페어 공동 공략
+              </button>
+            </div>
+          </div>
+
+          <button type="button" className="confirm-btn" onClick={() => void startBattle()}>
+            START OPERATION
+            <small>전투를 생성하고 단말에 접속합니다</small>
+          </button>
+        </section>
+      </div>
+    );
   }
+
+  /* ── 전투 진행 ───────────────────────────────────── */
 
   const pair = viewerPair(battle);
   const target = resolveTarget(battle, pair);
   const injury = injuryOf(pair.hunter);
   const constellation = constellationView(pair.constellation.stage);
   const contract = contractView(pair.contract.stage);
+  const hunterClass = findClass('HUNTER', pair.hunter.classId);
+  const constellationClass = findClass('CONSTELLATION', pair.constellation.classId);
   const submission = pair.submission;
   const locked = submission.submitted || battle.status !== 'ENGAGED';
 
@@ -194,27 +356,8 @@ export default function BattleTerminal() {
   };
 
   const toggleControl = (side: ActorSide) => {
-    const currentMode =
-      side === 'HUNTER' ? pair.hunter.control : pair.constellation.control;
+    const currentMode = side === 'HUNTER' ? pair.hunter.control : pair.constellation.control;
     update(setControlMode(battle, pair.id, side, currentMode === 'AUTO' ? 'ACTIVE' : 'AUTO'));
-  };
-
-  const confirmAction = () => {
-    update(submitPairAction(battle, pair.id, { submitted: true }));
-  };
-
-  const cancelAction = () => {
-    update(submitPairAction(battle, pair.id, { submitted: false }));
-  };
-
-  const runPreview = () => {
-    setPreview(previewRound(battle));
-  };
-
-  const applyPreview = () => {
-    if (!preview) return;
-    setBattle(applyRound(battle, preview));
-    setPreview(null);
   };
 
   // 자동 위임된 쪽은 참가자가 고르지 않아도 확정할 수 있다.
@@ -253,18 +396,17 @@ export default function BattleTerminal() {
         </dl>
       </header>
 
-      {/* ── 전투 선택 / 단말 설정 ── */}
+      {/* ── 단말 정보 ── */}
       <section className="panel session">
         <div className="session-row">
-          <span className="field-label">OPERATION PRESET</span>
-          <div className="btn-row">
-            <button type="button" className="ctl" onClick={() => startBattle('DUEL')}>
-              DUEL · 페어 1조
-            </button>
-            <button type="button" className="ctl" onClick={() => startBattle('RAID')}>
-              RAID · {DEFAULT_RAID_PAIR_COUNT}페어
-            </button>
-          </div>
+          <span className="field-label">OPERATOR</span>
+          <span className="field-value">{account.id}</span>
+          <span className={`tag ${account.sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
+            {account.sheet.side} · {account.sheet.name}
+          </span>
+          <a className="ctl small" href={joinUrl()}>
+            SHEET
+          </a>
         </div>
         <div className="session-row">
           <span className="field-label">TERMINAL</span>
@@ -279,9 +421,17 @@ export default function BattleTerminal() {
               </option>
             ))}
           </select>
-          <span className="hint">
-            로그인 기능이 없는 단계이므로 조작할 페어를 직접 선택합니다.
-          </span>
+          <button
+            type="button"
+            className="ctl small"
+            onClick={() => {
+              setBattle(null);
+              setPreview(null);
+            }}
+          >
+            RE-DEPLOY
+          </button>
+          <span className="hint">PAIR 01 이 본인 페어입니다.</span>
         </div>
       </section>
 
@@ -317,11 +467,21 @@ export default function BattleTerminal() {
                   </span>
                 </div>
                 <div className="target-status">
+                  <span className="field-label">DEF</span>
+                  <span className="num">{enemy.defense}</span>
+                  <span className="field-label">ATK</span>
+                  <span className="num">{enemy.attack}</span>
+                </div>
+                <div className="target-status">
                   <span className="field-label">STATUS</span>
                   {enemy.statuses.length === 0 ? (
                     <span className="dim">NONE</span>
                   ) : (
-                    enemy.statuses.map((status) => <span key={status} className="tag">{status}</span>)
+                    enemy.statuses.map((status) => (
+                      <span key={status} className="tag">
+                        {status}
+                      </span>
+                    ))
                   )}
                 </div>
                 <div className="target-status">
@@ -335,7 +495,9 @@ export default function BattleTerminal() {
                     type="button"
                     className="ctl small"
                     disabled={locked}
-                    onClick={() => update(submitPairAction(battle, pair.id, { targetEnemyId: enemy.id }))}
+                    onClick={() =>
+                      update(submitPairAction(battle, pair.id, { targetEnemyId: enemy.id }))
+                    }
                   >
                     {selected ? 'TARGET LOCKED' : 'SET TARGET'}
                   </button>
@@ -354,6 +516,9 @@ export default function BattleTerminal() {
             <div>
               <span className="field-label">HUNTER</span>
               <b>{pair.hunter.name}</b>
+              <small className="dim">
+                {hunterClass ? `${hunterClass.label} · ${hunterClass.labelKo}` : 'NO CLASS'}
+              </small>
             </div>
             <button
               type="button"
@@ -376,7 +541,18 @@ export default function BattleTerminal() {
             </span>
             <span>
               <ApDots current={pair.hunter.ap} max={pair.hunter.maxAp} />
-              <small className="num"> {pair.hunter.ap} / {pair.hunter.maxAp}</small>
+              <small className="num">
+                {' '}
+                {pair.hunter.ap} / {pair.hunter.maxAp}
+              </small>
+            </span>
+          </div>
+          <div className="actor-stats">
+            <span>
+              <span className="field-label">ATK</span> <b className="num">{pair.hunter.attack}</b>
+            </span>
+            <span>
+              <span className="field-label">DEF</span> <b className="num">{pair.hunter.defense}</b>
             </span>
           </div>
 
@@ -438,6 +614,11 @@ export default function BattleTerminal() {
             <div>
               <span className="field-label">CONSTELLATION</span>
               <b>{pair.constellation.name}</b>
+              <small className="dim">
+                {constellationClass
+                  ? `${constellationClass.label} · ${constellationClass.labelKo}`
+                  : 'NO DOMAIN'}
+              </small>
             </div>
             <button
               type="button"
@@ -468,6 +649,12 @@ export default function BattleTerminal() {
               </small>
             </span>
           </div>
+          <div className="actor-stats">
+            <span>
+              <span className="field-label">POWER</span>{' '}
+              <b className="num gold">×{pair.constellation.power}</b>
+            </span>
+          </div>
 
           <h3 className="sub-title">AUTHORITY</h3>
           <ActionList
@@ -486,7 +673,7 @@ export default function BattleTerminal() {
         {battle.status !== 'ENGAGED' ? (
           <p className="confirm-note">
             {battle.status === 'CLEARED' ? 'OPERATION CLEARED' : 'OPERATION FAILED'}
-            <small>새 전투를 시작하려면 위에서 프리셋을 선택하세요.</small>
+            <small>RE-DEPLOY 로 새 전투를 편성할 수 있습니다.</small>
           </p>
         ) : submission.submitted ? (
           <div className="confirm-done">
@@ -495,13 +682,18 @@ export default function BattleTerminal() {
               <small>Waiting for Raid Control…</small>
             </p>
             {UI_RULES.allowCancelAfterSubmit && (
-              <button type="button" className="ctl" onClick={cancelAction}>
+              <button type="button" className="ctl" onClick={() => update(submitPairAction(battle, pair.id, { submitted: false }))}>
                 CANCEL
               </button>
             )}
           </div>
         ) : (
-          <button type="button" className="confirm-btn" disabled={!canConfirm} onClick={confirmAction}>
+          <button
+            type="button"
+            className="confirm-btn"
+            disabled={!canConfirm}
+            onClick={() => update(submitPairAction(battle, pair.id, { submitted: true }))}
+          >
             CONFIRM ACTION
             {!canConfirm && (
               <small>
@@ -530,7 +722,11 @@ export default function BattleTerminal() {
                 >
                   <div className="roster-head">
                     <b>{row.label}</b>
-                    <span className={`tag ${state === 'WAITING' ? 'warn' : state === 'DOWN' ? 'offline' : 'ok'}`}>
+                    <span
+                      className={`tag ${
+                        state === 'WAITING' ? 'warn' : state === 'DOWN' ? 'offline' : 'ok'
+                      }`}
+                    >
                       {state}
                     </span>
                   </div>
@@ -578,7 +774,7 @@ export default function BattleTerminal() {
             type="button"
             className="ctl wide"
             disabled={!allReady || battle.status !== 'ENGAGED'}
-            onClick={runPreview}
+            onClick={() => setPreview(previewRound(battle))}
           >
             PROCESS ROUND
             {!allReady && <small>미제출 페어가 있습니다 — 자동 행동으로 위임할 수 있습니다</small>}
@@ -633,7 +829,14 @@ export default function BattleTerminal() {
               </tfoot>
             </table>
             <div className="btn-row">
-              <button type="button" className="ctl primary" onClick={applyPreview}>
+              <button
+                type="button"
+                className="ctl primary"
+                onClick={() => {
+                  setBattle(applyRound(battle, preview));
+                  setPreview(null);
+                }}
+              >
                 APPLY
               </button>
               <button type="button" className="ctl" onClick={() => setPreview(null)}>

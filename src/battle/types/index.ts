@@ -105,7 +105,13 @@ export interface HunterState {
   maxAp: number;
   /** 기본 공격력 (행동 피해 계수의 기준값) */
   attack: number;
+  /** 방어력 — 받는 피해를 상수로 깎는다 */
+  defense: number;
   control: ControlMode;
+  /** 이 캐릭터의 시트 id. 프리셋 NPC 는 null */
+  sheetId: string | null;
+  /** 클래스 id (config/characters.ts) */
+  classId: string | null;
 }
 
 export interface ConstellationState {
@@ -114,6 +120,11 @@ export interface ConstellationState {
   maxAp: number;
   stage: ConstellationStage;
   control: ControlMode;
+  /** 권능 효과 배율. 1 이 기준값 */
+  power: number;
+  sheetId: string | null;
+  /** 권역 id (config/characters.ts) */
+  classId: string | null;
 }
 
 export interface ContractState {
@@ -195,6 +206,46 @@ export interface BattleState {
   /** 이 단말에서 조작 중인 페어 */
   viewerPairId: string;
   log: LogEntry[];
+}
+
+/* ── 캐릭터 시트와 계정 ────────────────────────────────
+   시트는 전투 상태(HunterState / ConstellationState)의 원본이다.
+   전투가 시작되면 시트에서 파생된 값이 전투 상태로 복사된다. */
+
+/** 스탯 키는 config 에서 정의한다. 새 스탯을 넣을 때 타입을 고치지 않도록 열어 둔다. */
+export type StatBlock = Record<string, number>;
+
+export interface CharacterSheet {
+  id: string;
+  side: ActorSide;
+  /** 헌터의 이름 또는 성좌의 성호 */
+  name: string;
+  /** 헌터 클래스 또는 성좌 권역 id */
+  classId: string;
+  stats: StatBlock;
+  /** 컨셉 · 설정 자유 서술 */
+  concept: string;
+  /** 헌터의 소속 진영. 성좌는 계약한 헌터를 따른다. */
+  affiliation: Affiliation;
+  createdAt: string;
+}
+
+/**
+ * 참가자 계정.
+ *
+ * 서버가 없는 단계에서는 이 브라우저에만 저장된다.
+ * passwordHash 는 서버 인증을 대체하지 못한다 — 시트 선택용 잠금일 뿐이다.
+ */
+export interface Account {
+  id: string;
+  passwordHash: string;
+  sheet: CharacterSheet;
+  createdAt: string;
+}
+
+export interface Session {
+  accountId: string;
+  startedAt: string;
 }
 
 export interface BattleSummary {

@@ -10,7 +10,7 @@
  */
 
 import { findAction } from '../config/actions';
-import { AP_RULES, CURRENT_PHASE } from '../config/rules';
+import { AP_RULES, CONSTELLATION_STAGES, CURRENT_PHASE } from '../config/rules';
 import type {
   ActionDefinition,
   ActorSide,
@@ -145,10 +145,22 @@ function previewPair(state: BattleState, pair: PairState): PairPreview {
   if (constellationResolved.reason) notes.push(`CONSTELLATION: ${constellationResolved.reason}`);
 
   // 1) 성좌 효과를 먼저 계산한다 (버프 / 디버프 / 계시)
+  //    시트에서 파생된 권능 배율과 성좌 상태 패널티가 여기서 곱해진다.
   const constellationEffect = constellationResolved.action.effect;
-  const attackUp = constellationEffect.attackUp ?? 0;
-  const enemyDefenseDown = constellationEffect.enemyDefenseDown ?? 0;
+  const stagePenalty = CONSTELLATION_STAGES[pair.constellation.stage];
+  const buffScale = pair.constellation.power * stagePenalty.buffPowerMultiplier;
+  const debuffScale = pair.constellation.power * stagePenalty.debuffPowerMultiplier;
+
+  const attackUp = (constellationEffect.attackUp ?? 0) * buffScale;
+  const enemyDefenseDown = Math.min(0.95, (constellationEffect.enemyDefenseDown ?? 0) * debuffScale);
   const revealPattern = Boolean(constellationEffect.revealPattern);
+
+  if (pair.constellation.power !== 1 && (attackUp > 0 || enemyDefenseDown > 0)) {
+    notes.push(`권능 배율 ×${pair.constellation.power}`);
+  }
+  if (stagePenalty.buffPowerMultiplier !== 1 && (attackUp > 0 || enemyDefenseDown > 0)) {
+    notes.push(`성좌 상태 보정 ×${stagePenalty.buffPowerMultiplier}`);
+  }
 
   // 2) 헌터 행동을 처리한다
   const hunterEffect = hunterResolved.action.effect;
@@ -209,6 +221,7 @@ function previewEnemies(
       const preview = pairPreviews.find((row) => row.pairId === target.id);
       const result = enemyAttackDamage({
         enemy,
+        hunter: target.hunter,
         damageReduction: preview?.damageReduction ?? 0,
       });
 

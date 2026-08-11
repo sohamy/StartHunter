@@ -56,6 +56,8 @@ export function hunterAttackDamage(input: HunterAttackInput): DamageResult {
 
 export interface EnemyAttackInput {
   enemy: EnemyState;
+  /** 피격 대상 헌터 — 방어력이 피해를 상수로 깎는다 */
+  hunter: HunterState;
   /** 헌터가 방어 행동으로 확보한 피해 감소 비율 */
   damageReduction?: number;
 }
@@ -66,9 +68,14 @@ export function enemyAttackDamage(input: EnemyAttackInput): DamageResult {
 
   notes.push(`적 공격력 ${input.enemy.attack}`);
 
-  const raw = input.enemy.attack * (1 - reduction);
+  const afterDefense = input.enemy.attack - input.hunter.defense;
+  if (input.hunter.defense > 0) {
+    notes.push(`헌터 방어력 ${input.hunter.defense} → ${round1(afterDefense)}`);
+  }
+
+  const raw = afterDefense * (1 - reduction);
   if (reduction > 0) {
-    notes.push(`방어로 ${toPercent(reduction)} 감소 → ${round1(raw)}`);
+    notes.push(`방어 행동으로 ${toPercent(reduction)} 감소 → ${round1(raw)}`);
   }
 
   const amount = Math.max(DAMAGE_RULES.minimumDamage, Math.floor(raw));

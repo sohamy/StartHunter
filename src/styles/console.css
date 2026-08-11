@@ -436,6 +436,126 @@ select.ctl { min-width: 260px; }
 .log-text { display: grid; gap: 2px; }
 .log-text small { font-family: var(--c-sans); font-size: 11px; }
 
+/* ── 알림 ────────────────────────────────────────────── */
+.notice {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .03);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.notice.ok { border-color: rgba(79, 214, 196, .45); color: var(--c-ok); }
+.notice.warn { border-color: rgba(232, 197, 90, .40); color: var(--c-warn); background: rgba(232, 197, 90, .06); }
+.notice.error { border-color: rgba(239, 95, 107, .5); color: var(--c-critical); background: rgba(239, 95, 107, .07); list-style: none; }
+.notice.error li + li { margin-top: 4px; }
+
+/* ── 입력 폼 ─────────────────────────────────────────── */
+.form { display: grid; gap: 12px; }
+.input-row { display: grid; gap: 6px; }
+.input-row > .btn-row { margin-top: 2px; }
+.ctl.input {
+  width: 100%;
+  font-family: var(--c-sans);
+  font-size: 14px;
+  letter-spacing: 0;
+  padding: 11px 13px;
+  cursor: text;
+}
+.ctl.input:focus { outline: 1px solid var(--c-ok); outline-offset: -1px; }
+.ctl.textarea { resize: vertical; line-height: 1.7; }
+
+/* ── 역할 / 클래스 선택 ─────────────────────────────── */
+.role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.role-card, .class-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease;
+}
+.role-card:hover, .class-card:hover { border-color: var(--c-line-2); background: rgba(255, 255, 255, .05); }
+.role-card.selected, .class-card.selected {
+  border-color: var(--c-ok);
+  background: rgba(79, 214, 196, .10);
+  box-shadow: inset 2px 0 0 var(--c-ok);
+}
+.role-card b { font-family: var(--c-mono); letter-spacing: .18em; font-size: 13px; }
+.role-card > span { color: var(--c-gold); font-size: 12px; }
+.role-card p, .class-card p { margin: 0; font-size: 12.5px; line-height: 1.6; }
+
+.class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.class-head { display: flex; align-items: baseline; gap: 8px; }
+.class-head b { font-family: var(--c-mono); font-size: 12px; letter-spacing: .14em; }
+.class-bonus { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.class-bonus li { font-family: var(--c-mono); font-size: 10.5px; color: var(--c-ok); }
+.class-focus { color: var(--c-faint); font-size: 11px; }
+
+/* ── 스탯 배분 ───────────────────────────────────────── */
+.points {
+  margin-left: 10px;
+  font-family: var(--c-mono);
+  font-size: 10.5px;
+  color: var(--c-warn);
+  letter-spacing: .08em;
+}
+.points.ok { color: var(--c-ok); }
+.points.over { color: var(--c-critical); }
+
+.stat-list { display: grid; gap: 4px; }
+.stat-row {
+  display: grid;
+  grid-template-columns: 96px 116px 1fr;
+  grid-template-areas: 'name ctl track' 'name ctl effect';
+  align-items: center;
+  gap: 2px 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--c-line);
+}
+.stat-name { grid-area: name; display: grid; }
+.stat-name b { font-family: var(--c-mono); font-size: 12px; letter-spacing: .16em; }
+.stat-name span { font-size: 11.5px; color: var(--c-dim); }
+.stat-ctl { grid-area: ctl; display: flex; align-items: center; gap: 8px; }
+.stat-value { min-width: 22px; text-align: center; font-size: 15px; }
+.stat-track { grid-area: track; display: flex; gap: 4px; align-self: end; }
+.stat-track i { width: 20px; height: 6px; border: 1px solid var(--c-line-2); }
+.stat-track i.on { background: var(--c-ok); border-color: var(--c-ok); }
+.stat-effect {
+  grid-area: effect;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--c-faint);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── 시트 조회 ───────────────────────────────────────── */
+.sheet-view { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+.stat-summary { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stat-summary li { display: flex; align-items: baseline; gap: 8px; }
+.stat-summary li .num { font-size: 15px; }
+.stat-summary.derived { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.concept-text { margin: 0; color: var(--c-dim); font-size: 13px; white-space: pre-wrap; }
+
+.actor-stats {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0 0;
+  font-size: 12px;
+}
+.actor-stats b { font-size: 14px; }
+
+a.confirm-btn { text-decoration: none; text-align: center; }
+a.ctl { text-decoration: none; display: inline-block; }
+
 /* ── 하단 링크 ───────────────────────────────────────── */
 .console-foot {
   display: flex;
@@ -458,6 +578,13 @@ select.ctl { min-width: 260px; }
 @media (max-width: 640px) {
   .console { width: calc(100% - 20px); padding-bottom: 110px; }
   .panel { padding: 14px; }
+  .stat-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'name ctl' 'track track' 'effect effect';
+    gap: 6px 12px;
+  }
+  .stat-track { align-self: auto; }
+  .stat-track i { flex: 1; }
   .ops { grid-template-columns: 1fr 1fr; gap: 2px 16px; }
   select.ctl { min-width: 0; width: 100%; }
   .action { grid-template-columns: 1fr auto; padding: 12px; }
