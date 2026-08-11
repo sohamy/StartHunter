@@ -6,13 +6,30 @@
  */
 
 import { SCHEMA_VERSION } from '../config/rules';
-import type { BattleState, BattleSummary } from '../types';
+import type { BattleState, BattleSummary, EnemyTemplate, PairBond } from '../types';
 import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
 
 const KEY_PREFIX = 'sh.battle.';
 const INDEX_KEY = 'sh.battle.index';
+const BONDS_KEY = 'sh.roster.bonds';
+const ENEMIES_KEY = 'sh.roster.enemies';
 
 interface IndexRow extends BattleSummary {}
+
+function readJson<T>(key: string, fallback: T): T {
+  if (!hasStorage()) return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key: string, value: unknown): void {
+  if (!hasStorage()) return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
 
 function hasStorage(): boolean {
   try {
@@ -102,6 +119,42 @@ export class LocalStorageAdapter implements StorageAdapter {
       battles,
     };
     return JSON.stringify(envelope, null, 2);
+  }
+
+  /* ── 영구 편성 ── */
+
+  async listBonds(): Promise<PairBond[]> {
+    return readJson<PairBond[]>(BONDS_KEY, []);
+  }
+
+  async saveBond(bond: PairBond): Promise<void> {
+    const rows = (await this.listBonds()).filter((row) => row.id !== bond.id);
+    writeJson(BONDS_KEY, [...rows, bond]);
+  }
+
+  async deleteBond(id: string): Promise<void> {
+    writeJson(
+      BONDS_KEY,
+      (await this.listBonds()).filter((row) => row.id !== id),
+    );
+  }
+
+  /* ── 적 세팅 ── */
+
+  async listEnemyTemplates(): Promise<EnemyTemplate[]> {
+    return readJson<EnemyTemplate[]>(ENEMIES_KEY, []);
+  }
+
+  async saveEnemyTemplate(template: EnemyTemplate): Promise<void> {
+    const rows = (await this.listEnemyTemplates()).filter((row) => row.id !== template.id);
+    writeJson(ENEMIES_KEY, [...rows, template]);
+  }
+
+  async deleteEnemyTemplate(id: string): Promise<void> {
+    writeJson(
+      ENEMIES_KEY,
+      (await this.listEnemyTemplates()).filter((row) => row.id !== id),
+    );
   }
 
   async importAll(json: string): Promise<void> {

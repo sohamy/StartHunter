@@ -922,6 +922,171 @@ a.ctl { text-decoration: none; display: inline-block; }
   .monitor-grid { grid-template-columns: 1fr; }
 }
 
+/* ── 탭바 ────────────────────────────────────────────── */
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  border-bottom: 1px solid var(--c-line-2);
+  flex-wrap: wrap;
+}
+.tab {
+  padding: 12px 20px;
+  border: 1px solid var(--c-line);
+  border-bottom: none;
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-dim);
+  font-family: var(--c-mono);
+  font-size: 12px;
+  letter-spacing: .14em;
+  cursor: pointer;
+  transition: color .18s ease, background .18s ease;
+}
+.tab:hover { color: var(--c-text); background: rgba(255, 255, 255, .05); }
+.tab.on {
+  color: var(--c-ok);
+  background: linear-gradient(180deg, rgba(95, 224, 205, .16), rgba(95, 224, 205, .04));
+  border-color: var(--c-line-2);
+  box-shadow: inset 0 2px 0 var(--c-ok);
+}
+.tabbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 4px 6px; }
+.tabbar-right .tag { cursor: pointer; }
+
+/* ── 요약 스트립 ─────────────────────────────────────── */
+.stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 8px 0;
+}
+.stat-strip > span { display: grid; gap: 1px; }
+.stat-strip i {
+  font-style: normal;
+  font-family: var(--c-mono);
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  color: var(--c-faint);
+}
+.stat-strip b { font-size: 16px; line-height: 1.2; }
+.stat-strip b small { font-size: 11px; color: var(--c-faint); font-weight: 400; }
+
+/* ── 접이식 상세 ─────────────────────────────────────── */
+.collapse { border-top: 1px solid var(--c-line); margin-top: 8px; }
+.collapse-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  color: var(--c-dim);
+  font-family: var(--c-mono);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  cursor: pointer;
+}
+.collapse-head:hover { color: var(--c-ok); }
+.collapse-head i { font-style: normal; font-size: 14px; }
+.collapse.open > .collapse-head { color: var(--c-ok); }
+.collapse-body { padding: 4px 0 10px; }
+
+/* ── 편성 명부 ───────────────────────────────────────── */
+.bond-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+.bond-card {
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-violet);
+  background: rgba(255, 255, 255, .02);
+  padding: 14px 16px;
+  display: grid;
+  gap: 10px;
+}
+.bond-card.dim-card { opacity: .55; border-left-color: var(--c-offline); }
+.bond-head { display: flex; align-items: center; gap: 8px; }
+.bond-head b { font-family: var(--c-mono); letter-spacing: .1em; }
+.bond-body {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.bond-body > div { display: grid; gap: 1px; min-width: 0; }
+.bond-body b { font-size: 15px; }
+.bond-link { color: var(--c-gold); font-size: 18px; }
+.bond-foot { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--c-line); }
+.bond-foot .num-field { min-width: 120px; }
+
+/* ── 적 세팅 ─────────────────────────────────────────── */
+.enemy-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.enemy-card {
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-offline);
+  background: rgba(255, 255, 255, .02);
+  padding: 14px 16px;
+}
+.enemy-card.boss { border-left-color: var(--c-critical); }
+.enemy-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.enemy-card-head b { font-size: 16px; flex: 1; }
+
+/* ── 선택 카드 ───────────────────────────────────────── */
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.pick-card {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.pick-card:hover { border-color: var(--c-line-2); }
+.pick-card.on {
+  border-color: var(--c-ok);
+  background: rgba(95, 224, 205, .12);
+  box-shadow: inset 2px 0 0 var(--c-ok);
+}
+.pick-card.boss.on { border-color: var(--c-critical); background: rgba(255, 111, 124, .12); box-shadow: inset 2px 0 0 var(--c-critical); }
+.pick-card b { font-size: 14px; }
+.pick-card span { font-size: 11.5px; }
+
+.monitor-card.ready { border-color: rgba(95, 224, 205, .4); }
+.monitor-status { display: grid; gap: 4px; padding-top: 8px; border-top: 1px solid var(--c-line); }
+
+/* ── 슬라이더 한 칸 ──────────────────────────────────── */
+.skill-row-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 12px 16px;
+}
+.skill-sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px 20px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-line);
+}
+.slider-field { display: grid; gap: 6px; min-width: 0; }
+.slider-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.slider-head b { font-size: 13px; color: var(--c-ok); }
+.slider-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--c-mono);
+  font-size: 9.5px;
+  color: var(--c-faint);
+}
+.slider-hint { text-align: center; flex: 1; }
+
+@media (max-width: 640px) {
+  .skill-row-top { grid-template-columns: 1fr; }
+  .bond-body { grid-template-columns: 1fr; }
+  .bond-link { display: none; }
+  .tab { padding: 10px 14px; }
+}
+
 /* ── 하단 링크 ───────────────────────────────────────── */
 .console-foot {
   display: flex;

@@ -18,7 +18,7 @@ import {
 import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
 import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
-import { AuthError, getAuth, isServerMode } from '../store';
+import { AuthError, getAuth, getServerAuth, isServerMode } from '../store';
 import type {
   Account,
   ActorSide,
@@ -56,6 +56,11 @@ function emptyDraft(side: ActorSide): DraftSheet {
 function battleUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return `${base}/battle/`;
+}
+
+function controlUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/control/`;
 }
 
 function StatRow({
@@ -119,6 +124,54 @@ function StatRow({
 
 /* ── 커스텀 스킬 편집기 ─────────────────────────────── */
 
+/**
+ * 슬라이더 한 칸.
+ * 라벨과 현재값을 위 줄에 두고, 슬라이더는 그 아래 자기 줄을 차지한다.
+ * 드롭다운과 나란히 놓일 때 서로 침범하지 않게 하기 위한 구조다.
+ */
+function SliderField({
+  label,
+  value,
+  display,
+  min,
+  max,
+  step = 1,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: number;
+  display: string;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (next: number) => void;
+  hint?: string;
+}) {
+  return (
+    <div className="slider-field">
+      <div className="slider-head">
+        <span className="field-label">{label}</span>
+        <b className="num">{display}</b>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        aria-label={label}
+      />
+      <div className="slider-scale">
+        <span>{min}</span>
+        {hint && <span className="slider-hint">{hint}</span>}
+        <span>{max}</span>
+      </div>
+    </div>
+  );
+}
+
 function SkillEditor({
   side,
   skills,
@@ -168,7 +221,8 @@ function SkillEditor({
               </button>
             </header>
 
-            <div className="skill-grid">
+            {/* 1행 — 이름과 종류 */}
+            <div className="skill-row-top">
               <label className="input-row">
                 <span className="field-label">이름</span>
                 <input
@@ -201,62 +255,46 @@ function SkillEditor({
                   ))}
                 </select>
               </label>
-
-              <label className="input-row">
-                <span className="field-label">행동력 {skill.apCost}</span>
-                <input
-                  type="range"
-                  min={SKILL_RULES.apCost.min}
-                  max={SKILL_RULES.apCost.max}
-                  step={1}
-                  value={skill.apCost}
-                  onChange={(event) => patch(index, { apCost: Number(event.target.value) })}
-                />
-              </label>
-
-              <label className="input-row">
-                <span className="field-label">기본 수치 {skill.power}</span>
-                <input
-                  type="range"
-                  min={SKILL_RULES.power.min}
-                  max={SKILL_RULES.power.max}
-                  step={SKILL_RULES.power.step}
-                  value={skill.power}
-                  onChange={(event) => patch(index, { power: Number(event.target.value) })}
-                />
-              </label>
-
-              <label className="input-row">
-                <span className="field-label">쿨타임 {skill.cooldown}R</span>
-                <input
-                  type="range"
-                  min={SKILL_RULES.cooldown.min}
-                  max={SKILL_RULES.cooldown.max}
-                  step={1}
-                  value={skill.cooldown}
-                  onChange={(event) => patch(index, { cooldown: Number(event.target.value) })}
-                />
-              </label>
-
-              <label className="input-row">
-                <span className="field-label">
-                  전투당 사용 {skill.maxUses === null ? '무제한' : `${skill.maxUses}회`}
-                </span>
-                <input
-                  type="range"
-                  min={SKILL_RULES.maxUses.min}
-                  max={SKILL_RULES.maxUses.max}
-                  step={1}
-                  value={skill.maxUses ?? 0}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    patch(index, { maxUses: value === 0 ? null : value });
-                  }}
-                />
-              </label>
             </div>
 
-            <p className="hint">{kindDef?.powerMeaning}</p>
+            {/* 2행 — 수치 조절. 드롭다운과 다른 줄에 둔다 */}
+            <div className="skill-sliders">
+              <SliderField
+                label="행동력"
+                value={skill.apCost}
+                display={`AP ${skill.apCost}`}
+                min={SKILL_RULES.apCost.min}
+                max={SKILL_RULES.apCost.max}
+                onChange={(value) => patch(index, { apCost: value })}
+              />
+              <SliderField
+                label="기본 수치"
+                value={skill.power}
+                display={String(Math.round(skill.power * 10) / 10)}
+                min={SKILL_RULES.power.min}
+                max={SKILL_RULES.power.max}
+                step={SKILL_RULES.power.step}
+                onChange={(value) => patch(index, { power: Math.round(value * 10) / 10 })}
+                hint={kindDef?.powerMeaning}
+              />
+              <SliderField
+                label="쿨타임"
+                value={skill.cooldown}
+                display={skill.cooldown === 0 ? '없음' : `${skill.cooldown} 라운드`}
+                min={SKILL_RULES.cooldown.min}
+                max={SKILL_RULES.cooldown.max}
+                onChange={(value) => patch(index, { cooldown: value })}
+              />
+              <SliderField
+                label="전투당 사용"
+                value={skill.maxUses ?? 0}
+                display={skill.maxUses === null ? '무제한' : `${skill.maxUses}회`}
+                min={SKILL_RULES.maxUses.min}
+                max={SKILL_RULES.maxUses.max}
+                onChange={(value) => patch(index, { maxUses: value === 0 ? null : value })}
+                hint="0 = 무제한"
+              />
+            </div>
 
             <div className="input-row">
               <span className="field-label">
@@ -323,6 +361,7 @@ export default function JoinTerminal() {
   const auth = useMemo(() => getAuth(), []);
   const [mode, setMode] = useState<Mode>('REGISTER');
   const [account, setAccount] = useState<Account | null>(null);
+  const [operator, setOperator] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -340,6 +379,16 @@ export default function JoinTerminal() {
     (async () => {
       const session = await auth.currentSession();
       if (!session || cancelled) return;
+
+      // 세션이 이미 살아 있는 운영자는 작전실로 넘긴다.
+      const server = getServerAuth();
+      if (server && (await server.isOperator())) {
+        if (cancelled) return;
+        setOperator(true);
+        window.location.href = controlUrl();
+        return;
+      }
+
       const found = await auth.getAccount(session.accountId);
       if (!cancelled && found) setAccount(found);
     })();
@@ -415,7 +464,22 @@ export default function JoinTerminal() {
     setBusy(true);
     try {
       const session = await auth.login({ id: loginId, password: loginPassword });
+
+      // 운영자는 시트가 없을 수 있으므로 계정 조회보다 먼저 판정하고 작전실로 보낸다.
+      const server = getServerAuth();
+      if (server && (await server.isOperator())) {
+        setMessage('운영자 계정 — 중앙 작전실로 이동합니다…');
+        window.location.href = controlUrl();
+        return;
+      }
+
       const found = await auth.getAccount(session.accountId);
+      if (!found) {
+        setErrors([
+          '이 계정에 등록된 캐릭터 시트가 없습니다. 운영자 계정이라면 작전실로 접속하세요.',
+        ]);
+        return;
+      }
       setAccount(found);
     } catch (error) {
       setErrors([error instanceof AuthError ? error.message : '접속에 실패했습니다.']);
@@ -585,6 +649,10 @@ export default function JoinTerminal() {
         </section>
       </div>
     );
+  }
+
+  if (operator) {
+    return <div className="console-loading">OPERATOR CLEARANCE — REDIRECTING TO RAID CONTROL…</div>;
   }
 
   /* ── 로그인 / 등록 화면 ───────────────────────────── */

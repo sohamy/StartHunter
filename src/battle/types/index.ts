@@ -380,6 +380,39 @@ export interface Session {
   startedAt: string;
 }
 
+/* ── 영구 편성 ──────────────────────────────────────────
+   페어는 한 번 맺으면 공략 내내 유지된다. 전투마다 다시 짝을 짓지 않는다.
+   전투는 "등록된 페어 중 누가 참가하는가"만 고른다. */
+
+export interface PairBond {
+  id: string;
+  label: string;
+  hunterAccountId: string | null;
+  constellationAccountId: string | null;
+  hunterName: string;
+  constellationName: string;
+  affiliation: Affiliation;
+  /** 해산된 페어는 false — 기록은 남기고 편성에서만 제외한다 */
+  active: boolean;
+  createdAt: string;
+}
+
+/* ── 적 세팅 ────────────────────────────────────────────
+   운영진이 층별로 적을 구성한다. 템플릿을 만들어 두고 전투에 배치한다. */
+
+export interface EnemyTemplate {
+  id: string;
+  name: string;
+  grade: string;
+  maxHp: number;
+  attack: number;
+  defense: number;
+  maxPhase: number;
+  /** config/patterns.ts 의 패턴 세트 */
+  patternSetId: string | null;
+  boss: boolean;
+}
+
 export interface BattleSummary {
   id: string;
   mode: BattleMode;

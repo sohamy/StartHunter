@@ -17,6 +17,8 @@ import type {
   ActorSide,
   BattleState,
   BattleSummary,
+  EnemyTemplate,
+  PairBond,
   PairState,
   RoundSubmission,
 } from '../types';
@@ -245,6 +247,84 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .eq('round', round);
 
     if (error) throw new Error(`제출 실패: ${error.message}`);
+  }
+
+  /* ── 영구 편성 ── */
+
+  async listBonds(): Promise<PairBond[]> {
+    const { data } = await requireSupabase()
+      .from('pair_bonds')
+      .select('*')
+      .order('created_at');
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      label: row.label as string,
+      hunterAccountId: (row.hunter_handle as string) ?? null,
+      constellationAccountId: (row.constellation_handle as string) ?? null,
+      hunterName: (row.hunter_name as string) ?? '',
+      constellationName: (row.constellation_name as string) ?? '',
+      affiliation: row.affiliation as PairBond['affiliation'],
+      active: Boolean(row.active),
+      createdAt: row.created_at as string,
+    }));
+  }
+
+  async saveBond(bond: PairBond): Promise<void> {
+    const { error } = await requireSupabase().from('pair_bonds').upsert({
+      id: bond.id,
+      label: bond.label,
+      hunter_handle: bond.hunterAccountId,
+      constellation_handle: bond.constellationAccountId,
+      hunter_name: bond.hunterName,
+      constellation_name: bond.constellationName,
+      affiliation: bond.affiliation,
+      active: bond.active,
+    });
+    if (error) throw new Error(`편성 저장 실패: ${error.message}`);
+  }
+
+  async deleteBond(id: string): Promise<void> {
+    const { error } = await requireSupabase().from('pair_bonds').delete().eq('id', id);
+    if (error) throw new Error(`편성 삭제 실패: ${error.message}`);
+  }
+
+  /* ── 적 세팅 ── */
+
+  async listEnemyTemplates(): Promise<EnemyTemplate[]> {
+    const { data } = await requireSupabase().from('enemy_templates').select('*').order('name');
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      grade: row.grade as string,
+      maxHp: row.max_hp as number,
+      attack: row.attack as number,
+      defense: row.defense as number,
+      maxPhase: row.max_phase as number,
+      patternSetId: (row.pattern_set_id as string) ?? null,
+      boss: Boolean(row.boss),
+    }));
+  }
+
+  async saveEnemyTemplate(template: EnemyTemplate): Promise<void> {
+    const { error } = await requireSupabase().from('enemy_templates').upsert({
+      id: template.id,
+      name: template.name,
+      grade: template.grade,
+      max_hp: template.maxHp,
+      attack: template.attack,
+      defense: template.defense,
+      max_phase: template.maxPhase,
+      pattern_set_id: template.patternSetId,
+      boss: template.boss,
+    });
+    if (error) throw new Error(`적 저장 실패: ${error.message}`);
+  }
+
+  async deleteEnemyTemplate(id: string): Promise<void> {
+    const { error } = await requireSupabase().from('enemy_templates').delete().eq('id', id);
+    if (error) throw new Error(`적 삭제 실패: ${error.message}`);
   }
 
   async listBattles(): Promise<BattleSummary[]> {

@@ -25,7 +25,9 @@ import type {
   BattleState,
   CharacterSheet,
   EnemyState,
+  EnemyTemplate,
   GimmickState,
+  PairBond,
   PairState,
 } from '../types';
 import { constellationStateFromSheet, hunterStateFromSheet } from './character';
@@ -159,6 +161,96 @@ export function createBattle(options: CreateBattleOptions = {}): BattleState {
       options.gimmickId === undefined ? DEFAULT_GIMMICK_ID : options.gimmickId,
     ),
     viewerPairId: pairs[0].id,
+    log: [],
+    alerts: [],
+  };
+}
+
+/* ── 적 세팅 → 전투 배치 ───────────────────────────────── */
+
+export function enemyFromTemplate(template: EnemyTemplate, index = 0): EnemyState {
+  return {
+    id: `${template.id}#${index}`,
+    name: template.name,
+    grade: template.grade,
+    hp: template.maxHp,
+    maxHp: template.maxHp,
+    attack: template.attack,
+    defense: template.defense,
+    phase: 1,
+    maxPhase: template.maxPhase,
+    statuses: [],
+    nextPattern: 'UNKNOWN',
+    boss: template.boss,
+    patternSetId: template.patternSetId,
+    telegraph: null,
+  };
+}
+
+/** 등록된 적을 템플릿으로 저장할 수 있게 역변환한다 */
+export function templateFromEnemy(enemy: EnemyState): EnemyTemplate {
+  return {
+    id: enemy.id.split('#')[0],
+    name: enemy.name,
+    grade: enemy.grade,
+    maxHp: enemy.maxHp,
+    attack: enemy.attack,
+    defense: enemy.defense,
+    maxPhase: enemy.maxPhase,
+    patternSetId: enemy.patternSetId,
+    boss: enemy.boss,
+  };
+}
+
+/* ── 영구 편성 → 전투 참가 ─────────────────────────────── */
+
+export interface BondEntry {
+  bond: PairBond;
+  hunterSheet: CharacterSheet;
+  constellationSheet: CharacterSheet;
+}
+
+export interface AssembleOptions {
+  id: string;
+  mode: BattleMode;
+  operation?: BattleState['operation'];
+  entries: BondEntry[];
+  enemies: EnemyState[];
+  gimmickId?: string | null;
+}
+
+/**
+ * 등록된 페어와 세팅된 적으로 전투를 만든다.
+ * 페어는 이미 맺어져 있으므로 여기서 짝을 짓지 않는다 — 참가 여부만 정한다.
+ */
+export function assembleBattle(options: AssembleOptions): BattleState {
+  const pairs = options.entries.map((entry, index) => {
+    const pair = createPair(index, {
+      hunterSheet: entry.hunterSheet,
+      constellationSheet: entry.constellationSheet,
+      hunterAccountId: entry.bond.hunterAccountId,
+      constellationAccountId: entry.bond.constellationAccountId,
+      affiliation: entry.bond.affiliation,
+    });
+    return { ...pair, label: entry.bond.label };
+  });
+
+  const firstEnemyId = options.enemies.find((enemy) => enemy.hp > 0)?.id ?? null;
+  for (const pair of pairs) {
+    pair.submission.targetEnemyId = firstEnemyId;
+  }
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    id: options.id,
+    mode: options.mode,
+    operation: options.operation ?? { ...DEFAULT_OPERATION },
+    round: 1,
+    status: 'ENGAGED',
+    pairs,
+    enemies: options.enemies,
+    gimmick: createGimmick(options.gimmickId ?? null),
+    viewerPairId: pairs[0]?.id ?? '',
     log: [],
     alerts: [],
   };

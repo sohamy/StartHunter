@@ -1,33 +1,48 @@
 /**
- * 운영진 중앙 작전실 (Phase 5).
+ * 운영진 중앙 작전실.
  *
- * 참가자 화면과 분리된 관리 화면이다.
+ * 작업 단위로 화면을 나눈다.
+ *   ROSTER     영구 편성 — 페어는 한 번 맺으면 유지된다
+ *   ENCOUNTER  적 세팅 — 층에 배치할 적을 만들어 둔다
+ *   OPERATION  전투 — 참가 페어와 적을 골라 시작하고, 라운드를 처리한다
+ *   LOG        시스템 · 연출 로그
+ *
  * 원칙: 자동 판정 결과를 운영진이 언제든 덮어쓸 수 있어야 한다.
- * APPLY 전에는 예상 결과를 직접 수정하고, 언제든 상태를 직접 편집한다.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { CONSTELLATION_STAGES, CONTRACT_STAGES } from '../config/rules';
 import { GIMMICK_DEFINITIONS } from '../config/gimmicks';
+import { PATTERN_SETS } from '../config/patterns';
+import { CONSTELLATION_STAGES, CONTRACT_STAGES } from '../config/rules';
+import { DEFAULT_OPERATION } from '../config/scenario';
 import { STATUS_DEFINITIONS } from '../config/status';
 import * as admin from '../engine/admin';
-import { createBattle } from '../engine/battle';
+import {
+  assembleBattle,
+  enemyFromTemplate,
+  pairReady,
+  type BondEntry,
+} from '../engine/battle';
 import { nextPatternAdmin } from '../engine/enemy';
 import { applyRound, previewRound } from '../engine/round';
 import { injuryOf, statusViews } from '../engine/status';
 import { AuthError, getAuth, getServerAuth, getStorage, isServerMode, type PublicProfile } from '../store';
-import { pairPreset, presetSheet } from '../config/scenario';
 import type {
   ActorSide,
   BattleState,
   BattleSummary,
   ConstellationStage,
   ContractStage,
+  EnemyState,
+  EnemyTemplate,
+  PairBond,
   RoundPreview,
+  StatusEffect,
   StatusHolder,
 } from '../types';
 
+type Tab = 'ROSTER' | 'ENCOUNTER' | 'OPERATION' | 'LOG';
 type PairFilter = 'ALL' | 'GOVERNMENT' | 'GUILD' | 'INJURED' | 'DOWN' | 'NOT_SUBMITTED';
 type LogTab = 'SYSTEM' | 'ROLEPLAY';
 
@@ -36,7 +51,11 @@ function terminalUrl(): string {
   return `${base}/battle/`;
 }
 
-/* ── 숫자 입력 ─────────────────────────────────────────── */
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
+}
+
+/* ── 공용 요소 ─────────────────────────────────────────── */
 
 function NumberField({
   label,
@@ -80,7 +99,65 @@ function NumberField({
   );
 }
 
-/* ── 상태이상 편집 ─────────────────────────────────────── */
+function TextField({
+  label,
+  value,
+  onCommit,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onCommit: (next: string) => void;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <label className="num-field">
+      <span className="field-label">{label}</span>
+      <input
+        className="ctl input"
+        value={draft}
+        placeholder={placeholder}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => draft !== value && onCommit(draft)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+        }}
+      />
+    </label>
+  );
+}
+
+function Collapsible({
+  label,
+  children,
+  defaultOpen = false,
+}: {
+  label: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={`collapse ${open ? 'open' : ''}`}>
+      <button type="button" className="collapse-head" onClick={() => setOpen(!open)}>
+        <span>{label}</span>
+        <i aria-hidden="true">{open ? '−' : '+'}</i>
+      </button>
+      {open && <div className="collapse-body">{children}</div>}
+    </div>
+  );
+}
+
+function Bar({ value, max, tone }: { value: number; max: number; tone: string }) {
+  const percent = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  return (
+    <div className={`gauge tone-${tone}`}>
+      <div className="gauge-fill" style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
 
 function StatusEditor({
   holder,
@@ -91,7 +168,7 @@ function StatusEditor({
 }: {
   holder: StatusHolder;
   ownerId: string;
-  statuses: Parameters<typeof statusViews>[0];
+  statuses: StatusEffect[];
   onGrant: (holder: StatusHolder, ownerId: string, defId: string) => void;
   onRevoke: (holder: StatusHolder, ownerId: string, defId: string) => void;
 }) {
@@ -102,7 +179,7 @@ function StatusEditor({
     <div className="status-editor">
       <div className="target-status">
         {views.length === 0 ? (
-          <span className="dim">NONE</span>
+          <span className="dim">상태이상 없음</span>
         ) : (
           views.map((view) => (
             <button
@@ -119,7 +196,7 @@ function StatusEditor({
           ))
         )}
         <button type="button" className="ctl small" onClick={() => setOpen(!open)}>
-          {open ? 'CLOSE' : '+ STATUS'}
+          {open ? '닫기' : '+ 부여'}
         </button>
       </div>
       {open && (
@@ -147,69 +224,71 @@ function StatusEditor({
 export default function ControlTerminal() {
   const storage = useMemo(() => getStorage(), []);
   const auth = useMemo(() => getAuth(), []);
-  const [profiles, setProfiles] = useState<PublicProfile[]>([]);
-  const [pairingHunter, setPairingHunter] = useState('');
-  const [pairingConstellation, setPairingConstellation] = useState('');
-  const [battles, setBattles] = useState<BattleSummary[]>([]);
-  const [battle, setBattle] = useState<BattleState | null>(null);
-  const [preview, setPreview] = useState<RoundPreview | null>(null);
-  const [filter, setFilter] = useState<PairFilter>('ALL');
-  const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
-  const [message, setMessage] = useState<string | null>(null);
-  const [editingLogId, setEditingLogId] = useState<string | null>(null);
-  const [logDraft, setLogDraft] = useState('');
-  const fileInput = useRef<HTMLInputElement>(null);
-
-  // 서버 모드에서는 운영진 인증이 필요하다. 로컬 모드는 인증 자체가 없다.
   const serverAuth = useMemo(() => getServerAuth(), []);
+
+  const [tab, setTab] = useState<Tab>('OPERATION');
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // 인증
   const [access, setAccess] = useState<'CHECKING' | 'LOCAL' | 'DENIED' | 'GRANTED'>(
     isServerMode() ? 'CHECKING' : 'LOCAL',
   );
   const [operatorId, setOperatorId] = useState('');
   const [operatorPassword, setOperatorPassword] = useState('');
-  const [busy, setBusy] = useState(false);
 
-  const checkOperator = useCallback(async () => {
-    if (!serverAuth) return;
-    const session = await serverAuth.currentSession();
-    if (!session) {
-      setAccess('DENIED');
-      return;
-    }
-    setAccess((await serverAuth.isOperator()) ? 'GRANTED' : 'DENIED');
-  }, [serverAuth]);
+  // 데이터
+  const [profiles, setProfiles] = useState<PublicProfile[]>([]);
+  const [bonds, setBonds] = useState<PairBond[]>([]);
+  const [templates, setTemplates] = useState<EnemyTemplate[]>([]);
+  const [battles, setBattles] = useState<BattleSummary[]>([]);
+  const [battle, setBattle] = useState<BattleState | null>(null);
+  const [preview, setPreview] = useState<RoundPreview | null>(null);
+
+  // 편성 입력
+  const [pairingHunter, setPairingHunter] = useState('');
+  const [pairingConstellation, setPairingConstellation] = useState('');
+
+  // 전투 편성 입력
+  const [selectedBonds, setSelectedBonds] = useState<string[]>([]);
+  const [selectedEnemies, setSelectedEnemies] = useState<string[]>([]);
+  const [gimmickId, setGimmickId] = useState<string>('gimmick.seal');
+  const [floor, setFloor] = useState<number>(DEFAULT_OPERATION.floor);
+
+  const [filter, setFilter] = useState<PairFilter>('ALL');
+  const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [logDraft, setLogDraft] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const refresh = useCallback(async () => {
+    const [profileRows, bondRows, templateRows, battleRows] = await Promise.all([
+      auth.listProfiles(),
+      storage.listBonds(),
+      storage.listEnemyTemplates(),
+      storage.listBattles(),
+    ]);
+    setProfiles(profileRows);
+    setBonds(bondRows);
+    setTemplates(templateRows);
+    setBattles(battleRows);
+  }, [auth, storage]);
 
   useEffect(() => {
-    void checkOperator();
-  }, [checkOperator]);
+    if (access === 'GRANTED' || access === 'LOCAL') void refresh();
+  }, [access, refresh]);
 
-  const operatorLogin = async () => {
-    if (!serverAuth) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      await serverAuth.login({ id: operatorId, password: operatorPassword });
-      if (await serverAuth.isOperator()) {
-        setAccess('GRANTED');
-      } else {
+  useEffect(() => {
+    (async () => {
+      if (!serverAuth) return;
+      const session = await serverAuth.currentSession();
+      if (!session) {
         setAccess('DENIED');
-        setMessage('이 계정은 운영진 권한이 없습니다. profiles.role 을 OPERATOR 로 변경하세요.');
+        return;
       }
-    } catch (error) {
-      setMessage(error instanceof AuthError ? error.message : '접속에 실패했습니다.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const refreshList = useCallback(async () => {
-    setBattles(await storage.listBattles());
-  }, [storage]);
-
-  useEffect(() => {
-    void refreshList();
-    void (async () => setProfiles(await auth.listProfiles()))();
-  }, [auth, refreshList]);
+      setAccess((await serverAuth.isOperator()) ? 'GRANTED' : 'DENIED');
+    })();
+  }, [serverAuth]);
 
   useEffect(() => {
     if (battle) void storage.saveBattle(battle);
@@ -220,83 +299,22 @@ export default function ControlTerminal() {
     setPreview(null);
   }, []);
 
-  const loadBattle = async (id: string) => {
-    const loaded = await storage.loadBattle(id);
-    if (!loaded) {
-      setMessage('전투 데이터를 불러올 수 없습니다. (스키마 버전 불일치일 수 있습니다)');
-      return;
-    }
-    setBattle(loaded);
-    setPreview(null);
+  /* ── 인증 ────────────────────────────────────────── */
+
+  const operatorLogin = async () => {
+    if (!serverAuth) return;
+    setBusy(true);
     setMessage(null);
-  };
-
-  const exportJson = async () => {
-    const json = await storage.exportAll();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `tower-raid-backup.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    setMessage('전체 전투 데이터를 내보냈습니다.');
-  };
-
-  const importJson = async (file: File) => {
     try {
-      await storage.importAll(await file.text());
-      await refreshList();
-      setMessage('데이터를 불러왔습니다. 목록에서 전투를 선택하세요.');
+      await serverAuth.login({ id: operatorId, password: operatorPassword });
+      if (await serverAuth.isOperator()) setAccess('GRANTED');
+      else setMessage('이 계정은 운영진 권한이 없습니다. profiles.role 을 OPERATOR 로 변경하세요.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '불러오기에 실패했습니다.');
+      setMessage(error instanceof AuthError ? error.message : '접속에 실패했습니다.');
+    } finally {
+      setBusy(false);
     }
   };
-
-  /** 운영진 편성 — 등록된 참가자 두 명을 한 페어로 묶는다 */
-  const addPairing = async () => {
-    if (!battle) return;
-    if (pairingHunter && pairingHunter === pairingConstellation) {
-      setMessage('한 참가자가 양쪽을 맡을 수 없습니다.');
-      return;
-    }
-
-    const preset = pairPreset(battle.pairs.length);
-    const hunterAccount = pairingHunter ? await auth.getAccount(pairingHunter) : null;
-    const constellationAccount = pairingConstellation
-      ? await auth.getAccount(pairingConstellation)
-      : null;
-
-    const hunterSheet =
-      hunterAccount?.sheet ??
-      presetSheet(preset.hunter, 'HUNTER', 'GOVERNMENT', battle.pairs.length);
-    const constellationSheet =
-      constellationAccount?.sheet ??
-      presetSheet(preset.constellation, 'CONSTELLATION', 'GOVERNMENT', battle.pairs.length);
-
-    update(
-      admin.addPairing(battle, {
-        hunterSheet,
-        constellationSheet,
-        hunterAccountId: hunterAccount?.id ?? null,
-        constellationAccountId: constellationAccount?.id ?? null,
-      }),
-    );
-    setPairingHunter('');
-    setPairingConstellation('');
-    setMessage('페어를 편성했습니다.');
-  };
-
-  const copyText = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setMessage('클립보드에 복사했습니다.');
-    } catch {
-      setMessage('복사에 실패했습니다. 텍스트를 직접 선택해 주세요.');
-    }
-  };
-
-  /* ── 운영진 인증 게이트 ──────────────────────────── */
 
   if (access === 'CHECKING') {
     return <div className="console-loading">VERIFYING OPERATOR CLEARANCE…</div>;
@@ -312,14 +330,9 @@ export default function ControlTerminal() {
           </div>
           <span className="tag critical">CLEARANCE REQUIRED</span>
         </header>
-
         {message && <p className="notice error">{message}</p>}
-
         <section className="panel form">
           <h2 className="panel-title">OPERATOR ACCESS</h2>
-          <p className="hint" style={{ marginBottom: 12 }}>
-            운영진 계정으로 접속하세요. 운영진은 캐릭터 시트가 없어도 됩니다.
-          </p>
           <label className="input-row">
             <span className="field-label">활동명</span>
             <input
@@ -350,131 +363,206 @@ export default function ControlTerminal() {
           >
             CONNECT
           </button>
-          <p className="hint">
-            권한은 <code>profiles.role = 'OPERATOR'</code> 로 부여됩니다. 자세한 절차는
-            <code> docs/SUPABASE_SETUP.md</code> 를 참고하세요.
-          </p>
         </section>
       </div>
     );
   }
 
-  /* ── 전투 미선택 ─────────────────────────────────── */
+  /* ── 편성 조작 ───────────────────────────────────── */
 
-  if (!battle) {
-    return (
-      <div className="console">
-        <header className="console-head">
-          <div className="agency">
-            <b>HUNTER MANAGEMENT AGENCY</b>
-            <span>CENTRAL RAID CONTROL</span>
-          </div>
-          <span className="tag warn">NO OPERATION SELECTED</span>
-        </header>
+  const createBond = async () => {
+    if (!pairingHunter || !pairingConstellation) {
+      setMessage('헌터와 성좌를 모두 선택하세요.');
+      return;
+    }
+    if (pairingHunter === pairingConstellation) {
+      setMessage('한 참가자가 양쪽을 맡을 수 없습니다.');
+      return;
+    }
 
-        {message && <p className="notice ok">{message}</p>}
-
-        <section className="panel">
-          <h2 className="panel-title">OPERATION LIST</h2>
-          {battles.length === 0 ? (
-            <p className="dim">저장된 전투가 없습니다.</p>
-          ) : (
-            <table className="preview-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>MODE</th>
-                  <th>ROUND</th>
-                  <th>STATUS</th>
-                  <th>UPDATED</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {battles.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.id}</td>
-                    <td>{row.mode}</td>
-                    <td className="num">{row.round}</td>
-                    <td>
-                      <span className={`tag ${row.status === 'ENGAGED' ? 'ok' : 'warn'}`}>
-                        {row.status}
-                      </span>
-                    </td>
-                    <td className="dim small-text">{row.updatedAt.slice(0, 19).replace('T', ' ')}</td>
-                    <td>
-                      <button type="button" className="ctl small" onClick={() => void loadBattle(row.id)}>
-                        OPEN
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          <div className="btn-row" style={{ marginTop: 16 }}>
-            <button
-              type="button"
-              className="ctl primary"
-              onClick={() =>
-                update(createBattle({ mode: 'RAID', pairCount: 4, monsterCount: 1, id: 'BATTLE-CONTROL' }))
-              }
-            >
-              CREATE RAID
-            </button>
-            <button
-              type="button"
-              className="ctl"
-              onClick={() => update(createBattle({ mode: 'DUEL', id: 'BATTLE-CONTROL-DUEL' }))}
-            >
-              CREATE DUEL
-            </button>
-            <button type="button" className="ctl" onClick={() => void exportJson()}>
-              EXPORT JSON
-            </button>
-            <button type="button" className="ctl" onClick={() => fileInput.current?.click()}>
-              IMPORT JSON
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/json"
-              hidden
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void importJson(file);
-                event.target.value = '';
-              }}
-            />
-            <a className="ctl" href={terminalUrl()}>
-              참가자 단말 →
-            </a>
-          </div>
-        </section>
-      </div>
+    const hunter = profiles.find((row) => row.accountId === pairingHunter);
+    const constellation = profiles.find((row) => row.accountId === pairingConstellation);
+    const taken = bonds.find(
+      (row) =>
+        row.active &&
+        (row.hunterAccountId === pairingHunter ||
+          row.constellationAccountId === pairingConstellation),
     );
-  }
-
-  /* ── 통계 ────────────────────────────────────────── */
-
-  const injured = battle.pairs.filter(
-    (pair) => pair.hunter.hp > 0 && pair.hunter.hp < pair.hunter.maxHp * 0.7,
-  ).length;
-  const down = battle.pairs.filter((pair) => pair.hunter.hp <= 0).length;
-  const waitingSides = battle.pairs.flatMap((pair) => {
-    const rows: Array<{ pairId: string; label: string; side: ActorSide }> = [];
-    if (!pair.submission.hunterSubmitted && pair.hunter.control !== 'AUTO' && pair.hunter.hp > 0) {
-      rows.push({ pairId: pair.id, label: pair.label, side: 'HUNTER' });
+    if (taken) {
+      setMessage(`이미 ${taken.label} 에 편성된 참가자가 있습니다. 먼저 해산하세요.`);
+      return;
     }
-    if (!pair.submission.constellationSubmitted && pair.constellation.control !== 'AUTO') {
-      rows.push({ pairId: pair.id, label: pair.label, side: 'CONSTELLATION' });
-    }
-    return rows;
-  });
-  const notSubmitted = waitingSides.length;
 
-  const filtered = battle.pairs.filter((pair) => {
+    const bond: PairBond = {
+      id: newId('BOND'),
+      label: `PAIR ${String(bonds.filter((row) => row.active).length + 1).padStart(2, '0')}`,
+      hunterAccountId: pairingHunter,
+      constellationAccountId: pairingConstellation,
+      hunterName: hunter?.name ?? pairingHunter,
+      constellationName: constellation?.name ?? pairingConstellation,
+      affiliation: 'GOVERNMENT',
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    await storage.saveBond(bond);
+    await refresh();
+    setPairingHunter('');
+    setPairingConstellation('');
+    setMessage(`${bond.label} 편성 완료 — 이 페어는 공략 내내 유지됩니다.`);
+  };
+
+  const patchBond = async (bond: PairBond, patch: Partial<PairBond>) => {
+    await storage.saveBond({ ...bond, ...patch });
+    await refresh();
+  };
+
+  /* ── 적 세팅 조작 ────────────────────────────────── */
+
+  const addTemplate = async (boss: boolean) => {
+    const template: EnemyTemplate = {
+      id: newId('ENEMY'),
+      name: boss ? '새 보스' : '새 몬스터',
+      grade: boss ? 'BOSS / A' : 'NORMAL / C',
+      maxHp: boss ? 1000 : 180,
+      attack: boss ? 14 : 9,
+      defense: boss ? 6 : 3,
+      maxPhase: boss ? 3 : 1,
+      patternSetId: boss ? 'set.star_devourer' : 'set.husk',
+      boss,
+    };
+    await storage.saveEnemyTemplate(template);
+    await refresh();
+  };
+
+  const patchTemplate = async (template: EnemyTemplate, patch: Partial<EnemyTemplate>) => {
+    await storage.saveEnemyTemplate({ ...template, ...patch });
+    await refresh();
+  };
+
+  /* ── 전투 시작 ───────────────────────────────────── */
+
+  const startOperation = async () => {
+    if (selectedBonds.length === 0) {
+      setMessage('참가할 페어를 선택하세요.');
+      return;
+    }
+    if (selectedEnemies.length === 0) {
+      setMessage('배치할 적을 선택하세요.');
+      return;
+    }
+
+    const entries: BondEntry[] = [];
+    for (const bondId of selectedBonds) {
+      const bond = bonds.find((row) => row.id === bondId);
+      if (!bond) continue;
+
+      const hunterAccount = bond.hunterAccountId
+        ? await auth.getAccount(bond.hunterAccountId)
+        : null;
+      const constellationAccount = bond.constellationAccountId
+        ? await auth.getAccount(bond.constellationAccountId)
+        : null;
+
+      if (!hunterAccount || !constellationAccount) {
+        setMessage(`${bond.label} 의 시트를 불러올 수 없습니다.`);
+        return;
+      }
+
+      entries.push({
+        bond,
+        hunterSheet: hunterAccount.sheet,
+        constellationSheet: constellationAccount.sheet,
+      });
+    }
+
+    const enemies: EnemyState[] = selectedEnemies
+      .map((id, index) => {
+        const template = templates.find((row) => row.id === id);
+        return template ? enemyFromTemplate(template, index) : null;
+      })
+      .filter((row): row is EnemyState => row !== null);
+
+    const next = assembleBattle({
+      id: newId('BATTLE'),
+      mode: entries.length > 1 ? 'RAID' : 'DUEL',
+      operation: { ...DEFAULT_OPERATION, floor },
+      entries,
+      enemies,
+      gimmickId: gimmickId || null,
+    });
+
+    setBattle(next);
+    setPreview(null);
+    setTab('OPERATION');
+    setMessage(`FLOOR ${floor} 전투를 시작했습니다.`);
+    await storage.saveBattle(next);
+    await refresh();
+  };
+
+  /* ── 데이터 입출력 ───────────────────────────────── */
+
+  const exportJson = async () => {
+    const json = await storage.exportAll();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tower-raid-backup.json';
+    link.click();
+    URL.revokeObjectURL(url);
+    setMessage('전투 데이터를 내보냈습니다.');
+  };
+
+  const importJson = async (file: File) => {
+    try {
+      await storage.importAll(await file.text());
+      await refresh();
+      setMessage('데이터를 불러왔습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '불러오기에 실패했습니다.');
+    }
+  };
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage('클립보드에 복사했습니다.');
+    } catch {
+      setMessage('복사에 실패했습니다.');
+    }
+  };
+
+  /* ── 전투 파생값 ─────────────────────────────────── */
+
+  const activeBonds = bonds.filter((row) => row.active);
+  const unpaired = profiles.filter(
+    (profile) =>
+      !activeBonds.some(
+        (bond) =>
+          bond.hunterAccountId === profile.accountId ||
+          bond.constellationAccountId === profile.accountId,
+      ),
+  );
+
+  const injured = battle
+    ? battle.pairs.filter((p) => p.hunter.hp > 0 && p.hunter.hp < p.hunter.maxHp * 0.7).length
+    : 0;
+  const down = battle ? battle.pairs.filter((p) => p.hunter.hp <= 0).length : 0;
+  const waitingSides = battle
+    ? battle.pairs.flatMap((pair) => {
+        const rows: Array<{ pairId: string; label: string; side: ActorSide }> = [];
+        if (!pair.submission.hunterSubmitted && pair.hunter.control !== 'AUTO' && pair.hunter.hp > 0) {
+          rows.push({ pairId: pair.id, label: pair.label, side: 'HUNTER' });
+        }
+        if (!pair.submission.constellationSubmitted && pair.constellation.control !== 'AUTO') {
+          rows.push({ pairId: pair.id, label: pair.label, side: 'CONSTELLATION' });
+        }
+        return rows;
+      })
+    : [];
+
+  const filteredPairs = (battle?.pairs ?? []).filter((pair) => {
     switch (filter) {
       case 'GOVERNMENT':
         return pair.affiliation === 'GOVERNMENT';
@@ -491,10 +579,6 @@ export default function ControlTerminal() {
     }
   });
 
-  const systemLog = battle.log.filter((entry) => entry.channel === 'SYSTEM');
-  const roleplayLog = battle.log.filter((entry) => entry.channel === 'ROLEPLAY');
-
-  /* preview 수정 헬퍼 — 운영진이 자동 계산 결과를 덮어쓴다 */
   const patchPreviewPair = (pairId: string, patch: Partial<RoundPreview['pairs'][number]>) => {
     if (!preview) return;
     setPreview({
@@ -502,6 +586,7 @@ export default function ControlTerminal() {
       pairs: preview.pairs.map((row) => (row.pairId === pairId ? { ...row, ...patch } : row)),
     });
   };
+
   const patchPreviewEnemy = (enemyId: string, damage: number) => {
     if (!preview) return;
     setPreview({
@@ -521,9 +606,12 @@ export default function ControlTerminal() {
     });
   };
 
+  const readyCount = battle ? battle.pairs.filter(pairReady).length : 0;
+
+  /* ── 화면 ────────────────────────────────────────── */
+
   return (
     <div className="console wide">
-      {/* ── 헤더 ── */}
       <header className="console-head">
         <div className="agency">
           <b>HUNTER MANAGEMENT AGENCY</b>
@@ -531,933 +619,1307 @@ export default function ControlTerminal() {
         </div>
         <dl className="ops">
           <div className="field">
-            <span className="field-label">OPERATION</span>
-            <span className="field-value">{battle.operation.name}</span>
+            <span className="field-label">편성된 페어</span>
+            <span className="field-value num">{activeBonds.length}</span>
           </div>
           <div className="field">
-            <span className="field-label">FLOOR</span>
-            <span className="field-value num">{battle.operation.floor}</span>
+            <span className="field-label">등록 적</span>
+            <span className="field-value num">{templates.length}</span>
           </div>
-          <div className="field">
-            <span className="field-label">ROUND</span>
-            <span className="field-value num">{String(battle.round).padStart(2, '0')}</span>
-          </div>
-          <div className="field">
-            <span className="field-label">ACTIVE PAIRS</span>
-            <span className="field-value num">{battle.pairs.length}</span>
-          </div>
-          <div className="field">
-            <span className="field-label">INJURED</span>
-            <span className={`field-value num ${injured > 0 ? 'warn-text' : ''}`}>{injured}</span>
-          </div>
-          <div className="field">
-            <span className="field-label">DOWN</span>
-            <span className={`field-value num ${down > 0 ? 'danger-text' : ''}`}>{down}</span>
-          </div>
+          {battle && (
+            <>
+              <div className="field">
+                <span className="field-label">FLOOR</span>
+                <span className="field-value num">{battle.operation.floor}</span>
+              </div>
+              <div className="field">
+                <span className="field-label">ROUND</span>
+                <span className="field-value num">{String(battle.round).padStart(2, '0')}</span>
+              </div>
+              <div className="field">
+                <span className="field-label">준비</span>
+                <span className="field-value num">
+                  {readyCount}/{battle.pairs.length}
+                </span>
+              </div>
+              <div className="field">
+                <span className="field-label">DOWN</span>
+                <span className={`field-value num ${down > 0 ? 'danger-text' : ''}`}>{down}</span>
+              </div>
+            </>
+          )}
         </dl>
       </header>
 
-      {message && <p className="notice ok">{message}</p>}
-
-      {/* ── 전투 제어 ── */}
-      <section className="panel session">
-        <div className="session-row">
-          <span className="field-label">OPERATION</span>
-          <span className="field-value">{battle.id}</span>
-          <span className={`tag ${battle.status === 'ENGAGED' ? 'ok' : 'warn'}`}>{battle.status}</span>
-          <NumberField
-            label="ROUND"
-            value={battle.round}
-            min={1}
-            onCommit={(value) => update(admin.setRound(battle, value))}
-          />
-          <div className="btn-row">
-            <button
-              type="button"
-              className="ctl small"
-              onClick={() => update(admin.setBattleStatus(battle, 'ENGAGED'))}
-            >
-              ENGAGE
+      {/* ── 탭 ── */}
+      <nav className="tabbar">
+        {(
+          [
+            ['ROSTER', `편성 · ${activeBonds.length}`],
+            ['ENCOUNTER', `적 세팅 · ${templates.length}`],
+            ['OPERATION', battle ? `전투 · ROUND ${battle.round}` : '전투'],
+            ['LOG', '로그'],
+          ] as Array<[Tab, string]>
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={`tab ${tab === value ? 'on' : ''}`}
+            onClick={() => setTab(value)}
+          >
+            {label}
+          </button>
+        ))}
+        <div className="tabbar-right">
+          {waitingSides.length > 0 && tab !== 'OPERATION' && (
+            <button type="button" className="tag warn" onClick={() => setTab('OPERATION')}>
+              미제출 {waitingSides.length}
             </button>
-            <button
-              type="button"
-              className="ctl small"
-              onClick={() => update(admin.setBattleStatus(battle, 'CLEARED'))}
-            >
-              END · CLEARED
-            </button>
-            <button
-              type="button"
-              className="ctl small"
-              onClick={() => update(admin.setBattleStatus(battle, 'FAILED'))}
-            >
-              END · FAILED
-            </button>
-          </div>
+          )}
+          <a className="ctl small" href={terminalUrl()}>
+            참가자 단말 →
+          </a>
         </div>
-        <div className="session-row">
-          <span className="field-label">DATA</span>
-          <div className="btn-row">
+      </nav>
+
+      {message && <p className="notice ok">{message}</p>}
+      {access === 'LOCAL' && (
+        <p className="notice warn">
+          LOCAL MODE — 서버에 연결되지 않아 인증 없이 열려 있습니다. 공개 배포 시에는 반드시 서버
+          모드로 전환하세요.
+        </p>
+      )}
+
+      {/* ══════════ 편성 ══════════ */}
+      {tab === 'ROSTER' && (
+        <>
+          <section className="panel">
+            <div className="process-head">
+              <h2 className="panel-title">새 편성</h2>
+              <span className="hint">
+                페어는 한 번 맺으면 공략 내내 유지됩니다. 전투마다 다시 짝을 짓지 않습니다.
+              </span>
+            </div>
+            <div className="pairing-row">
+              <label className="num-field">
+                <span className="field-label">헌터</span>
+                <select
+                  className="ctl input"
+                  value={pairingHunter}
+                  onChange={(event) => setPairingHunter(event.target.value)}
+                >
+                  <option value="">선택…</option>
+                  {profiles
+                    .filter((row) => row.side === 'HUNTER')
+                    .map((row) => {
+                      const bonded = activeBonds.some((b) => b.hunterAccountId === row.accountId);
+                      return (
+                        <option key={row.accountId} value={row.accountId} disabled={bonded}>
+                          {row.name} · {row.accountId}
+                          {bonded ? ' (편성됨)' : ''}
+                        </option>
+                      );
+                    })}
+                </select>
+              </label>
+              <span className="pairing-x">×</span>
+              <label className="num-field">
+                <span className="field-label">성좌</span>
+                <select
+                  className="ctl input"
+                  value={pairingConstellation}
+                  onChange={(event) => setPairingConstellation(event.target.value)}
+                >
+                  <option value="">선택…</option>
+                  {profiles
+                    .filter((row) => row.side === 'CONSTELLATION')
+                    .map((row) => {
+                      const bonded = activeBonds.some(
+                        (b) => b.constellationAccountId === row.accountId,
+                      );
+                      return (
+                        <option key={row.accountId} value={row.accountId} disabled={bonded}>
+                          {row.name} · {row.accountId}
+                          {bonded ? ' (편성됨)' : ''}
+                        </option>
+                      );
+                    })}
+                </select>
+              </label>
+              <button type="button" className="ctl primary" onClick={() => void createBond()}>
+                계약 성립
+              </button>
+            </div>
+            {unpaired.length > 0 && (
+              <p className="hint">
+                미편성 참가자 {unpaired.length}명 —{' '}
+                {unpaired.map((row) => `${row.name}(${row.side === 'HUNTER' ? '헌터' : '성좌'})`).join(', ')}
+              </p>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2 className="panel-title">편성 명부</h2>
+            {activeBonds.length === 0 ? (
+              <p className="dim">편성된 페어가 없습니다.</p>
+            ) : (
+              <div className="bond-list">
+                {activeBonds.map((bond) => (
+                  <article className="bond-card" key={bond.id}>
+                    <div className="bond-head">
+                      <b>{bond.label}</b>
+                      <span className={`tag ${bond.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
+                        {bond.affiliation === 'GOVERNMENT' ? 'GOVERNMENT' : 'PRIVATE GUILD'}
+                      </span>
+                    </div>
+                    <div className="bond-body">
+                      <div>
+                        <span className="field-label">HUNTER</span>
+                        <b>{bond.hunterName}</b>
+                        <small className="dim">{bond.hunterAccountId}</small>
+                      </div>
+                      <span className="bond-link" aria-hidden="true">
+                        ✦
+                      </span>
+                      <div>
+                        <span className="field-label">CONSTELLATION</span>
+                        <b>{bond.constellationName}</b>
+                        <small className="dim">{bond.constellationAccountId}</small>
+                      </div>
+                    </div>
+                    <div className="bond-foot">
+                      <TextField
+                        label="표기명"
+                        value={bond.label}
+                        onCommit={(value) => void patchBond(bond, { label: value })}
+                      />
+                      <label className="num-field">
+                        <span className="field-label">소속</span>
+                        <select
+                          className="ctl input"
+                          value={bond.affiliation}
+                          onChange={(event) =>
+                            void patchBond(bond, {
+                              affiliation: event.target.value as PairBond['affiliation'],
+                            })
+                          }
+                        >
+                          <option value="GOVERNMENT">GOVERNMENT · 정부</option>
+                          <option value="PRIVATE_GUILD">PRIVATE GUILD · 민간 길드</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="ctl small"
+                        onClick={() => void patchBond(bond, { active: false })}
+                        title="기록은 남고 편성에서만 제외됩니다"
+                      >
+                        해산
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            {bonds.some((row) => !row.active) && (
+              <Collapsible label={`해산된 페어 ${bonds.filter((r) => !r.active).length}`}>
+                <div className="bond-list">
+                  {bonds
+                    .filter((row) => !row.active)
+                    .map((bond) => (
+                      <article className="bond-card dim-card" key={bond.id}>
+                        <div className="bond-head">
+                          <b>{bond.label}</b>
+                          <span className="tag offline">해산</span>
+                        </div>
+                        <p className="dim">
+                          {bond.hunterName} × {bond.constellationName}
+                        </p>
+                        <div className="btn-row">
+                          <button
+                            type="button"
+                            className="ctl small"
+                            onClick={() => void patchBond(bond, { active: true })}
+                          >
+                            복원
+                          </button>
+                          <button
+                            type="button"
+                            className="ctl small"
+                            onClick={async () => {
+                              await storage.deleteBond(bond.id);
+                              await refresh();
+                            }}
+                          >
+                            영구 삭제
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              </Collapsible>
+            )}
+          </section>
+        </>
+      )}
+
+      {/* ══════════ 적 세팅 ══════════ */}
+      {tab === 'ENCOUNTER' && (
+        <section className="panel">
+          <div className="process-head">
+            <h2 className="panel-title">적 목록</h2>
+            <div className="btn-row">
+              <button type="button" className="ctl primary" onClick={() => void addTemplate(true)}>
+                + 보스 추가
+              </button>
+              <button type="button" className="ctl" onClick={() => void addTemplate(false)}>
+                + 일반 몬스터 추가
+              </button>
+            </div>
+          </div>
+
+          {templates.length === 0 ? (
+            <p className="dim">등록된 적이 없습니다. 위 버튼으로 추가하세요.</p>
+          ) : (
+            <div className="enemy-list">
+              {templates.map((template) => (
+                <article className={`enemy-card ${template.boss ? 'boss' : ''}`} key={template.id}>
+                  <div className="enemy-card-head">
+                    <span className={`tag ${template.boss ? 'critical' : ''}`}>
+                      {template.boss ? 'BOSS' : 'NORMAL'}
+                    </span>
+                    <b>{template.name}</b>
+                    <button
+                      type="button"
+                      className="ctl small"
+                      onClick={async () => {
+                        await storage.deleteEnemyTemplate(template.id);
+                        await refresh();
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="admin-grid">
+                    <TextField
+                      label="이름"
+                      value={template.name}
+                      onCommit={(value) => void patchTemplate(template, { name: value })}
+                    />
+                    <TextField
+                      label="등급 표기"
+                      value={template.grade}
+                      onCommit={(value) => void patchTemplate(template, { grade: value })}
+                      placeholder="BOSS / A"
+                    />
+                    <NumberField
+                      label="최대 HP"
+                      value={template.maxHp}
+                      min={1}
+                      step={10}
+                      onCommit={(value) => void patchTemplate(template, { maxHp: value })}
+                    />
+                    <NumberField
+                      label="공격력"
+                      value={template.attack}
+                      onCommit={(value) => void patchTemplate(template, { attack: value })}
+                    />
+                    <NumberField
+                      label="방어력"
+                      value={template.defense}
+                      onCommit={(value) => void patchTemplate(template, { defense: value })}
+                    />
+                    <NumberField
+                      label="페이즈 수"
+                      value={template.maxPhase}
+                      min={1}
+                      max={5}
+                      onCommit={(value) => void patchTemplate(template, { maxPhase: value })}
+                    />
+                    <label className="num-field">
+                      <span className="field-label">패턴 세트</span>
+                      <select
+                        className="ctl input"
+                        value={template.patternSetId ?? ''}
+                        onChange={(event) =>
+                          void patchTemplate(template, { patternSetId: event.target.value || null })
+                        }
+                      >
+                        <option value="">없음 (단일 공격만)</option>
+                        {PATTERN_SETS.map((set) => (
+                          <option key={set.id} value={set.id}>
+                            {set.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="num-field">
+                      <span className="field-label">보스 여부</span>
+                      <select
+                        className="ctl input"
+                        value={template.boss ? 'YES' : 'NO'}
+                        onChange={(event) =>
+                          void patchTemplate(template, { boss: event.target.value === 'YES' })
+                        }
+                      >
+                        <option value="YES">보스</option>
+                        <option value="NO">일반</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ══════════ 전투 ══════════ */}
+      {tab === 'OPERATION' && !battle && (
+        <section className="panel">
+          <div className="process-head">
+            <h2 className="panel-title">전투 편성</h2>
+            <span className="hint">등록된 페어 중 참가자를 고르고 적을 배치합니다.</span>
+          </div>
+
+          <h3 className="sub-title">참가 페어 ({selectedBonds.length})</h3>
+          {activeBonds.length === 0 ? (
+            <p className="dim">
+              편성된 페어가 없습니다. <b>편성</b> 탭에서 먼저 짝을 맺으세요.
+            </p>
+          ) : (
+            <div className="pick-grid">
+              {activeBonds.map((bond) => (
+                <button
+                  key={bond.id}
+                  type="button"
+                  className={`pick-card ${selectedBonds.includes(bond.id) ? 'on' : ''}`}
+                  onClick={() =>
+                    setSelectedBonds((current) =>
+                      current.includes(bond.id)
+                        ? current.filter((id) => id !== bond.id)
+                        : [...current, bond.id],
+                    )
+                  }
+                >
+                  <b>{bond.label}</b>
+                  <span className="dim">
+                    {bond.hunterName} × {bond.constellationName}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <h3 className="sub-title">배치 적 ({selectedEnemies.length})</h3>
+          {templates.length === 0 ? (
+            <p className="dim">
+              등록된 적이 없습니다. <b>적 세팅</b> 탭에서 먼저 만드세요.
+            </p>
+          ) : (
+            <div className="pick-grid">
+              {templates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={`pick-card ${selectedEnemies.includes(template.id) ? 'on' : ''} ${
+                    template.boss ? 'boss' : ''
+                  }`}
+                  onClick={() =>
+                    setSelectedEnemies((current) =>
+                      current.includes(template.id)
+                        ? current.filter((id) => id !== template.id)
+                        : [...current, template.id],
+                    )
+                  }
+                >
+                  <b>{template.name}</b>
+                  <span className="dim">
+                    HP {template.maxHp} · ATK {template.attack} · DEF {template.defense}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <h3 className="sub-title">층 설정</h3>
+          <div className="admin-grid">
+            <NumberField label="층" value={floor} min={1} onCommit={setFloor} />
+            <label className="num-field">
+              <span className="field-label">기믹</span>
+              <select
+                className="ctl input"
+                value={gimmickId}
+                onChange={(event) => setGimmickId(event.target.value)}
+              >
+                <option value="">없음</option>
+                {GIMMICK_DEFINITIONS.map((def) => (
+                  <option key={def.id} value={def.id}>
+                    {def.labelKo} · {def.required}회 / {def.roundLimit ?? '∞'}R
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <button type="button" className="confirm-btn" onClick={() => void startOperation()}>
+            START OPERATION
+            <small>
+              {selectedBonds.length}페어 · 적 {selectedEnemies.length}체 · FLOOR {floor}
+            </small>
+          </button>
+
+          {battles.length > 0 && (
+            <Collapsible label={`저장된 전투 ${battles.length}`}>
+              <table className="preview-table">
+                <tbody>
+                  {battles.map((row) => (
+                    <tr key={row.id}>
+                      <td className="dim small-text">{row.id}</td>
+                      <td>{row.mode}</td>
+                      <td className="num">R{row.round}</td>
+                      <td>
+                        <span className={`tag ${row.status === 'ENGAGED' ? 'ok' : 'warn'}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="ctl small"
+                          onClick={async () => {
+                            const loaded = await storage.loadBattle(row.id);
+                            if (loaded) update(loaded);
+                            else setMessage('불러올 수 없습니다 (스키마 버전 불일치).');
+                          }}
+                        >
+                          열기
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Collapsible>
+          )}
+
+          <div className="btn-row" style={{ marginTop: 14 }}>
             <button type="button" className="ctl small" onClick={() => void exportJson()}>
               EXPORT JSON
             </button>
             <button type="button" className="ctl small" onClick={() => fileInput.current?.click()}>
               IMPORT JSON
             </button>
-            <button
-              type="button"
-              className="ctl small"
-              onClick={() => {
-                setBattle(null);
-                void refreshList();
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/json"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importJson(file);
+                event.target.value = '';
               }}
-            >
-              CLOSE OPERATION
-            </button>
-            <button type="button" className="ctl small" onClick={() => update(admin.addPresetPair(battle))}>
-              + ADD PAIR
-            </button>
-            <a className="ctl small" href={terminalUrl()}>
-              참가자 단말 →
-            </a>
-          </div>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="application/json"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void importJson(file);
-              event.target.value = '';
-            }}
-          />
-        </div>
-      </section>
-
-      {/* ── 타깃 상황판 ── */}
-      <section className="panel">
-        <h2 className="panel-title">TARGET STATUS</h2>
-        <div className="target-grid">
-          {battle.enemies.map((enemy) => (
-            <article key={enemy.id} className={`target ${enemy.boss ? 'boss' : ''}`}>
-              <div className="target-head">
-                <span className="grade">{enemy.grade}</span>
-                <b>{enemy.name}</b>
-              </div>
-              <div className="admin-grid">
-                <NumberField
-                  label="HP"
-                  value={enemy.hp}
-                  max={enemy.maxHp}
-                  onCommit={(value) => update(admin.setEnemyHp(battle, enemy.id, value))}
-                />
-                <NumberField
-                  label="MAX HP"
-                  value={enemy.maxHp}
-                  min={1}
-                  onCommit={(value) => update(admin.setEnemyStats(battle, enemy.id, { maxHp: value }))}
-                />
-                <NumberField
-                  label="ATK"
-                  value={enemy.attack}
-                  onCommit={(value) => update(admin.setEnemyStats(battle, enemy.id, { attack: value }))}
-                />
-                <NumberField
-                  label="DEF"
-                  value={enemy.defense}
-                  onCommit={(value) => update(admin.setEnemyStats(battle, enemy.id, { defense: value }))}
-                />
-                <NumberField
-                  label="PHASE"
-                  value={enemy.phase}
-                  min={1}
-                  max={enemy.maxPhase}
-                  onCommit={(value) => update(admin.setEnemyPhase(battle, enemy.id, value))}
-                />
-              </div>
-
-              <div className="target-status">
-                <span className="field-label">STATUS</span>
-              </div>
-              <StatusEditor
-                holder="ENEMY"
-                ownerId={enemy.id}
-                statuses={enemy.statuses}
-                onGrant={(holder, ownerId, defId) => update(admin.grantStatus(battle, holder, ownerId, defId))}
-                onRevoke={(holder, ownerId, defId) => update(admin.revokeStatus(battle, holder, ownerId, defId))}
-              />
-
-              <div className="admin-only">
-                <span className="field-label">ADMIN ONLY · NEXT PATTERN</span>
-                <b className="gold">{nextPatternAdmin(enemy, battle.round)}</b>
-                {enemy.telegraph && (
-                  <>
-                    <span className="tag critical">
-                      TELEGRAPH {Math.max(0, enemy.telegraph.roundsLeft)}R
-                    </span>
-                    <button
-                      type="button"
-                      className="ctl small"
-                      onClick={() => update(admin.clearTelegraph(battle, enemy.id))}
-                    >
-                      CANCEL
-                    </button>
-                  </>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-
-        {battle.gimmick && (
-          <div className="admin-gimmick">
-            <span className="field-label">GIMMICK</span>
-            <b>{battle.gimmick.label}</b>
-            <span className="num">
-              {battle.gimmick.progress} / {battle.gimmick.required}
-            </span>
-            <span
-              className={`tag ${
-                battle.gimmick.status === 'CLEARED'
-                  ? 'ok'
-                  : battle.gimmick.status === 'FAILED'
-                    ? 'critical'
-                    : 'warn'
-              }`}
-            >
-              {battle.gimmick.status}
-            </span>
-            <NumberField
-              label="PROGRESS"
-              value={battle.gimmick.progress}
-              onCommit={(value) => update(admin.setGimmickProgress(battle, value))}
             />
-            <select
-              className="ctl"
-              value={battle.gimmick.status}
-              onChange={(event) =>
-                update(admin.setGimmickStatus(battle, event.target.value as 'ACTIVE'))
-              }
-            >
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="CLEARED">CLEARED</option>
-              <option value="FAILED">FAILED</option>
-            </select>
-            <select
-              className="ctl"
-              value={battle.gimmick.defId}
-              onChange={(event) => update(admin.setGimmick(battle, event.target.value || null))}
-            >
-              {GIMMICK_DEFINITIONS.map((def) => (
-                <option key={def.id} value={def.id}>
-                  {def.label} · {def.labelKo}
-                </option>
-              ))}
-              <option value="">NONE</option>
-            </select>
           </div>
-        )}
-      </section>
-
-      {/* ── 페어 편성 ── */}
-      <section className="panel">
-        <div className="process-head">
-          <h2 className="panel-title">PAIRING</h2>
-          <span className="hint">
-            짝을 맺는 권한은 운영진에게 있습니다. 1인 = 1캐릭터이므로 같은 참가자를 양쪽에 넣을 수 없습니다.
-          </span>
-        </div>
-        <div className="pairing-row">
-          <label className="num-field">
-            <span className="field-label">HUNTER 참가자</span>
-            <select
-              className="ctl input"
-              value={pairingHunter}
-              onChange={(event) => setPairingHunter(event.target.value)}
-            >
-              <option value="">— 프리셋 NPC —</option>
-              {profiles
-                .filter((profile) => profile.side === 'HUNTER')
-                .map((profile) => (
-                  <option key={profile.accountId} value={profile.accountId}>
-                    {profile.name} · {profile.accountId}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <span className="pairing-x">×</span>
-          <label className="num-field">
-            <span className="field-label">CONSTELLATION 참가자</span>
-            <select
-              className="ctl input"
-              value={pairingConstellation}
-              onChange={(event) => setPairingConstellation(event.target.value)}
-            >
-              <option value="">— 프리셋 NPC —</option>
-              {profiles
-                .filter((profile) => profile.side === 'CONSTELLATION')
-                .map((profile) => (
-                  <option key={profile.accountId} value={profile.accountId}>
-                    {profile.name} · {profile.accountId}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <button type="button" className="ctl primary" onClick={() => void addPairing()}>
-            + 페어 편성
-          </button>
-        </div>
-        <p className="hint">
-          등록된 참가자 {profiles.length}명 · 헌터{' '}
-          {profiles.filter((p) => p.side === 'HUNTER').length} / 성좌{' '}
-          {profiles.filter((p) => p.side === 'CONSTELLATION').length}
-        </p>
-      </section>
-
-      {/* ── 이탈자 처리 ── */}
-      {notSubmitted > 0 && (
-        <section className="panel desertion">
-          <div className="process-head">
-            <h2 className="panel-title">UNSUBMITTED · {notSubmitted}</h2>
-            <button
-              type="button"
-              className="ctl primary"
-              onClick={() => update(admin.forceAutoForUnsubmitted(battle))}
-            >
-              전원 자동 위임
-            </button>
-          </div>
-          <div className="desertion-list">
-            {waitingSides.map((row) => (
-              <div className="desertion-row" key={`${row.pairId}-${row.side}`}>
-                <b>{row.label}</b>
-                <span className={`tag ${row.side === 'HUNTER' ? 'blue' : 'gold'}`}>{row.side}</span>
-                <span className="tag warn">WAITING</span>
-                <button
-                  type="button"
-                  className="ctl small"
-                  onClick={() => update(admin.forceControl(battle, row.pairId, row.side, 'AUTO'))}
-                >
-                  강제 AUTO
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="hint">
-            이탈이 확인된 쪽을 자동 행동으로 돌리면 남은 참가자만으로 라운드를 진행할 수 있습니다.
-          </p>
         </section>
       )}
 
-      {/* ── 페어 모니터 ── */}
-      <section className="panel">
-        <div className="process-head">
-          <h2 className="panel-title">PAIR MONITOR</h2>
-          <div className="btn-row">
-            {(
-              [
-                ['ALL', 'ALL'],
-                ['GOVERNMENT', 'GOV'],
-                ['GUILD', 'GUILD'],
-                ['INJURED', `INJURED ${injured}`],
-                ['DOWN', `DOWN ${down}`],
-                ['NOT_SUBMITTED', `NOT SUBMITTED ${notSubmitted}`],
-              ] as Array<[PairFilter, string]>
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={`ctl small ${filter === value ? 'on' : ''}`}
-                onClick={() => setFilter(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+      {tab === 'OPERATION' && battle && (
+        <>
+          {/* 전투 제어 */}
+          <section className="panel session">
+            <div className="session-row">
+              <span className={`tag ${battle.status === 'ENGAGED' ? 'ok' : 'warn'}`}>
+                {battle.status}
+              </span>
+              <NumberField
+                label="ROUND"
+                value={battle.round}
+                min={1}
+                onCommit={(value) => update(admin.setRound(battle, value))}
+              />
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="ctl small"
+                  onClick={() => update(admin.setBattleStatus(battle, 'CLEARED'))}
+                >
+                  종료 · 클리어
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  onClick={() => update(admin.setBattleStatus(battle, 'FAILED'))}
+                >
+                  종료 · 실패
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  onClick={() => update(admin.resetAllSubmissions(battle))}
+                >
+                  제출 초기화
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  onClick={() => {
+                    setBattle(null);
+                    setPreview(null);
+                    void refresh();
+                  }}
+                >
+                  전투 닫기
+                </button>
+              </div>
+            </div>
+          </section>
 
-        <div className="monitor-grid">
-          {filtered.map((pair) => {
-            const injury = injuryOf(pair.hunter);
-            const hunterReady =
-              pair.submission.hunterSubmitted || pair.hunter.control === 'AUTO';
-            const constellationReady =
-              pair.submission.constellationSubmitted || pair.constellation.control === 'AUTO';
-            const state =
-              pair.hunter.hp <= 0
-                ? 'DOWN'
-                : hunterReady && constellationReady
-                  ? 'READY'
-                  : 'WAITING';
-
-            return (
-              <article key={pair.id} className="monitor-card">
-                <header className="monitor-head">
-                  <div>
-                    <b>{pair.label}</b>
-                    <span className={`tag ${pair.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
-                      {pair.affiliation === 'GOVERNMENT' ? 'GOVERNMENT' : 'PRIVATE GUILD'}
-                    </span>
-                  </div>
-                  <div className="btn-row">
-                    <span
-                      className={`tag ${
-                        state === 'WAITING' ? 'warn' : state === 'DOWN' ? 'offline' : 'ok'
-                      }`}
-                    >
-                      {state}
+          {/* 이탈자 */}
+          {waitingSides.length > 0 && (
+            <section className="panel desertion">
+              <div className="process-head">
+                <h2 className="panel-title">미제출 · {waitingSides.length}</h2>
+                <button
+                  type="button"
+                  className="ctl primary"
+                  onClick={() => update(admin.forceAutoForUnsubmitted(battle))}
+                >
+                  전원 자동 위임
+                </button>
+              </div>
+              <div className="desertion-list">
+                {waitingSides.map((row) => (
+                  <div className="desertion-row" key={`${row.pairId}-${row.side}`}>
+                    <b>{row.label}</b>
+                    <span className={`tag ${row.side === 'HUNTER' ? 'blue' : 'gold'}`}>
+                      {row.side === 'HUNTER' ? '헌터' : '성좌'}
                     </span>
                     <button
                       type="button"
                       className="ctl small"
-                      onClick={() => update(admin.resetSubmission(battle, pair.id))}
+                      onClick={() => update(admin.forceControl(battle, row.pairId, row.side, 'AUTO'))}
                     >
-                      RESET
+                      강제 AUTO
                     </button>
-                    {battle.pairs.length > 1 && (
-                      <button
-                        type="button"
-                        className="ctl small"
-                        onClick={() => update(admin.removePair(battle, pair.id))}
-                      >
-                        ✕
-                      </button>
-                    )}
                   </div>
-                </header>
+                ))}
+              </div>
+            </section>
+          )}
 
-                {/* 헌터 */}
-                <div className="monitor-actor">
-                  <div className="monitor-actor-head">
-                    <span className="field-label">HUNTER</span>
-                    <b>{pair.hunter.name}</b>
-                    <span className={`tag ${injury.tone}`}>{injury.label}</span>
+          {/* 적 상황판 */}
+          <section className="panel">
+            <h2 className="panel-title">TARGET STATUS</h2>
+            <div className="target-grid">
+              {battle.enemies.map((enemy) => (
+                <article key={enemy.id} className={`target ${enemy.boss ? 'boss' : ''}`}>
+                  <div className="target-head">
+                    <span className="grade">{enemy.grade}</span>
+                    <b>{enemy.name}</b>
                   </div>
-                  <div className="admin-grid">
-                    <NumberField
-                      label="HP"
-                      value={pair.hunter.hp}
-                      max={pair.hunter.maxHp}
-                      onCommit={(value) => update(admin.setHunterHp(battle, pair.id, value))}
-                    />
-                    <NumberField
-                      label="MAX HP"
-                      value={pair.hunter.maxHp}
-                      min={1}
-                      onCommit={(value) => update(admin.setHunterMaxHp(battle, pair.id, value))}
-                    />
-                    <NumberField
-                      label="AP"
-                      value={pair.hunter.ap}
-                      max={99}
-                      onCommit={(value) => update(admin.setActorAp(battle, pair.id, 'HUNTER', value))}
-                    />
-                    <NumberField
-                      label="MAX AP"
-                      value={pair.hunter.maxAp}
-                      onCommit={(value) => update(admin.setActorMaxAp(battle, pair.id, 'HUNTER', value))}
-                    />
-                    <NumberField
-                      label="ATK"
-                      value={pair.hunter.attack}
-                      onCommit={(value) => update(admin.setHunterStats(battle, pair.id, { attack: value }))}
-                    />
-                    <NumberField
-                      label="DEF"
-                      value={pair.hunter.defense}
-                      onCommit={(value) => update(admin.setHunterStats(battle, pair.id, { defense: value }))}
-                    />
+                  <Bar
+                    value={enemy.hp}
+                    max={enemy.maxHp}
+                    tone={enemy.hp / enemy.maxHp < 0.3 ? 'critical' : 'danger'}
+                  />
+                  <div className="stat-strip">
+                    <span>
+                      <i>HP</i>
+                      <b className="num">
+                        {enemy.hp}
+                        <small>/{enemy.maxHp}</small>
+                      </b>
+                    </span>
+                    <span>
+                      <i>ATK</i>
+                      <b className="num">{enemy.attack}</b>
+                    </span>
+                    <span>
+                      <i>DEF</i>
+                      <b className="num">{enemy.defense}</b>
+                    </span>
+                    <span>
+                      <i>PHASE</i>
+                      <b className="num">
+                        {enemy.phase}
+                        <small>/{enemy.maxPhase}</small>
+                      </b>
+                    </span>
                   </div>
                   <StatusEditor
-                    holder="HUNTER"
-                    ownerId={pair.id}
-                    statuses={pair.hunter.statuses}
-                    onGrant={(holder, ownerId, defId) => update(admin.grantStatus(battle, holder, ownerId, defId))}
-                    onRevoke={(holder, ownerId, defId) => update(admin.revokeStatus(battle, holder, ownerId, defId))}
+                    holder="ENEMY"
+                    ownerId={enemy.id}
+                    statuses={enemy.statuses}
+                    onGrant={(h, o, d) => update(admin.grantStatus(battle, h, o, d))}
+                    onRevoke={(h, o, d) => update(admin.revokeStatus(battle, h, o, d))}
                   />
-                  {pair.hunter.skills.length > 0 && (
-                    <ul className="admin-skills">
-                      {pair.hunter.skills.map((skill) => (
-                        <li key={skill.id}>
-                          <b>{skill.name}</b>
-                          <NumberField
-                            label="POWER"
-                            value={skill.power}
-                            step={0.1}
-                            onCommit={(value) =>
-                              update(admin.patchSkill(battle, pair.id, 'HUNTER', skill.id, { power: value }))
-                            }
-                          />
-                          <NumberField
-                            label="CD"
-                            value={skill.currentCooldown}
-                            onCommit={(value) =>
-                              update(
-                                admin.patchSkill(battle, pair.id, 'HUNTER', skill.id, {
-                                  currentCooldown: value,
-                                }),
-                              )
-                            }
-                          />
-                          {skill.remainingUses !== null && (
-                            <NumberField
-                              label="USES"
-                              value={skill.remainingUses}
-                              onCommit={(value) =>
-                                update(
-                                  admin.patchSkill(battle, pair.id, 'HUNTER', skill.id, {
-                                    remainingUses: value,
-                                  }),
-                                )
-                              }
-                            />
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                {/* 성좌 */}
-                <div className="monitor-actor">
-                  <div className="monitor-actor-head">
-                    <span className="field-label">CONSTELLATION</span>
-                    <b>{pair.constellation.name}</b>
-                  </div>
-                  <div className="admin-grid">
-                    <NumberField
-                      label="AP"
-                      value={pair.constellation.ap}
-                      onCommit={(value) => update(admin.setActorAp(battle, pair.id, 'CONSTELLATION', value))}
-                    />
-                    <NumberField
-                      label="MAX AP"
-                      value={pair.constellation.maxAp}
-                      onCommit={(value) =>
-                        update(admin.setActorMaxAp(battle, pair.id, 'CONSTELLATION', value))
-                      }
-                    />
-                    <NumberField
-                      label="POWER"
-                      value={pair.constellation.power}
-                      step={0.01}
-                      onCommit={(value) => update(admin.setConstellationPower(battle, pair.id, value))}
-                    />
-                    <NumberField
-                      label="MANIFEST"
-                      value={pair.constellation.manifestUses.partial ?? 0}
-                      onCommit={(value) => update(admin.setManifestUses(battle, pair.id, { partial: value }))}
-                    />
-                    <NumberField
-                      label="FULL"
-                      value={pair.constellation.manifestUses.full ?? 0}
-                      onCommit={(value) => update(admin.setManifestUses(battle, pair.id, { full: value }))}
-                    />
-                    <NumberField
-                      label="POINT"
-                      value={pair.points}
-                      step={10}
-                      onCommit={(value) => update(admin.setPairPoints(battle, pair.id, value))}
-                    />
-                  </div>
-                  <div className="admin-grid">
-                    <label className="num-field">
-                      <span className="field-label">EXISTENCE</span>
-                      <select
-                        className="ctl input"
-                        value={pair.constellation.stage}
-                        onChange={(event) =>
-                          update(
-                            admin.setConstellationStage(
-                              battle,
-                              pair.id,
-                              event.target.value as ConstellationStage,
-                            ),
-                          )
-                        }
-                      >
-                        {Object.entries(CONSTELLATION_STAGES).map(([key, def]) => (
-                          <option key={key} value={key}>
-                            {def.label} · {def.labelKo}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="num-field">
-                      <span className="field-label">CONTRACT</span>
-                      <select
-                        className="ctl input"
-                        value={pair.contract.stage}
-                        onChange={(event) =>
-                          update(
-                            admin.setContract(battle, pair.id, {
-                              stage: event.target.value as ContractStage,
-                            }),
-                          )
-                        }
-                      >
-                        {Object.entries(CONTRACT_STAGES).map(([key, def]) => (
-                          <option key={key} value={key}>
-                            {def.label} · {def.labelKo}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <NumberField
-                      label="LINK"
-                      value={pair.contract.value}
-                      max={100}
-                      onCommit={(value) => update(admin.setContract(battle, pair.id, { value }))}
-                    />
-                  </div>
-                  <StatusEditor
-                    holder="CONSTELLATION"
-                    ownerId={pair.id}
-                    statuses={pair.constellation.statuses}
-                    onGrant={(holder, ownerId, defId) => update(admin.grantStatus(battle, holder, ownerId, defId))}
-                    onRevoke={(holder, ownerId, defId) => update(admin.revokeStatus(battle, holder, ownerId, defId))}
-                  />
-                </div>
-
-                <div className="monitor-submission">
-                  {(['HUNTER', 'CONSTELLATION'] as ActorSide[]).map((side) => {
-                    const control =
-                      side === 'HUNTER' ? pair.hunter.control : pair.constellation.control;
-                    const submitted =
-                      side === 'HUNTER'
-                        ? pair.submission.hunterSubmitted
-                        : pair.submission.constellationSubmitted;
-                    const accountId =
-                      side === 'HUNTER' ? pair.hunterAccountId : pair.constellationAccountId;
-                    const actionId =
-                      side === 'HUNTER'
-                        ? pair.submission.hunterActionId
-                        : pair.submission.constellationActionId;
-
-                    return (
-                      <div className="submission-row" key={side}>
-                        <span className={`tag ${side === 'HUNTER' ? 'blue' : 'gold'}`}>{side}</span>
-                        <select
-                          className="ctl small"
-                          value={accountId ?? ''}
-                          onChange={(event) =>
-                            update(
-                              admin.assignAccount(battle, pair.id, side, event.target.value || null),
-                            )
-                          }
-                        >
-                          <option value="">— NPC —</option>
-                          {profiles
-                            .filter((profile) => profile.side === side)
-                            .map((profile) => (
-                              <option key={profile.accountId} value={profile.accountId}>
-                                {profile.accountId}
-                              </option>
-                            ))}
-                        </select>
-                        <span className="dim small-text">{actionId ?? '미선택'}</span>
-                        <span className={`tag ${submitted ? 'ok' : 'warn'}`}>
-                          {submitted ? 'SUBMITTED' : 'WAITING'}
+                  <div className="admin-only">
+                    <span className="field-label">운영진 전용 · 다음 패턴</span>
+                    <b className="gold">{nextPatternAdmin(enemy, battle.round)}</b>
+                    {enemy.telegraph && (
+                      <>
+                        <span className="tag critical">
+                          예고 {Math.max(0, enemy.telegraph.roundsLeft)}R
                         </span>
                         <button
                           type="button"
-                          className={`ctl small ${control === 'AUTO' ? 'on' : ''}`}
-                          onClick={() =>
-                            update(
-                              admin.forceControl(
-                                battle,
-                                pair.id,
-                                side,
-                                control === 'AUTO' ? 'ACTIVE' : 'AUTO',
-                              ),
-                            )
-                          }
+                          className="ctl small"
+                          onClick={() => update(admin.clearTelegraph(battle, enemy.id))}
                         >
-                          {control === 'AUTO' ? 'AUTO 해제' : '강제 AUTO'}
+                          취소
                         </button>
+                      </>
+                    )}
+                  </div>
+                  <Collapsible label="수치 편집">
+                    <div className="admin-grid">
+                      <NumberField
+                        label="HP"
+                        value={enemy.hp}
+                        max={enemy.maxHp}
+                        onCommit={(value) => update(admin.setEnemyHp(battle, enemy.id, value))}
+                      />
+                      <NumberField
+                        label="MAX HP"
+                        value={enemy.maxHp}
+                        min={1}
+                        onCommit={(value) =>
+                          update(admin.setEnemyStats(battle, enemy.id, { maxHp: value }))
+                        }
+                      />
+                      <NumberField
+                        label="ATK"
+                        value={enemy.attack}
+                        onCommit={(value) =>
+                          update(admin.setEnemyStats(battle, enemy.id, { attack: value }))
+                        }
+                      />
+                      <NumberField
+                        label="DEF"
+                        value={enemy.defense}
+                        onCommit={(value) =>
+                          update(admin.setEnemyStats(battle, enemy.id, { defense: value }))
+                        }
+                      />
+                      <NumberField
+                        label="PHASE"
+                        value={enemy.phase}
+                        min={1}
+                        max={enemy.maxPhase}
+                        onCommit={(value) => update(admin.setEnemyPhase(battle, enemy.id, value))}
+                      />
+                    </div>
+                  </Collapsible>
+                </article>
+              ))}
+            </div>
+
+            {battle.gimmick && (
+              <div className="admin-gimmick">
+                <span className="field-label">기믹</span>
+                <b>{battle.gimmick.labelKo}</b>
+                <span className="num">
+                  {battle.gimmick.progress} / {battle.gimmick.required}
+                </span>
+                <span
+                  className={`tag ${
+                    battle.gimmick.status === 'CLEARED'
+                      ? 'ok'
+                      : battle.gimmick.status === 'FAILED'
+                        ? 'critical'
+                        : 'warn'
+                  }`}
+                >
+                  {battle.gimmick.status}
+                </span>
+                <span className="num dim">
+                  {battle.gimmick.roundsLeft === null ? '제한 없음' : `${battle.gimmick.roundsLeft}R 남음`}
+                </span>
+                <NumberField
+                  label="진행"
+                  value={battle.gimmick.progress}
+                  onCommit={(value) => update(admin.setGimmickProgress(battle, value))}
+                />
+                <select
+                  className="ctl"
+                  value={battle.gimmick.status}
+                  onChange={(event) =>
+                    update(admin.setGimmickStatus(battle, event.target.value as 'ACTIVE'))
+                  }
+                >
+                  <option value="ACTIVE">진행 중</option>
+                  <option value="CLEARED">해제</option>
+                  <option value="FAILED">실패</option>
+                </select>
+              </div>
+            )}
+          </section>
+
+          {/* 페어 모니터 */}
+          <section className="panel">
+            <div className="process-head">
+              <h2 className="panel-title">PAIR MONITOR</h2>
+              <div className="btn-row">
+                {(
+                  [
+                    ['ALL', '전체'],
+                    ['GOVERNMENT', '정부'],
+                    ['GUILD', '길드'],
+                    ['INJURED', `부상 ${injured}`],
+                    ['DOWN', `전투불능 ${down}`],
+                    ['NOT_SUBMITTED', `미제출 ${waitingSides.length}`],
+                  ] as Array<[PairFilter, string]>
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`ctl small ${filter === value ? 'on' : ''}`}
+                    onClick={() => setFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="monitor-grid">
+              {filteredPairs.map((pair) => {
+                const injury = injuryOf(pair.hunter);
+                const ready = pairReady(pair);
+
+                return (
+                  <article key={pair.id} className={`monitor-card ${ready ? 'ready' : ''}`}>
+                    <header className="monitor-head">
+                      <div>
+                        <b>{pair.label}</b>
+                        <span className={`tag ${pair.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
+                          {pair.affiliation === 'GOVERNMENT' ? '정부' : '길드'}
+                        </span>
                       </div>
-                    );
-                  })}
+                      <span
+                        className={`tag ${
+                          pair.hunter.hp <= 0 ? 'offline' : ready ? 'ok' : 'warn'
+                        }`}
+                      >
+                        {pair.hunter.hp <= 0 ? '전투 불능' : ready ? '준비 완료' : '대기'}
+                      </span>
+                    </header>
+
+                    {/* 쪽별 제출 상태 — 운영 판단의 핵심 */}
+                    <div className="monitor-submission">
+                      {(['HUNTER', 'CONSTELLATION'] as ActorSide[]).map((side) => {
+                        const actor = side === 'HUNTER' ? pair.hunter : pair.constellation;
+                        const submitted =
+                          side === 'HUNTER'
+                            ? pair.submission.hunterSubmitted
+                            : pair.submission.constellationSubmitted;
+                        const actionId =
+                          side === 'HUNTER'
+                            ? pair.submission.hunterActionId
+                            : pair.submission.constellationActionId;
+
+                        return (
+                          <div className="submission-row" key={side}>
+                            <span className={`tag ${side === 'HUNTER' ? 'blue' : 'gold'}`}>
+                              {side === 'HUNTER' ? '헌터' : '성좌'}
+                            </span>
+                            <b>{actor.name}</b>
+                            <span className="dim small-text">{actionId ?? '미선택'}</span>
+                            <span className={`tag ${submitted ? 'ok' : 'warn'}`}>
+                              {submitted ? '제출' : '대기'}
+                            </span>
+                            <button
+                              type="button"
+                              className={`ctl small ${actor.control === 'AUTO' ? 'on' : ''}`}
+                              onClick={() =>
+                                update(
+                                  admin.forceControl(
+                                    battle,
+                                    pair.id,
+                                    side,
+                                    actor.control === 'AUTO' ? 'ACTIVE' : 'AUTO',
+                                  ),
+                                )
+                              }
+                            >
+                              {actor.control === 'AUTO' ? 'AUTO 해제' : '강제 AUTO'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <Bar value={pair.hunter.hp} max={pair.hunter.maxHp} tone={injury.tone} />
+                    <div className="stat-strip">
+                      <span>
+                        <i>HP</i>
+                        <b className="num">
+                          {pair.hunter.hp}
+                          <small>/{pair.hunter.maxHp}</small>
+                        </b>
+                      </span>
+                      <span>
+                        <i>헌터 AP</i>
+                        <b className="num">
+                          {pair.hunter.ap}
+                          <small>/{pair.hunter.maxAp}</small>
+                        </b>
+                      </span>
+                      <span>
+                        <i>성좌 AP</i>
+                        <b className="num">
+                          {pair.constellation.ap}
+                          <small>/{pair.constellation.maxAp}</small>
+                        </b>
+                      </span>
+                      <span>
+                        <i>권능</i>
+                        <b className="num gold">×{pair.constellation.power}</b>
+                      </span>
+                      <span>
+                        <i>P</i>
+                        <b className="num gold">{pair.points}</b>
+                      </span>
+                    </div>
+
+                    <div className="monitor-status">
+                      <span className="field-label">헌터</span>
+                      <StatusEditor
+                        holder="HUNTER"
+                        ownerId={pair.id}
+                        statuses={pair.hunter.statuses}
+                        onGrant={(h, o, d) => update(admin.grantStatus(battle, h, o, d))}
+                        onRevoke={(h, o, d) => update(admin.revokeStatus(battle, h, o, d))}
+                      />
+                      <span className="field-label">성좌</span>
+                      <StatusEditor
+                        holder="CONSTELLATION"
+                        ownerId={pair.id}
+                        statuses={pair.constellation.statuses}
+                        onGrant={(h, o, d) => update(admin.grantStatus(battle, h, o, d))}
+                        onRevoke={(h, o, d) => update(admin.revokeStatus(battle, h, o, d))}
+                      />
+                    </div>
+
+                    <Collapsible label="수치 편집">
+                      <div className="admin-grid">
+                        <NumberField
+                          label="HP"
+                          value={pair.hunter.hp}
+                          max={pair.hunter.maxHp}
+                          onCommit={(value) => update(admin.setHunterHp(battle, pair.id, value))}
+                        />
+                        <NumberField
+                          label="MAX HP"
+                          value={pair.hunter.maxHp}
+                          min={1}
+                          onCommit={(value) => update(admin.setHunterMaxHp(battle, pair.id, value))}
+                        />
+                        <NumberField
+                          label="헌터 AP"
+                          value={pair.hunter.ap}
+                          onCommit={(value) =>
+                            update(admin.setActorAp(battle, pair.id, 'HUNTER', value))
+                          }
+                        />
+                        <NumberField
+                          label="성좌 AP"
+                          value={pair.constellation.ap}
+                          onCommit={(value) =>
+                            update(admin.setActorAp(battle, pair.id, 'CONSTELLATION', value))
+                          }
+                        />
+                        <NumberField
+                          label="공격력"
+                          value={pair.hunter.attack}
+                          onCommit={(value) =>
+                            update(admin.setHunterStats(battle, pair.id, { attack: value }))
+                          }
+                        />
+                        <NumberField
+                          label="방어력"
+                          value={pair.hunter.defense}
+                          onCommit={(value) =>
+                            update(admin.setHunterStats(battle, pair.id, { defense: value }))
+                          }
+                        />
+                        <NumberField
+                          label="권능 배율"
+                          value={pair.constellation.power}
+                          step={0.01}
+                          onCommit={(value) =>
+                            update(admin.setConstellationPower(battle, pair.id, value))
+                          }
+                        />
+                        <NumberField
+                          label="포인트"
+                          value={pair.points}
+                          step={10}
+                          onCommit={(value) => update(admin.setPairPoints(battle, pair.id, value))}
+                        />
+                        <label className="num-field">
+                          <span className="field-label">성좌 상태</span>
+                          <select
+                            className="ctl input"
+                            value={pair.constellation.stage}
+                            onChange={(event) =>
+                              update(
+                                admin.setConstellationStage(
+                                  battle,
+                                  pair.id,
+                                  event.target.value as ConstellationStage,
+                                ),
+                              )
+                            }
+                          >
+                            {Object.entries(CONSTELLATION_STAGES).map(([key, def]) => (
+                              <option key={key} value={key}>
+                                {def.labelKo}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="num-field">
+                          <span className="field-label">계약 단계</span>
+                          <select
+                            className="ctl input"
+                            value={pair.contract.stage}
+                            onChange={(event) =>
+                              update(
+                                admin.setContract(battle, pair.id, {
+                                  stage: event.target.value as ContractStage,
+                                }),
+                              )
+                            }
+                          >
+                            {Object.entries(CONTRACT_STAGES).map(([key, def]) => (
+                              <option key={key} value={key}>
+                                {def.labelKo}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <NumberField
+                          label="부분 현신"
+                          value={pair.constellation.manifestUses.partial ?? 0}
+                          onCommit={(value) =>
+                            update(admin.setManifestUses(battle, pair.id, { partial: value }))
+                          }
+                        />
+                        <NumberField
+                          label="완전 현신"
+                          value={pair.constellation.manifestUses.full ?? 0}
+                          onCommit={(value) =>
+                            update(admin.setManifestUses(battle, pair.id, { full: value }))
+                          }
+                        />
+                      </div>
+                    </Collapsible>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* 라운드 처리 */}
+          <section className="panel process">
+            <div className="process-head">
+              <h2 className="panel-title">ROUND {String(battle.round).padStart(2, '0')} 처리</h2>
+              <span className="hint">
+                APPLY 전에 피해량과 연계를 직접 수정할 수 있습니다. 자동 계산은 제안일 뿐입니다.
+              </span>
+            </div>
+
+            {!preview ? (
+              <button
+                type="button"
+                className="ctl wide"
+                disabled={battle.status !== 'ENGAGED'}
+                onClick={() => setPreview(previewRound(battle))}
+              >
+                라운드 계산
+                {waitingSides.length > 0 && (
+                  <small>미제출 {waitingSides.length}건은 자동 행동으로 채워집니다</small>
+                )}
+              </button>
+            ) : (
+              <div className="preview">
+                <table className="preview-table editable">
+                  <thead>
+                    <tr>
+                      <th>페어</th>
+                      <th>헌터</th>
+                      <th>성좌</th>
+                      <th>연계</th>
+                      <th>피해</th>
+                      <th>비고</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.pairs.map((row) => (
+                      <tr key={row.pairId}>
+                        <td>{row.pairLabel}</td>
+                        <td>
+                          {row.hunterActionLabel}
+                          {row.autoFilled.includes('HUNTER') && (
+                            <span className="tag auto">AUTO</span>
+                          )}
+                        </td>
+                        <td>
+                          {row.constellationActionLabel}
+                          {row.autoFilled.includes('CONSTELLATION') && (
+                            <span className="tag auto">AUTO</span>
+                          )}
+                        </td>
+                        <td>
+                          {row.combo ? (
+                            <button
+                              type="button"
+                              className="tag ok removable"
+                              title="클릭하면 연계 취소"
+                              onClick={() => patchPreviewPair(row.pairId, { combo: null })}
+                            >
+                              {row.combo.label} ✕
+                            </button>
+                          ) : (
+                            <span className="dim">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            className="ctl input tiny"
+                            type="number"
+                            value={row.damageToEnemy}
+                            onChange={(event) =>
+                              patchPreviewPair(row.pairId, {
+                                damageToEnemy: Math.max(0, Number(event.target.value) || 0),
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="dim small-text">
+                          {[
+                            row.skipped ? row.skipReason : null,
+                            row.rescue
+                              ? `구조 ${row.rescue.targetLabel} +${row.rescue.restoredHp}`
+                              : null,
+                            row.gimmickProgress > 0 ? `기믹 +${row.gimmickProgress}` : null,
+                            row.appliedStatuses.map((s) => s.label).join(' · ') || null,
+                          ]
+                            .filter(Boolean)
+                            .join(' / ')}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {preview.enemies.map((row) => (
+                      <tr key={row.enemyId} className="enemy-row">
+                        <td>{row.enemyName}</td>
+                        <td colSpan={3}>
+                          {row.pattern}
+                          {row.aoe && <span className="tag critical">광역</span>}
+                          {row.blocked && <span className="tag ok">봉인</span>}
+                          {row.telegraph && <span className="tag warn">예고</span>}
+                        </td>
+                        <td>
+                          <input
+                            className="ctl input tiny"
+                            type="number"
+                            value={row.damageToHunter}
+                            onChange={(event) =>
+                              patchPreviewEnemy(
+                                row.enemyId,
+                                Math.max(0, Number(event.target.value) || 0),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="dim small-text">{row.notes[0]}</td>
+                      </tr>
+                    ))}
+
+                    {preview.statusTicks.map((tick) => (
+                      <tr key={`${tick.ownerId}-${tick.defId}`} className="tick-row">
+                        <td>{tick.ownerLabel}</td>
+                        <td colSpan={3}>{tick.label} 지속 피해</td>
+                        <td className="num">{tick.amount}</td>
+                        <td className="dim small-text">라운드 종료</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {preview.alerts.length > 0 && (
+                  <ul className="preview-alerts">
+                    {preview.alerts.map((item) => (
+                      <li key={`${item.title}-${item.message}`}>
+                        <span className="tag critical">{item.level}</span> {item.title} —{' '}
+                        {item.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="btn-row">
+                  <button
+                    type="button"
+                    className="ctl primary"
+                    onClick={() => {
+                      setBattle(applyRound(battle, preview));
+                      setPreview(null);
+                      setTab('LOG');
+                      setLogTab('ROLEPLAY');
+                    }}
+                  >
+                    APPLY · 결과 확정
+                  </button>
+                  <button
+                    type="button"
+                    className="ctl"
+                    onClick={() => setPreview(previewRound(battle))}
+                  >
+                    재계산
+                  </button>
+                  <button type="button" className="ctl" onClick={() => setPreview(null)}>
+                    취소
+                  </button>
                 </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* ── 라운드 처리 ── */}
-      <section className="panel process">
-        <div className="process-head">
-          <h2 className="panel-title">ROUND PROCESS</h2>
-          <span className="hint">
-            APPLY 전에 피해량과 연계를 직접 수정할 수 있습니다. 자동 계산은 제안일 뿐입니다.
-          </span>
-        </div>
-
-        {!preview ? (
-          <button
-            type="button"
-            className="ctl wide"
-            disabled={battle.status !== 'ENGAGED'}
-            onClick={() => setPreview(previewRound(battle))}
-          >
-            PROCESS ROUND
-            {notSubmitted > 0 && (
-              <small>미제출 {notSubmitted}페어 — 자동 행동으로 채워집니다</small>
+              </div>
             )}
-          </button>
-        ) : (
-          <div className="preview">
-            <table className="preview-table editable">
-              <thead>
-                <tr>
-                  <th>PAIR</th>
-                  <th>HUNTER</th>
-                  <th>CONSTELLATION</th>
-                  <th>LINK</th>
-                  <th>DAMAGE</th>
-                  <th>NOTE</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.pairs.map((row) => (
-                  <tr key={row.pairId}>
-                    <td>{row.pairLabel}</td>
-                    <td>
-                      {row.hunterActionLabel}
-                      {row.autoFilled.includes('HUNTER') && <span className="tag auto">AUTO</span>}
-                    </td>
-                    <td>
-                      {row.constellationActionLabel}
-                      {row.autoFilled.includes('CONSTELLATION') && (
-                        <span className="tag auto">AUTO</span>
-                      )}
-                    </td>
-                    <td>
-                      {row.combo ? (
-                        <button
-                          type="button"
-                          className="tag ok removable"
-                          title="클릭하면 연계 취소"
-                          onClick={() => patchPreviewPair(row.pairId, { combo: null })}
-                        >
-                          {row.combo.label} ✕
-                        </button>
-                      ) : (
-                        <span className="dim">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <input
-                        className="ctl input tiny"
-                        type="number"
-                        value={row.damageToEnemy}
-                        onChange={(event) =>
-                          patchPreviewPair(row.pairId, {
-                            damageToEnemy: Math.max(0, Number(event.target.value) || 0),
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="dim small-text">
-                      {[
-                        row.skipped ? row.skipReason : null,
-                        row.rescue ? `구조 ${row.rescue.targetLabel} +${row.rescue.restoredHp}` : null,
-                        row.gimmickProgress > 0 ? `기믹 +${row.gimmickProgress}` : null,
-                        row.appliedStatuses.map((s) => s.label).join(' · ') || null,
-                      ]
-                        .filter(Boolean)
-                        .join(' / ')}
-                    </td>
-                  </tr>
-                ))}
+          </section>
+        </>
+      )}
 
-                {preview.enemies.map((row) => (
-                  <tr key={row.enemyId} className="enemy-row">
-                    <td>{row.enemyName}</td>
-                    <td colSpan={3}>
-                      {row.pattern}
-                      {row.aoe && <span className="tag critical">AOE</span>}
-                      {row.blocked && <span className="tag ok">BLOCKED</span>}
-                      {row.telegraph && <span className="tag warn">TELEGRAPH</span>}
-                    </td>
-                    <td>
-                      <input
-                        className="ctl input tiny"
-                        type="number"
-                        value={row.damageToHunter}
-                        onChange={(event) =>
-                          patchPreviewEnemy(row.enemyId, Math.max(0, Number(event.target.value) || 0))
-                        }
-                      />
-                    </td>
-                    <td className="dim small-text">{row.notes[0]}</td>
-                  </tr>
-                ))}
-
-                {preview.statusTicks.map((tick) => (
-                  <tr key={`${tick.ownerId}-${tick.defId}`} className="tick-row">
-                    <td>{tick.ownerLabel}</td>
-                    <td colSpan={3}>{tick.label}</td>
-                    <td className="num">{tick.amount}</td>
-                    <td className="dim small-text">ROUND END</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <th colSpan={4}>TOTAL</th>
-                  <th className="num">
-                    {preview.pairs.reduce((sum, row) => sum + row.damageToEnemy, 0)}
-                  </th>
-                  <th className="num danger-text">
-                    -{preview.enemies.reduce((sum, row) => sum + row.damageToHunter, 0)}
-                  </th>
-                </tr>
-              </tfoot>
-            </table>
-
-            {preview.alerts.length > 0 && (
-              <ul className="preview-alerts">
-                {preview.alerts.map((item) => (
-                  <li key={`${item.title}-${item.message}`}>
-                    <span className="tag critical">{item.level}</span> {item.title} — {item.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-
+      {/* ══════════ 로그 ══════════ */}
+      {tab === 'LOG' && (
+        <section className="panel log">
+          <div className="process-head">
             <div className="btn-row">
               <button
                 type="button"
-                className="ctl primary"
-                onClick={() => {
-                  setBattle(applyRound(battle, preview));
-                  setPreview(null);
-                  setLogTab('ROLEPLAY');
-                }}
+                className={`ctl small ${logTab === 'SYSTEM' ? 'on' : ''}`}
+                onClick={() => setLogTab('SYSTEM')}
               >
-                APPLY
+                시스템 로그
               </button>
-              <button type="button" className="ctl" onClick={() => setPreview(previewRound(battle))}>
-                RECALCULATE
-              </button>
-              <button type="button" className="ctl" onClick={() => setPreview(null)}>
-                CANCEL
+              <button
+                type="button"
+                className={`ctl small ${logTab === 'ROLEPLAY' ? 'on' : ''}`}
+                onClick={() => setLogTab('ROLEPLAY')}
+              >
+                연출 로그
               </button>
             </div>
+            {battle && battle.alerts.length > 0 && (
+              <button
+                type="button"
+                className="ctl small"
+                onClick={() => update(admin.clearAlerts(battle))}
+              >
+                경보 지우기
+              </button>
+            )}
           </div>
-        )}
-      </section>
 
-      {/* ── 로그 ── */}
-      <section className="panel log">
-        <div className="process-head">
-          <div className="btn-row">
-            <button
-              type="button"
-              className={`ctl small ${logTab === 'SYSTEM' ? 'on' : ''}`}
-              onClick={() => setLogTab('SYSTEM')}
-            >
-              SYSTEM LOG
-            </button>
-            <button
-              type="button"
-              className={`ctl small ${logTab === 'ROLEPLAY' ? 'on' : ''}`}
-              onClick={() => setLogTab('ROLEPLAY')}
-            >
-              ROLEPLAY LOG
-            </button>
-          </div>
-          {battle.alerts.length > 0 && (
-            <button type="button" className="ctl small" onClick={() => update(admin.clearAlerts(battle))}>
-              CLEAR ALERTS
-            </button>
-          )}
-        </div>
-
-        {logTab === 'SYSTEM' ? (
-          <ol className="log-list">
-            {[...systemLog]
-              .reverse()
-              .slice(0, 120)
-              .map((entry) => (
-                <li key={entry.id}>
-                  <span className="log-time num">[{entry.at}]</span>
-                  <span className="log-text">
-                    {entry.text}
-                    {entry.detail && <small className="dim">{entry.detail}</small>}
-                  </span>
-                </li>
-              ))}
-          </ol>
-        ) : (
-          <div className="roleplay-list">
-            {roleplayLog.length === 0 && <p className="dim">라운드를 처리하면 연출 로그가 생성됩니다.</p>}
-            {[...roleplayLog].reverse().map((entry) => (
-              <article className="roleplay-block" key={entry.id}>
-                <header className="roleplay-head">
-                  <span className="field-label">
-                    ROUND {String(entry.round).padStart(2, '0')} · {entry.at}
-                    {entry.edited && <span className="tag warn"> EDITED</span>}
-                  </span>
-                  <div className="btn-row">
-                    <button type="button" className="ctl small" onClick={() => void copyText(entry.text)}>
-                      COPY
-                    </button>
-                    {editingLogId === entry.id ? (
-                      <>
+          {!battle ? (
+            <p className="dim">전투를 열면 로그가 표시됩니다.</p>
+          ) : logTab === 'SYSTEM' ? (
+            <ol className="log-list">
+              {[...battle.log.filter((entry) => entry.channel === 'SYSTEM')]
+                .reverse()
+                .slice(0, 150)
+                .map((entry) => (
+                  <li key={entry.id}>
+                    <span className="log-time num">[{entry.at}]</span>
+                    <span className="log-text">
+                      {entry.text}
+                      {entry.detail && <small className="dim">{entry.detail}</small>}
+                    </span>
+                  </li>
+                ))}
+            </ol>
+          ) : (
+            <div className="roleplay-list">
+              {battle.log.filter((entry) => entry.channel === 'ROLEPLAY').length === 0 && (
+                <p className="dim">라운드를 처리하면 연출 로그가 생성됩니다.</p>
+              )}
+              {[...battle.log.filter((entry) => entry.channel === 'ROLEPLAY')]
+                .reverse()
+                .map((entry) => (
+                  <article className="roleplay-block" key={entry.id}>
+                    <header className="roleplay-head">
+                      <span className="field-label">
+                        ROUND {String(entry.round).padStart(2, '0')} · {entry.at}
+                        {entry.edited && <span className="tag warn"> 수정됨</span>}
+                      </span>
+                      <div className="btn-row">
                         <button
                           type="button"
-                          className="ctl small on"
-                          onClick={() => {
-                            update(admin.editLogEntry(battle, entry.id, logDraft));
-                            setEditingLogId(null);
-                          }}
+                          className="ctl small"
+                          onClick={() => void copyText(entry.text)}
                         >
-                          SAVE
+                          복사
                         </button>
-                        <button type="button" className="ctl small" onClick={() => setEditingLogId(null)}>
-                          CANCEL
+                        {editingLogId === entry.id ? (
+                          <>
+                            <button
+                              type="button"
+                              className="ctl small on"
+                              onClick={() => {
+                                update(admin.editLogEntry(battle, entry.id, logDraft));
+                                setEditingLogId(null);
+                              }}
+                            >
+                              저장
+                            </button>
+                            <button
+                              type="button"
+                              className="ctl small"
+                              onClick={() => setEditingLogId(null)}
+                            >
+                              취소
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="ctl small"
+                            onClick={() => {
+                              setEditingLogId(entry.id);
+                              setLogDraft(entry.text);
+                            }}
+                          >
+                            수정
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="ctl small"
+                          onClick={() => update(admin.removeLogEntry(battle, entry.id))}
+                        >
+                          ✕
                         </button>
-                      </>
+                      </div>
+                    </header>
+                    {editingLogId === entry.id ? (
+                      <textarea
+                        className="ctl input textarea roleplay-edit"
+                        rows={Math.min(24, logDraft.split('\n').length + 2)}
+                        value={logDraft}
+                        onChange={(event) => setLogDraft(event.target.value)}
+                      />
                     ) : (
-                      <button
-                        type="button"
-                        className="ctl small"
-                        onClick={() => {
-                          setEditingLogId(entry.id);
-                          setLogDraft(entry.text);
-                        }}
-                      >
-                        EDIT
-                      </button>
+                      <pre className="roleplay-text">{entry.text}</pre>
                     )}
-                    <button
-                      type="button"
-                      className="ctl small"
-                      onClick={() => update(admin.removeLogEntry(battle, entry.id))}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </header>
-                {editingLogId === entry.id ? (
-                  <textarea
-                    className="ctl input textarea roleplay-edit"
-                    rows={Math.min(24, logDraft.split('\n').length + 2)}
-                    value={logDraft}
-                    onChange={(event) => setLogDraft(event.target.value)}
-                  />
-                ) : (
-                  <pre className="roleplay-text">{entry.text}</pre>
-                )}
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
+                  </article>
+                ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
