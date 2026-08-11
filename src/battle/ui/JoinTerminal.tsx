@@ -18,7 +18,7 @@ import {
 import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
 import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
-import { AuthError, getAuth } from '../store';
+import { AuthError, getAuth, isServerMode } from '../store';
 import type {
   Account,
   ActorSide,
@@ -613,11 +613,17 @@ export default function JoinTerminal() {
         </div>
       </header>
 
-      <p className="notice warn">
-        이 단계의 계정은 <b>이 브라우저에만</b> 저장됩니다. 서버 인증이 아니므로 다른 기기에서는
-        조회되지 않고, 브라우저 데이터를 지우면 시트도 사라집니다. 실제 계정은 서버 연결 후
-        제공됩니다.
-      </p>
+      {isServerMode() ? (
+        <p className="notice ok">
+          <b>SERVER CONNECTED</b> — 계정과 캐릭터 시트가 서버에 저장됩니다. 다른 기기에서도 같은
+          활동명으로 접속할 수 있습니다. 페어 편성은 관리국(운영진)이 진행합니다.
+        </p>
+      ) : (
+        <p className="notice warn">
+          <b>LOCAL MODE</b> — 이 단계의 계정은 <b>이 브라우저에만</b> 저장됩니다. 서버 인증이
+          아니므로 다른 기기에서는 조회되지 않고, 브라우저 데이터를 지우면 시트도 사라집니다.
+        </p>
+      )}
 
       {errors.length > 0 && (
         <ul className="notice error">
