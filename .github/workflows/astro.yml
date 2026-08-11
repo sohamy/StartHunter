@@ -23,6 +23,11 @@ jobs:
         uses: withastro/action@v3
         with:
           node-version: 22.12.0
+        env:
+          # anon(publishable) 키는 클라이언트에 노출되는 값이다 — RLS 가 실제 방어선이다.
+          # 저장소 Settings → Secrets and variables → Actions 에 등록한다.
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
 
   deploy:
     environment:

@@ -16,7 +16,7 @@ import { createBattle } from '../engine/battle';
 import { nextPatternAdmin } from '../engine/enemy';
 import { applyRound, previewRound } from '../engine/round';
 import { injuryOf, statusViews } from '../engine/status';
-import { getAuth, getStorage, type PublicProfile } from '../store';
+import { AuthError, getAuth, getServerAuth, getStorage, isServerMode, type PublicProfile } from '../store';
 import { pairPreset, presetSheet } from '../config/scenario';
 import type {
   ActorSide,
@@ -160,6 +160,48 @@ export default function ControlTerminal() {
   const [logDraft, setLogDraft] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // 서버 모드에서는 운영진 인증이 필요하다. 로컬 모드는 인증 자체가 없다.
+  const serverAuth = useMemo(() => getServerAuth(), []);
+  const [access, setAccess] = useState<'CHECKING' | 'LOCAL' | 'DENIED' | 'GRANTED'>(
+    isServerMode() ? 'CHECKING' : 'LOCAL',
+  );
+  const [operatorId, setOperatorId] = useState('');
+  const [operatorPassword, setOperatorPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const checkOperator = useCallback(async () => {
+    if (!serverAuth) return;
+    const session = await serverAuth.currentSession();
+    if (!session) {
+      setAccess('DENIED');
+      return;
+    }
+    setAccess((await serverAuth.isOperator()) ? 'GRANTED' : 'DENIED');
+  }, [serverAuth]);
+
+  useEffect(() => {
+    void checkOperator();
+  }, [checkOperator]);
+
+  const operatorLogin = async () => {
+    if (!serverAuth) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await serverAuth.login({ id: operatorId, password: operatorPassword });
+      if (await serverAuth.isOperator()) {
+        setAccess('GRANTED');
+      } else {
+        setAccess('DENIED');
+        setMessage('이 계정은 운영진 권한이 없습니다. profiles.role 을 OPERATOR 로 변경하세요.');
+      }
+    } catch (error) {
+      setMessage(error instanceof AuthError ? error.message : '접속에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const refreshList = useCallback(async () => {
     setBattles(await storage.listBattles());
   }, [storage]);
@@ -253,6 +295,69 @@ export default function ControlTerminal() {
       setMessage('복사에 실패했습니다. 텍스트를 직접 선택해 주세요.');
     }
   };
+
+  /* ── 운영진 인증 게이트 ──────────────────────────── */
+
+  if (access === 'CHECKING') {
+    return <div className="console-loading">VERIFYING OPERATOR CLEARANCE…</div>;
+  }
+
+  if (access === 'DENIED') {
+    return (
+      <div className="console">
+        <header className="console-head">
+          <div className="agency">
+            <b>HUNTER MANAGEMENT AGENCY</b>
+            <span>CENTRAL RAID CONTROL</span>
+          </div>
+          <span className="tag critical">CLEARANCE REQUIRED</span>
+        </header>
+
+        {message && <p className="notice error">{message}</p>}
+
+        <section className="panel form">
+          <h2 className="panel-title">OPERATOR ACCESS</h2>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            운영진 계정으로 접속하세요. 운영진은 캐릭터 시트가 없어도 됩니다.
+          </p>
+          <label className="input-row">
+            <span className="field-label">활동명</span>
+            <input
+              className="ctl input"
+              value={operatorId}
+              onChange={(event) => setOperatorId(event.target.value)}
+              autoComplete="username"
+            />
+          </label>
+          <label className="input-row">
+            <span className="field-label">비밀번호</span>
+            <input
+              className="ctl input"
+              type="password"
+              value={operatorPassword}
+              onChange={(event) => setOperatorPassword(event.target.value)}
+              autoComplete="current-password"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void operatorLogin();
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="confirm-btn"
+            disabled={busy || !operatorId || !operatorPassword}
+            onClick={() => void operatorLogin()}
+          >
+            CONNECT
+          </button>
+          <p className="hint">
+            권한은 <code>profiles.role = 'OPERATOR'</code> 로 부여됩니다. 자세한 절차는
+            <code> docs/SUPABASE_SETUP.md</code> 를 참고하세요.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   /* ── 전투 미선택 ─────────────────────────────────── */
 
