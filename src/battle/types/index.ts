@@ -413,6 +413,28 @@ export interface EnemyTemplate {
   boss: boolean;
 }
 
+/* ── 채팅 ───────────────────────────────────────────────
+   참가자와 운영자가 함께 보는 대화창. 전투 단위 채널을 쓰고,
+   전투 밖에서는 'GLOBAL' 채널을 쓴다. */
+
+export type ChatKind = 'TALK' | 'ACTION' | 'OOC';
+
+export interface ChatMessage {
+  id: string;
+  /** 전투 id 또는 'GLOBAL' */
+  channel: string;
+  /** 작성자 활동명 */
+  authorId: string;
+  /** 표시 이름 — 캐릭터명 또는 운영진 표기 */
+  authorName: string;
+  role: 'PARTICIPANT' | 'OPERATOR';
+  side: ActorSide | null;
+  kind: ChatKind;
+  body: string;
+  /** ISO 문자열 */
+  at: string;
+}
+
 export interface BattleSummary {
   id: string;
   mode: BattleMode;

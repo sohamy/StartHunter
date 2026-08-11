@@ -31,6 +31,7 @@ import type {
   PairState,
 } from '../types';
 import { constellationStateFromSheet, hunterStateFromSheet } from './character';
+import { newUuid } from './id';
 import { constellationMaxAp } from './status';
 
 export interface PairInput {
@@ -66,7 +67,8 @@ export function createPair(index: number, input: PairInput): PairState {
   }
 
   return {
-    id: pairIdFor(index),
+    // 서버의 battle_pairs.id 가 uuid 이므로 형식을 맞춘다. 표기는 label 을 쓴다.
+    id: newUuid(),
     label: pairLabelFor(index),
     affiliation: input.affiliation ?? input.hunterSheet.affiliation,
     hunterAccountId: input.hunterAccountId ?? null,

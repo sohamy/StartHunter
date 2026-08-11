@@ -38,6 +38,7 @@ import {
   statusViews,
 } from '../engine/status';
 import { getAuth, getStorage, type PublicProfile } from '../store';
+import ChatPanel from './ChatPanel';
 import type {
   ActionDefinition,
   Account,
@@ -561,8 +562,18 @@ export default function BattleTerminal() {
             {account.sheet.side} · {account.sheet.name}
           </span>
           <a className="ctl small" href={joinUrl()}>
-            SHEET
+            내 시트
           </a>
+          <button
+            type="button"
+            className="ctl small"
+            onClick={async () => {
+              await auth.logout();
+              window.location.href = joinUrl();
+            }}
+          >
+            로그아웃
+          </button>
         </div>
         <div className="session-row">
           <span className="field-label">TERMINAL</span>
@@ -1084,6 +1095,18 @@ export default function BattleTerminal() {
           상대가 자리를 비웠다면 해당 쪽의 <b>AUTO</b> 를 켜서 자동 행동으로 진행할 수 있습니다.
         </p>
       </section>
+
+      {/* ── 채팅 ── */}
+      <ChatPanel
+        channel={battle.id}
+        title="작전 채널"
+        author={{
+          id: account.id,
+          name: account.sheet.name,
+          role: 'PARTICIPANT',
+          side: account.sheet.side,
+        }}
+      />
 
       {/* ── 로그 ── */}
       <section className="panel log">

@@ -1087,6 +1087,62 @@ a.ctl { text-decoration: none; display: inline-block; }
   .tab { padding: 10px 14px; }
 }
 
+/* ── 채팅 ────────────────────────────────────────────── */
+.chat::before { background: var(--c-violet); }
+.chat-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 4px 0;
+  display: grid;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
+}
+.chat-empty { padding: 20px 0; text-align: center; }
+.chat-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 150px) 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-left: 2px solid transparent;
+}
+.chat-line:hover { background: rgba(255, 255, 255, .03); }
+.chat-line.mine { border-left-color: var(--c-ok); background: rgba(95, 224, 205, .05); }
+.chat-line.operator { border-left-color: var(--c-critical); background: rgba(255, 111, 124, .06); }
+.chat-time { color: var(--c-faint); font-size: 10.5px; }
+.chat-author { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chat-author b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-body { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.chat-kind { color: var(--c-gold); font-family: var(--c-mono); font-size: 10.5px; margin-right: 6px; }
+.chat-line.kind-action .chat-body { color: var(--c-dim); font-style: italic; }
+.chat-line.kind-ooc .chat-body { color: var(--c-faint); font-size: 13px; }
+.chat-del {
+  background: none;
+  border: none;
+  color: var(--c-faint);
+  cursor: pointer;
+  opacity: 0;
+  padding: 0 4px;
+  transition: opacity .15s ease;
+}
+.chat-line:hover .chat-del { opacity: 1; }
+.chat-del:hover { color: var(--c-critical); }
+
+.chat-input { display: grid; gap: 8px; }
+.chat-send { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+.chat-send textarea { resize: vertical; line-height: 1.6; }
+.chat-send .ctl.primary { padding: 0 22px; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .chat-line { grid-template-columns: 1fr auto; gap: 2px 8px; }
+  .chat-time { display: none; }
+  .chat-author { grid-column: 1; }
+  .chat-body { grid-column: 1 / -1; }
+}
+
 /* ── 하단 링크 ───────────────────────────────────────── */
 .console-foot {
   display: flex;

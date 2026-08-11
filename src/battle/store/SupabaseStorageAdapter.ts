@@ -17,6 +17,7 @@ import type {
   ActorSide,
   BattleState,
   BattleSummary,
+  ChatMessage,
   EnemyTemplate,
   PairBond,
   PairState,
@@ -325,6 +326,73 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   async deleteEnemyTemplate(id: string): Promise<void> {
     const { error } = await requireSupabase().from('enemy_templates').delete().eq('id', id);
     if (error) throw new Error(`적 삭제 실패: ${error.message}`);
+  }
+
+  /* ── 채팅 ── */
+
+  async listMessages(channel: string, limit = 200): Promise<ChatMessage[]> {
+    const { data, error } = await requireSupabase()
+      .from('chat_messages')
+      .select('*')
+      .eq('channel', channel)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw new Error(`채팅을 불러올 수 없습니다: ${error.message}`);
+
+    return (data ?? [])
+      .map((row) => ({
+        id: row.id as string,
+        channel: row.channel as string,
+        authorId: row.author_handle as string,
+        authorName: row.author_name as string,
+        role: row.role as ChatMessage['role'],
+        side: (row.side as ChatMessage['side']) ?? null,
+        kind: row.kind as ChatMessage['kind'],
+        body: row.body as string,
+        at: row.created_at as string,
+      }))
+      .reverse();
+  }
+
+  async postMessage(message: ChatMessage): Promise<void> {
+    const supabase = requireSupabase();
+    const { data: auth } = await supabase.auth.getUser();
+
+    const { error } = await supabase.from('chat_messages').insert({
+      channel: message.channel,
+      author: auth.user?.id ?? null,
+      author_handle: message.authorId,
+      author_name: message.authorName,
+      role: message.role,
+      side: message.side,
+      kind: message.kind,
+      body: message.body,
+    });
+
+    if (error) throw new Error(`전송 실패: ${error.message}`);
+  }
+
+  async deleteMessage(id: string): Promise<void> {
+    const { error } = await requireSupabase().from('chat_messages').delete().eq('id', id);
+    if (error) throw new Error(`삭제 실패: ${error.message}`);
+  }
+
+  /** 채팅 실시간 구독 */
+  subscribeChat(channel: string, onMessage: () => void): () => void {
+    const supabase = requireSupabase();
+    const realtime = supabase
+      .channel(`chat:${channel}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_messages', filter: `channel=eq.${channel}` },
+        onMessage,
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(realtime);
+    };
   }
 
   async listBattles(): Promise<BattleSummary[]> {

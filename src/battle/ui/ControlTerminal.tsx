@@ -25,9 +25,11 @@ import {
   type BondEntry,
 } from '../engine/battle';
 import { nextPatternAdmin } from '../engine/enemy';
+import { newUuid } from '../engine/id';
 import { applyRound, previewRound } from '../engine/round';
 import { injuryOf, statusViews } from '../engine/status';
 import { AuthError, getAuth, getServerAuth, getStorage, isServerMode, type PublicProfile } from '../store';
+import ChatPanel from './ChatPanel';
 import type {
   ActorSide,
   BattleState,
@@ -51,8 +53,9 @@ function terminalUrl(): string {
   return `${base}/battle/`;
 }
 
-function newId(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
+/** 서버 기본키가 uuid 이므로 클라이언트도 uuid 를 만든다 */
+function newId(): string {
+  return newUuid();
 }
 
 /* ── 공용 요소 ─────────────────────────────────────────── */
@@ -228,7 +231,9 @@ export default function ControlTerminal() {
 
   const [tab, setTab] = useState<Tab>('OPERATION');
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [operatorHandle, setOperatorHandle] = useState('관리국');
 
   // 인증
   const [access, setAccess] = useState<'CHECKING' | 'LOCAL' | 'DENIED' | 'GRANTED'>(
@@ -262,16 +267,25 @@ export default function ControlTerminal() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
-    const [profileRows, bondRows, templateRows, battleRows] = await Promise.all([
-      auth.listProfiles(),
-      storage.listBonds(),
-      storage.listEnemyTemplates(),
-      storage.listBattles(),
-    ]);
-    setProfiles(profileRows);
-    setBonds(bondRows);
-    setTemplates(templateRows);
-    setBattles(battleRows);
+    setError(null);
+    try {
+      const [profileRows, bondRows, templateRows, battleRows] = await Promise.all([
+        auth.listProfiles(),
+        storage.listBonds(),
+        storage.listEnemyTemplates(),
+        storage.listBattles(),
+      ]);
+      setProfiles(profileRows);
+      setBonds(bondRows);
+      setTemplates(templateRows);
+      setBattles(battleRows);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? `데이터를 불러올 수 없습니다: ${caught.message}`
+          : '데이터를 불러올 수 없습니다.',
+      );
+    }
   }, [auth, storage]);
 
   useEffect(() => {
@@ -299,6 +313,19 @@ export default function ControlTerminal() {
     setPreview(null);
   }, []);
 
+  /**
+   * 저장 실패를 조용히 삼키지 않는다.
+   * 테이블이 없거나 권한이 없으면 화면에 그대로 띄운다.
+   */
+  const guard = useCallback(async (task: () => Promise<void>) => {
+    setError(null);
+    try {
+      await task();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '작업에 실패했습니다.');
+    }
+  }, []);
+
   /* ── 인증 ────────────────────────────────────────── */
 
   const operatorLogin = async () => {
@@ -307,7 +334,10 @@ export default function ControlTerminal() {
     setMessage(null);
     try {
       await serverAuth.login({ id: operatorId, password: operatorPassword });
-      if (await serverAuth.isOperator()) setAccess('GRANTED');
+      if (await serverAuth.isOperator()) {
+        setOperatorHandle(operatorId);
+        setAccess('GRANTED');
+      }
       else setMessage('이 계정은 운영진 권한이 없습니다. profiles.role 을 OPERATOR 로 변경하세요.');
     } catch (error) {
       setMessage(error instanceof AuthError ? error.message : '접속에 실패했습니다.');
@@ -372,11 +402,11 @@ export default function ControlTerminal() {
 
   const createBond = async () => {
     if (!pairingHunter || !pairingConstellation) {
-      setMessage('헌터와 성좌를 모두 선택하세요.');
+      setError('헌터와 성좌를 모두 선택하세요.');
       return;
     }
     if (pairingHunter === pairingConstellation) {
-      setMessage('한 참가자가 양쪽을 맡을 수 없습니다.');
+      setError('한 참가자가 양쪽을 맡을 수 없습니다.');
       return;
     }
 
@@ -389,12 +419,12 @@ export default function ControlTerminal() {
           row.constellationAccountId === pairingConstellation),
     );
     if (taken) {
-      setMessage(`이미 ${taken.label} 에 편성된 참가자가 있습니다. 먼저 해산하세요.`);
+      setError(`이미 ${taken.label} 에 편성된 참가자가 있습니다. 먼저 해산하세요.`);
       return;
     }
 
     const bond: PairBond = {
-      id: newId('BOND'),
+      id: newId(),
       label: `PAIR ${String(bonds.filter((row) => row.active).length + 1).padStart(2, '0')}`,
       hunterAccountId: pairingHunter,
       constellationAccountId: pairingConstellation,
@@ -405,23 +435,27 @@ export default function ControlTerminal() {
       createdAt: new Date().toISOString(),
     };
 
-    await storage.saveBond(bond);
-    await refresh();
-    setPairingHunter('');
-    setPairingConstellation('');
-    setMessage(`${bond.label} 편성 완료 — 이 페어는 공략 내내 유지됩니다.`);
+    await guard(async () => {
+      await storage.saveBond(bond);
+      await refresh();
+      setPairingHunter('');
+      setPairingConstellation('');
+      setMessage(`${bond.label} 편성 완료 — 이 페어는 공략 내내 유지됩니다.`);
+    });
   };
 
   const patchBond = async (bond: PairBond, patch: Partial<PairBond>) => {
-    await storage.saveBond({ ...bond, ...patch });
-    await refresh();
+    await guard(async () => {
+      await storage.saveBond({ ...bond, ...patch });
+      await refresh();
+    });
   };
 
   /* ── 적 세팅 조작 ────────────────────────────────── */
 
   const addTemplate = async (boss: boolean) => {
     const template: EnemyTemplate = {
-      id: newId('ENEMY'),
+      id: newId(),
       name: boss ? '새 보스' : '새 몬스터',
       grade: boss ? 'BOSS / A' : 'NORMAL / C',
       maxHp: boss ? 1000 : 180,
@@ -431,13 +465,18 @@ export default function ControlTerminal() {
       patternSetId: boss ? 'set.star_devourer' : 'set.husk',
       boss,
     };
-    await storage.saveEnemyTemplate(template);
-    await refresh();
+    await guard(async () => {
+      await storage.saveEnemyTemplate(template);
+      await refresh();
+      setMessage(`${template.name} 추가됨 — 이름과 수치를 편집하세요.`);
+    });
   };
 
   const patchTemplate = async (template: EnemyTemplate, patch: Partial<EnemyTemplate>) => {
-    await storage.saveEnemyTemplate({ ...template, ...patch });
-    await refresh();
+    await guard(async () => {
+      await storage.saveEnemyTemplate({ ...template, ...patch });
+      await refresh();
+    });
   };
 
   /* ── 전투 시작 ───────────────────────────────────── */
@@ -484,7 +523,7 @@ export default function ControlTerminal() {
       .filter((row): row is EnemyState => row !== null);
 
     const next = assembleBattle({
-      id: newId('BATTLE'),
+      id: newId(),
       mode: entries.length > 1 ? 'RAID' : 'DUEL',
       operation: { ...DEFAULT_OPERATION, floor },
       entries,
@@ -679,9 +718,22 @@ export default function ControlTerminal() {
           <a className="ctl small" href={terminalUrl()}>
             참가자 단말 →
           </a>
+          {access === 'GRANTED' && (
+            <button
+              type="button"
+              className="ctl small"
+              onClick={async () => {
+                await auth.logout();
+                window.location.reload();
+              }}
+            >
+              로그아웃
+            </button>
+          )}
         </div>
       </nav>
 
+      {error && <p className="notice error">{error}</p>}
       {message && <p className="notice ok">{message}</p>}
       {access === 'LOCAL' && (
         <p className="notice warn">
@@ -1792,6 +1844,18 @@ export default function ControlTerminal() {
           </section>
         </>
       )}
+
+      {/* 채팅 — 어느 탭에서든 보인다 */}
+      <ChatPanel
+        channel={battle?.id ?? 'GLOBAL'}
+        title={battle ? '작전 채널' : '전체 채널'}
+        author={{
+          id: operatorHandle,
+          name: '관리국',
+          role: 'OPERATOR',
+          side: null,
+        }}
+      />
 
       {/* ══════════ 로그 ══════════ */}
       {tab === 'LOG' && (

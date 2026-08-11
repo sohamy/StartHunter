@@ -8,7 +8,13 @@
  * 네트워크 기반으로 바뀌어도 호출부를 수정하지 않기 위한 것이다.
  */
 
-import type { BattleState, BattleSummary, EnemyTemplate, PairBond } from '../types';
+import type {
+  BattleState,
+  BattleSummary,
+  ChatMessage,
+  EnemyTemplate,
+  PairBond,
+} from '../types';
 
 export interface StorageAdapter {
   loadBattle(id: string): Promise<BattleState | null>;
@@ -25,6 +31,11 @@ export interface StorageAdapter {
   listEnemyTemplates(): Promise<EnemyTemplate[]>;
   saveEnemyTemplate(template: EnemyTemplate): Promise<void>;
   deleteEnemyTemplate(id: string): Promise<void>;
+
+  /* ── 채팅 ── */
+  listMessages(channel: string, limit?: number): Promise<ChatMessage[]>;
+  postMessage(message: ChatMessage): Promise<void>;
+  deleteMessage(id: string): Promise<void>;
   /** 전체 데이터를 JSON 문자열로 내보낸다 (운영진 백업용) */
   exportAll(): Promise<string>;
   /** exportAll 로 만든 JSON 을 되돌린다 */

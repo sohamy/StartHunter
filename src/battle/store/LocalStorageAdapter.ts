@@ -6,13 +6,20 @@
  */
 
 import { SCHEMA_VERSION } from '../config/rules';
-import type { BattleState, BattleSummary, EnemyTemplate, PairBond } from '../types';
+import type {
+  BattleState,
+  BattleSummary,
+  ChatMessage,
+  EnemyTemplate,
+  PairBond,
+} from '../types';
 import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
 
 const KEY_PREFIX = 'sh.battle.';
 const INDEX_KEY = 'sh.battle.index';
 const BONDS_KEY = 'sh.roster.bonds';
 const ENEMIES_KEY = 'sh.roster.enemies';
+const CHAT_KEY = 'sh.chat.messages';
 
 interface IndexRow extends BattleSummary {}
 
@@ -154,6 +161,26 @@ export class LocalStorageAdapter implements StorageAdapter {
     writeJson(
       ENEMIES_KEY,
       (await this.listEnemyTemplates()).filter((row) => row.id !== id),
+    );
+  }
+
+  /* ── 채팅 ── */
+
+  async listMessages(channel: string, limit = 200): Promise<ChatMessage[]> {
+    const rows = readJson<ChatMessage[]>(CHAT_KEY, []).filter((row) => row.channel === channel);
+    return rows.slice(-limit);
+  }
+
+  async postMessage(message: ChatMessage): Promise<void> {
+    const rows = readJson<ChatMessage[]>(CHAT_KEY, []);
+    // 저장소가 무한히 커지지 않도록 최근 500개만 유지한다
+    writeJson(CHAT_KEY, [...rows, message].slice(-500));
+  }
+
+  async deleteMessage(id: string): Promise<void> {
+    writeJson(
+      CHAT_KEY,
+      readJson<ChatMessage[]>(CHAT_KEY, []).filter((row) => row.id !== id),
     );
   }
 
