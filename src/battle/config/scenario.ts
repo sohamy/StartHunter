@@ -108,6 +108,7 @@ export function emptySubmission(): RoundSubmission {
     hunterActionId: null,
     constellationActionId: null,
     targetEnemyId: null,
+    supportTargetPairId: null,
     submitted: false,
     auto: false,
   };
@@ -178,6 +179,8 @@ export function createBossEnemy(pairCount: number): EnemyState {
     statuses: [],
     nextPattern: 'SINGLE STRIKE',
     boss: true,
+    patternSetId: 'set.star_devourer',
+    telegraph: null,
   };
 }
 
@@ -195,8 +198,13 @@ export function createMonsterEnemy(index: number): EnemyState {
     statuses: [],
     nextPattern: 'SINGLE STRIKE',
     boss: false,
+    patternSetId: 'set.husk',
+    telegraph: null,
   };
 }
+
+/** 기본 층 기믹 — 보스전에 붙는다 */
+export const DEFAULT_GIMMICK_ID = 'gimmick.seal';
 
 /** 프리셋 → PairState 변환은 engine/battle.ts 에서 시트 파생을 거쳐 처리한다. */
 export type { PairPreset, PresetActor };

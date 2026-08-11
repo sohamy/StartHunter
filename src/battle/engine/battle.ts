@@ -5,8 +5,10 @@
  * 참가자 캐릭터든 프리셋 NPC 든 전투 상태는 모두 "시트 → 파생" 경로로 만든다.
  */
 
-import { SCHEMA_VERSION } from '../config/rules';
+import { findGimmick } from '../config/gimmicks';
+import { MANIFEST_RULES, SCHEMA_VERSION } from '../config/rules';
 import {
+  DEFAULT_GIMMICK_ID,
   DEFAULT_OPERATION,
   DEFAULT_POINTS,
   DEFAULT_RAID_PAIR_COUNT,
@@ -23,6 +25,7 @@ import type {
   BattleState,
   CharacterSheet,
   EnemyState,
+  GimmickState,
   PairState,
 } from '../types';
 import { constellationStateFromSheet, hunterStateFromSheet } from './character';
@@ -41,6 +44,10 @@ export interface PairInput {
 export function createPair(index: number, input: PairInput): PairState {
   const hunter = hunterStateFromSheet(input.hunterSheet);
   const constellation = constellationStateFromSheet(input.constellationSheet);
+  constellation.manifestUses = {
+    partial: MANIFEST_RULES.partialPerBattle,
+    full: MANIFEST_RULES.fullPerCampaign,
+  };
 
   if (input.hpRatio !== undefined) {
     hunter.hp = Math.max(0, Math.round(hunter.maxHp * input.hpRatio));
@@ -92,6 +99,23 @@ export interface CreateBattleOptions {
   id?: string;
   /** PAIR 01 자리에 들어갈 참가자 페어. 없으면 프리셋으로 채운다. */
   primaryPair?: PairInput;
+  /** 층 기믹 id. 생략하면 기본 기믹, null 이면 기믹 없음 */
+  gimmickId?: string | null;
+}
+
+export function createGimmick(defId: string | null): GimmickState | null {
+  const def = findGimmick(defId ?? '');
+  if (!def) return null;
+  return {
+    defId: def.id,
+    label: def.label,
+    labelKo: def.labelKo,
+    description: def.description,
+    required: def.required,
+    progress: 0,
+    roundsLeft: def.roundLimit,
+    status: 'ACTIVE',
+  };
 }
 
 export function createBattle(options: CreateBattleOptions = {}): BattleState {
@@ -125,8 +149,12 @@ export function createBattle(options: CreateBattleOptions = {}): BattleState {
     status: 'ENGAGED',
     pairs,
     enemies,
+    gimmick: createGimmick(
+      options.gimmickId === undefined ? DEFAULT_GIMMICK_ID : options.gimmickId,
+    ),
     viewerPairId: pairs[0].id,
     log: [],
+    alerts: [],
   };
 }
 

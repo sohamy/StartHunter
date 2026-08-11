@@ -1,28 +1,35 @@
 /**
- * 참가자 전투 단말 (Phase 1).
+ * 참가자 전투 단말.
  *
  * 이 컴포넌트는 전투 규칙을 계산하지 않는다.
  * 모든 판정은 engine/ 에, 모든 수치는 config/ 에 있다.
  *
  * 진입 조건: 계약자 등록(로그인)이 되어 있어야 한다.
- * 전투 상태는 로그인한 계정의 캐릭터 시트에서 파생된다.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { CONSTELLATION_ACTIONS, HUNTER_ACTIONS, findAction } from '../config/actions';
 import { findClass } from '../config/characters';
 import { CURRENT_PHASE, UI_RULES } from '../config/rules';
 import { DEFAULT_RAID_PAIR_COUNT, pairPreset, presetSheet } from '../config/scenario';
 import { createBattle, resolveTarget, viewerPair } from '../engine/battle';
+import { previewCombo } from '../engine/combo';
 import {
   actionAvailability,
   applyRound,
+  dismissAlert,
   previewRound,
   setControlMode,
   submitPairAction,
 } from '../engine/round';
-import { constellationView, contractView, injuryOf, isDown } from '../engine/status';
+import { actionsFor, findSkillRuntime, resolveActionFor } from '../engine/skills';
+import {
+  constellationView,
+  contractView,
+  injuryOf,
+  isDown,
+  statusViews,
+} from '../engine/status';
 import { getAuth, getStorage, type PublicProfile } from '../store';
 import type {
   ActionDefinition,
@@ -34,6 +41,7 @@ import type {
   EnemyState,
   PairState,
   RoundPreview,
+  StatusEffect,
 } from '../types';
 
 function joinUrl(): string {
@@ -71,30 +79,68 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function StatusChips({ statuses }: { statuses: StatusEffect[] }) {
+  const views = statusViews(statuses);
+  if (views.length === 0) return <span className="dim">NONE</span>;
+
+  return (
+    <>
+      {views.map((view) => (
+        <span key={view.defId} className={`tag ${view.tone}`} title={view.description}>
+          {view.label}
+          {view.stacks > 1 && <b> ×{view.stacks}</b>}
+          <small> {view.remainingRounds}R</small>
+        </span>
+      ))}
+    </>
+  );
+}
+
 /* ── 행동 목록 ─────────────────────────────────────────── */
 
 interface ActionListProps {
   actions: ActionDefinition[];
   pair: PairState;
+  side: ActorSide;
   target: EnemyState | null;
   selectedId: string | null;
   locked: boolean;
   onSelect: (actionId: string) => void;
 }
 
-function ActionList({ actions, pair, target, selectedId, locked, onSelect }: ActionListProps) {
+function ActionList({
+  actions,
+  pair,
+  side,
+  target,
+  selectedId,
+  locked,
+  onSelect,
+}: ActionListProps) {
   return (
     <ul className="action-list">
       {actions.map((action) => {
         const availability = actionAvailability(action, pair, Boolean(target));
         const disabled = locked || !availability.usable;
         const future = action.implementedIn > CURRENT_PHASE;
+        const skill = findSkillRuntime(pair, side, action.id);
+        const manifestLeft =
+          action.kind === 'MANIFEST'
+            ? pair.constellation.manifestUses.partial
+            : action.kind === 'FULL_MANIFEST'
+              ? pair.constellation.manifestUses.full
+              : null;
 
         return (
           <li key={action.id}>
             <button
               type="button"
-              className={['action', selectedId === action.id ? 'selected' : '', future ? 'future' : '']
+              className={[
+                'action',
+                selectedId === action.id ? 'selected' : '',
+                future ? 'future' : '',
+                skill ? 'custom' : '',
+              ]
                 .filter(Boolean)
                 .join(' ')}
               disabled={disabled}
@@ -106,6 +152,21 @@ function ActionList({ actions, pair, target, selectedId, locked, onSelect }: Act
                 <small>{action.labelKo}</small>
               </span>
               <span className="action-cost">AP {action.apCost}</span>
+              <span className="action-meta">
+                {skill && skill.cooldown > 0 && <span className="tag">쿨 {skill.cooldown}R</span>}
+                {skill && skill.currentCooldown > 0 && (
+                  <span className="tag warn">대기 {skill.currentCooldown}R</span>
+                )}
+                {skill?.remainingUses !== null && skill?.remainingUses !== undefined && (
+                  <span className="tag">{skill.remainingUses}회 남음</span>
+                )}
+                {skill?.applyStatusIds.map((defId) => (
+                  <span key={defId} className="tag warn">
+                    {defId}
+                  </span>
+                ))}
+                {manifestLeft !== null && <span className="tag gold">{manifestLeft}회 남음</span>}
+              </span>
               {!availability.usable && <span className="action-block">{availability.reason}</span>}
             </button>
           </li>
@@ -132,7 +193,6 @@ export default function BattleTerminal() {
 
   const battleId = account ? `BATTLE-${account.id}` : null;
 
-  // 세션 확인 → 계정 · 페어 상대 목록 · 저장된 전투 복구
   useEffect(() => {
     let cancelled = false;
 
@@ -167,7 +227,6 @@ export default function BattleTerminal() {
     };
   }, [auth, storage]);
 
-  // 상태가 바뀔 때마다 저장한다. 새로고침 후에도 이어서 진행할 수 있어야 한다.
   useEffect(() => {
     if (battle) void storage.saveBattle(battle);
   }, [battle, storage]);
@@ -189,7 +248,6 @@ export default function BattleTerminal() {
     }
 
     if (!partnerSheet) {
-      // 상대가 아직 등록되지 않았으면 프리셋 캐릭터와 계약한다.
       const preset = pairPreset(0);
       const side: ActorSide = mySheet.side === 'HUNTER' ? 'CONSTELLATION' : 'HUNTER';
       partnerSheet = presetSheet(
@@ -339,6 +397,17 @@ export default function BattleTerminal() {
   const submission = pair.submission;
   const locked = submission.submitted || battle.status !== 'ENGAGED';
 
+  const hunterAction = resolveActionFor(pair, 'HUNTER', submission.hunterActionId);
+  const constellationAction = resolveActionFor(
+    pair,
+    'CONSTELLATION',
+    submission.constellationActionId,
+  );
+  const comboPreview = previewCombo(hunterAction, constellationAction, target?.statuses ?? []);
+  const needsSupportTarget =
+    hunterAction?.kind === 'RESCUE' || hunterAction?.kind === 'PROTECT';
+  const downPairs = battle.pairs.filter((row) => row.hunter.hp <= 0);
+
   const readiness = battle.pairs.map((candidate) => {
     if (candidate.hunter.hp <= 0) return { pair: candidate, state: 'DOWN' as const };
     if (candidate.submission.submitted) return { pair: candidate, state: 'READY' as const };
@@ -360,8 +429,6 @@ export default function BattleTerminal() {
     update(setControlMode(battle, pair.id, side, currentMode === 'AUTO' ? 'ACTIVE' : 'AUTO'));
   };
 
-  // 자동 위임된 쪽은 참가자가 고르지 않아도 확정할 수 있다.
-  // 한쪽이 이탈해도 남은 참가자가 라운드를 계속 진행할 수 있어야 한다.
   const hunterReady = pair.hunter.control === 'AUTO' || Boolean(submission.hunterActionId);
   const constellationReady =
     pair.constellation.control === 'AUTO' || Boolean(submission.constellationActionId);
@@ -376,6 +443,30 @@ export default function BattleTerminal() {
 
   return (
     <div className="console">
+      {/* ── 경보 ── */}
+      {battle.alerts.length > 0 && (
+        <section className="alert-stack">
+          {battle.alerts
+            .slice(-3)
+            .reverse()
+            .map((item) => (
+              <div key={item.id} className={`alert level-${item.level.toLowerCase()}`}>
+                <div>
+                  <b>{item.title}</b>
+                  <span>{item.message}</span>
+                </div>
+                <button
+                  type="button"
+                  className="ctl small"
+                  onClick={() => setBattle(dismissAlert(battle, item.id))}
+                >
+                  DISMISS
+                </button>
+              </div>
+            ))}
+        </section>
+      )}
+
       {/* ── 헤더 ── */}
       <header className="console-head">
         <div className="agency">
@@ -435,6 +526,45 @@ export default function BattleTerminal() {
         </div>
       </section>
 
+      {/* ── 기믹 ── */}
+      {battle.gimmick && (
+        <section className={`panel gimmick status-${battle.gimmick.status.toLowerCase()}`}>
+          <div className="process-head">
+            <h2 className="panel-title">FLOOR GIMMICK</h2>
+            <span
+              className={`tag ${
+                battle.gimmick.status === 'CLEARED'
+                  ? 'ok'
+                  : battle.gimmick.status === 'FAILED'
+                    ? 'critical'
+                    : 'warn'
+              }`}
+            >
+              {battle.gimmick.status}
+            </span>
+          </div>
+          <Field label="DEVICE">
+            {battle.gimmick.label} <small className="dim">{battle.gimmick.labelKo}</small>
+          </Field>
+          <Gauge
+            value={battle.gimmick.progress}
+            max={battle.gimmick.required}
+            tone={battle.gimmick.status === 'FAILED' ? 'critical' : 'warn'}
+          />
+          <div className="target-meta">
+            <span className="num">
+              PROGRESS {battle.gimmick.progress} / {battle.gimmick.required}
+            </span>
+            <span className="num">
+              {battle.gimmick.roundsLeft === null
+                ? 'NO TIME LIMIT'
+                : `${battle.gimmick.roundsLeft} ROUNDS LEFT`}
+            </span>
+          </div>
+          <p className="hint">{battle.gimmick.description}</p>
+        </section>
+      )}
+
       {/* ── 타깃 ── */}
       <section className="panel targets">
         <h2 className="panel-title">TARGET</h2>
@@ -474,15 +604,7 @@ export default function BattleTerminal() {
                 </div>
                 <div className="target-status">
                   <span className="field-label">STATUS</span>
-                  {enemy.statuses.length === 0 ? (
-                    <span className="dim">NONE</span>
-                  ) : (
-                    enemy.statuses.map((status) => (
-                      <span key={status} className="tag">
-                        {status}
-                      </span>
-                    ))
-                  )}
+                  <StatusChips statuses={enemy.statuses} />
                 </div>
                 <div className="target-status">
                   <span className="field-label">NEXT PATTERN</span>
@@ -490,6 +612,13 @@ export default function BattleTerminal() {
                     {pair.patternRevealed ? enemy.nextPattern : 'UNKNOWN'}
                   </span>
                 </div>
+                {enemy.telegraph && (
+                  <p className="telegraph">
+                    <b>{enemy.telegraph.label}</b>
+                    <span>{enemy.telegraph.message}</span>
+                    <small>{Math.max(0, enemy.telegraph.roundsLeft)} ROUNDS UNTIL ACTIVATION</small>
+                  </p>
+                )}
                 {!dead && battle.enemies.length > 1 && (
                   <button
                     type="button"
@@ -555,16 +684,52 @@ export default function BattleTerminal() {
               <span className="field-label">DEF</span> <b className="num">{pair.hunter.defense}</b>
             </span>
           </div>
+          <div className="target-status">
+            <span className="field-label">EFFECT</span>
+            <StatusChips statuses={pair.hunter.statuses} />
+          </div>
 
           <h3 className="sub-title">ACTION</h3>
           <ActionList
-            actions={HUNTER_ACTIONS}
+            actions={actionsFor(pair, 'HUNTER')}
             pair={pair}
+            side="HUNTER"
             target={target}
             selectedId={submission.hunterActionId}
             locked={locked || pair.hunter.control === 'AUTO'}
             onSelect={(id) => selectAction('HUNTER', id)}
           />
+
+          {needsSupportTarget && (
+            <div className="input-row" style={{ marginTop: 12 }}>
+              <span className="field-label">
+                {hunterAction?.kind === 'RESCUE' ? 'RESCUE TARGET' : 'PROTECT TARGET'}
+              </span>
+              <select
+                className="ctl"
+                disabled={locked}
+                value={submission.supportTargetPairId ?? ''}
+                onChange={(event) =>
+                  update(
+                    submitPairAction(battle, pair.id, {
+                      supportTargetPairId: event.target.value || null,
+                    }),
+                  )
+                }
+              >
+                <option value="">자동 선택</option>
+                {(hunterAction?.kind === 'RESCUE' ? downPairs : battle.pairs).map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.label} · {row.hunter.name}
+                    {row.hunter.hp <= 0 ? ' (DOWN)' : ''}
+                  </option>
+                ))}
+              </select>
+              {hunterAction?.kind === 'RESCUE' && downPairs.length === 0 && (
+                <span className="hint">구조 대상이 없습니다.</span>
+              )}
+            </div>
+          )}
         </article>
 
         {/* 계약 / 연계 */}
@@ -585,16 +750,34 @@ export default function BattleTerminal() {
           <div className="analysis">
             <div className="analysis-row">
               <span className="field-label">HUNTER</span>
-              <span>{findAction(submission.hunterActionId)?.label ?? '—'}</span>
+              <span>{hunterAction?.label ?? '—'}</span>
             </div>
             <div className="analysis-row">
               <span className="field-label">CONSTELLATION</span>
-              <span>{findAction(submission.constellationActionId)?.label ?? '—'}</span>
+              <span>{constellationAction?.label ?? '—'}</span>
             </div>
-            <p className="analysis-result dim">
-              COMBINATION ANALYSIS OFFLINE
-              <small>페어 연계 판정은 PHASE 3 에서 연결됩니다.</small>
-            </p>
+
+            {comboPreview ? (
+              <div className="analysis-result combo">
+                <b>COMBINATION AVAILABLE</b>
+                <span className="combo-name">《 {comboPreview.definition.label} 》</span>
+                <small className="dim">{comboPreview.definition.description}</small>
+                <ul className="combo-effects">
+                  {comboPreview.view.effects.map((effect) => (
+                    <li key={effect}>{effect}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="analysis-result dim">
+                NO COMBINATION
+                <small>
+                  {hunterAction && constellationAction
+                    ? '이 조합에서는 연계가 발생하지 않습니다.'
+                    : '양쪽 행동을 선택하면 연계를 판정합니다.'}
+                </small>
+              </p>
+            )}
           </div>
 
           <h3 className="sub-title">PAIR RESOURCE</h3>
@@ -654,12 +837,24 @@ export default function BattleTerminal() {
               <span className="field-label">POWER</span>{' '}
               <b className="num gold">×{pair.constellation.power}</b>
             </span>
+            <span>
+              <span className="field-label">MANIFEST</span>{' '}
+              <b className="num">
+                {pair.constellation.manifestUses.partial ?? '∞'} /{' '}
+                {pair.constellation.manifestUses.full ?? '∞'}
+              </b>
+            </span>
+          </div>
+          <div className="target-status">
+            <span className="field-label">EFFECT</span>
+            <StatusChips statuses={pair.constellation.statuses} />
           </div>
 
           <h3 className="sub-title">AUTHORITY</h3>
           <ActionList
-            actions={CONSTELLATION_ACTIONS}
+            actions={actionsFor(pair, 'CONSTELLATION')}
             pair={pair}
+            side="CONSTELLATION"
             target={target}
             selectedId={submission.constellationActionId}
             locked={locked || pair.constellation.control === 'AUTO'}
@@ -682,7 +877,11 @@ export default function BattleTerminal() {
               <small>Waiting for Raid Control…</small>
             </p>
             {UI_RULES.allowCancelAfterSubmit && (
-              <button type="button" className="ctl" onClick={() => update(submitPairAction(battle, pair.id, { submitted: false }))}>
+              <button
+                type="button"
+                className="ctl"
+                onClick={() => update(submitPairAction(battle, pair.id, { submitted: false }))}
+              >
                 CANCEL
               </button>
             )}
@@ -698,7 +897,7 @@ export default function BattleTerminal() {
             {!canConfirm && (
               <small>
                 {isDown(pair.hunter)
-                  ? '헌터 전투 불능 — 구조 대기 (PHASE 3)'
+                  ? '헌터 전투 불능 — 다른 페어의 구조를 기다립니다'
                   : '조작 중인 쪽의 행동을 선택하세요 · 자리를 비운 쪽은 AUTO 로 위임'}
               </small>
             )}
@@ -741,6 +940,9 @@ export default function BattleTerminal() {
                     <span className="num">
                       AP {row.hunter.ap}/{row.constellation.ap}
                     </span>
+                  </div>
+                  <div className="roster-meta">
+                    <StatusChips statuses={row.hunter.statuses} />
                   </div>
                   {(row.hunter.control === 'AUTO' || row.constellation.control === 'AUTO') && (
                     <span className="tag auto">
@@ -787,6 +989,7 @@ export default function BattleTerminal() {
                   <th>PAIR</th>
                   <th>HUNTER</th>
                   <th>CONSTELLATION</th>
+                  <th>LINK</th>
                   <th>DAMAGE</th>
                   <th>NOTE</th>
                 </tr>
@@ -796,38 +999,94 @@ export default function BattleTerminal() {
                   <tr key={row.pairId}>
                     <td>{row.pairLabel}</td>
                     <td>
-                      {findAction(row.hunterActionId)?.label ?? '—'}
+                      {row.hunterActionLabel}
                       {row.autoFilled.includes('HUNTER') && <span className="tag auto">AUTO</span>}
                     </td>
                     <td>
-                      {findAction(row.constellationActionId)?.label ?? '—'}
+                      {row.constellationActionLabel}
                       {row.autoFilled.includes('CONSTELLATION') && (
                         <span className="tag auto">AUTO</span>
                       )}
                     </td>
+                    <td>
+                      {row.combo ? (
+                        <span className="tag ok" title={row.combo.effects.join(' / ')}>
+                          {row.combo.label}
+                        </span>
+                      ) : (
+                        <span className="dim">—</span>
+                      )}
+                    </td>
                     <td className="num">{row.damageToEnemy}</td>
                     <td className="dim small-text">
-                      {row.skipped ? row.skipReason : row.notes.slice(0, 2).join(' / ')}
+                      {[
+                        row.skipped ? row.skipReason : null,
+                        row.rescue ? `구조 ${row.rescue.targetLabel} +${row.rescue.restoredHp}` : null,
+                        row.gimmickProgress > 0 ? `기믹 +${row.gimmickProgress}` : null,
+                        row.appliedStatuses.map((s) => s.label).join(' · ') || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' / ')}
                     </td>
                   </tr>
                 ))}
+
                 {preview.enemies.map((row) => (
                   <tr key={row.enemyId} className="enemy-row">
                     <td>{row.enemyName}</td>
-                    <td colSpan={2}>{row.pattern}</td>
-                    <td className="num danger-text">-{row.damageToHunter}</td>
+                    <td colSpan={3}>
+                      {row.pattern}
+                      {row.aoe && <span className="tag critical">AOE</span>}
+                      {row.blocked && <span className="tag ok">BLOCKED</span>}
+                      {row.telegraph && <span className="tag warn">TELEGRAPH</span>}
+                    </td>
+                    <td className="num danger-text">
+                      {row.damageToHunter > 0 ? `-${row.damageToHunter}` : '—'}
+                    </td>
                     <td className="dim small-text">{row.notes[0]}</td>
+                  </tr>
+                ))}
+
+                {preview.statusTicks.map((tick) => (
+                  <tr key={`${tick.ownerId}-${tick.defId}`} className="tick-row">
+                    <td>{tick.ownerLabel}</td>
+                    <td colSpan={3}>
+                      {tick.label} <small className="dim">지속 피해</small>
+                    </td>
+                    <td className={`num ${tick.holder === 'ENEMY' ? '' : 'danger-text'}`}>
+                      {tick.holder === 'ENEMY' ? tick.amount : `-${tick.amount}`}
+                    </td>
+                    <td className="dim small-text">ROUND END</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
-                  <th colSpan={3}>TOTAL</th>
+                  <th colSpan={4}>TOTAL</th>
                   <th className="num">{preview.totals.damageToEnemies}</th>
                   <th className="num danger-text">-{preview.totals.damageToHunters}</th>
                 </tr>
               </tfoot>
             </table>
+
+            {preview.gimmick && (
+              <p className="hint">
+                GIMMICK {preview.gimmick.progress} / {preview.gimmick.required}
+                {preview.gimmick.willClear && <b className="ok-text"> — 해제 예정</b>}
+                {preview.gimmick.willFail && <b className="danger-text"> — 실패 임박</b>}
+              </p>
+            )}
+
+            {preview.alerts.length > 0 && (
+              <ul className="preview-alerts">
+                {preview.alerts.map((item) => (
+                  <li key={`${item.title}-${item.message}`}>
+                    <span className="tag critical">{item.level}</span> {item.title} — {item.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <div className="btn-row">
               <button
                 type="button"
@@ -859,7 +1118,7 @@ export default function BattleTerminal() {
           <ol className="log-list">
             {[...battle.log]
               .reverse()
-              .slice(0, 60)
+              .slice(0, 80)
               .map((entry) => (
                 <li key={entry.id}>
                   <span className="log-time num">[{entry.at}]</span>

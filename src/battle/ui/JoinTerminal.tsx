@@ -15,9 +15,18 @@ import {
   remainingPoints,
   statsFor,
 } from '../config/characters';
+import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
+import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
 import { AuthError, getAuth } from '../store';
-import type { Account, ActorSide, Affiliation, CharacterSheet, StatBlock } from '../types';
+import type {
+  Account,
+  ActorSide,
+  Affiliation,
+  CharacterSheet,
+  SkillDefinition,
+  StatBlock,
+} from '../types';
 
 type Mode = 'LOGIN' | 'REGISTER';
 
@@ -26,6 +35,7 @@ interface DraftSheet {
   name: string;
   classId: string;
   stats: StatBlock;
+  skills: SkillDefinition[];
   concept: string;
   affiliation: Affiliation;
 }
@@ -36,6 +46,7 @@ function emptyDraft(side: ActorSide): DraftSheet {
     name: '',
     classId: '',
     stats: initialStats(side),
+    skills: [],
     concept: '',
     affiliation: 'GOVERNMENT',
   };
@@ -106,6 +117,208 @@ function StatRow({
   );
 }
 
+/* ── 커스텀 스킬 편집기 ─────────────────────────────── */
+
+function SkillEditor({
+  side,
+  skills,
+  onChange,
+}: {
+  side: ActorSide;
+  skills: SkillDefinition[];
+  onChange: (next: SkillDefinition[]) => void;
+}) {
+  const kinds = skillKindsFor(side);
+  const statuses = selectableStatuses();
+
+  const patch = (index: number, next: Partial<SkillDefinition>) => {
+    onChange(skills.map((skill, i) => (i === index ? { ...skill, ...next } : skill)));
+  };
+
+  const toggleStatus = (index: number, defId: string) => {
+    const current = skills[index].applyStatusIds;
+    const next = current.includes(defId)
+      ? current.filter((id) => id !== defId)
+      : current.length >= SKILL_RULES.maxStatuses
+        ? current
+        : [...current, defId];
+    patch(index, { applyStatusIds: next });
+  };
+
+  return (
+    <div className="skill-editor">
+      {skills.length === 0 && (
+        <p className="hint">
+          등록한 스킬이 없습니다. 스킬 없이도 참여할 수 있지만, 기본 행동만 사용하게 됩니다.
+        </p>
+      )}
+
+      {skills.map((skill, index) => {
+        const kindDef = findSkillKind(skill.kind);
+        return (
+          <article className="skill-card" key={skill.id}>
+            <header className="skill-head">
+              <span className="field-label">SKILL {index + 1}</span>
+              <button
+                type="button"
+                className="ctl small"
+                onClick={() => onChange(skills.filter((_, i) => i !== index))}
+              >
+                REMOVE
+              </button>
+            </header>
+
+            <div className="skill-grid">
+              <label className="input-row">
+                <span className="field-label">이름</span>
+                <input
+                  className="ctl input"
+                  value={skill.name}
+                  maxLength={SKILL_RULES.nameMaxLength}
+                  onChange={(event) => patch(index, { name: event.target.value })}
+                  placeholder="예: STAR SLASH"
+                />
+              </label>
+
+              <label className="input-row">
+                <span className="field-label">종류</span>
+                <select
+                  className="ctl input"
+                  value={skill.kind}
+                  onChange={(event) => {
+                    const kind = event.target.value as SkillDefinition['kind'];
+                    patch(index, {
+                      kind,
+                      target: findSkillKind(kind)?.defaultTarget ?? skill.target,
+                    });
+                  }}
+                >
+                  {kinds.map((row) => (
+                    <option key={row.kind} value={row.kind}>
+                      {row.label} · {row.labelKo}
+                      {row.activeFrom > 2 ? ` (PHASE ${row.activeFrom})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="input-row">
+                <span className="field-label">행동력 {skill.apCost}</span>
+                <input
+                  type="range"
+                  min={SKILL_RULES.apCost.min}
+                  max={SKILL_RULES.apCost.max}
+                  step={1}
+                  value={skill.apCost}
+                  onChange={(event) => patch(index, { apCost: Number(event.target.value) })}
+                />
+              </label>
+
+              <label className="input-row">
+                <span className="field-label">기본 수치 {skill.power}</span>
+                <input
+                  type="range"
+                  min={SKILL_RULES.power.min}
+                  max={SKILL_RULES.power.max}
+                  step={SKILL_RULES.power.step}
+                  value={skill.power}
+                  onChange={(event) => patch(index, { power: Number(event.target.value) })}
+                />
+              </label>
+
+              <label className="input-row">
+                <span className="field-label">쿨타임 {skill.cooldown}R</span>
+                <input
+                  type="range"
+                  min={SKILL_RULES.cooldown.min}
+                  max={SKILL_RULES.cooldown.max}
+                  step={1}
+                  value={skill.cooldown}
+                  onChange={(event) => patch(index, { cooldown: Number(event.target.value) })}
+                />
+              </label>
+
+              <label className="input-row">
+                <span className="field-label">
+                  전투당 사용 {skill.maxUses === null ? '무제한' : `${skill.maxUses}회`}
+                </span>
+                <input
+                  type="range"
+                  min={SKILL_RULES.maxUses.min}
+                  max={SKILL_RULES.maxUses.max}
+                  step={1}
+                  value={skill.maxUses ?? 0}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    patch(index, { maxUses: value === 0 ? null : value });
+                  }}
+                />
+              </label>
+            </div>
+
+            <p className="hint">{kindDef?.powerMeaning}</p>
+
+            <div className="input-row">
+              <span className="field-label">
+                부여 상태이상 (최대 {SKILL_RULES.maxStatuses})
+              </span>
+              <div className="status-picker">
+                {statuses.map((status) => (
+                  <button
+                    key={status.id}
+                    type="button"
+                    className={`chip-btn ${skill.applyStatusIds.includes(status.id) ? 'on' : ''}`}
+                    onClick={() => toggleStatus(index, status.id)}
+                    title={`${status.description} · ${status.duration}R`}
+                  >
+                    {status.label}
+                    <small>{status.labelKo}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="input-row">
+              <span className="field-label">설명</span>
+              <input
+                className="ctl input"
+                value={skill.description}
+                maxLength={SKILL_RULES.descriptionMaxLength}
+                onChange={(event) => patch(index, { description: event.target.value })}
+                placeholder="연출과 효과를 간단히"
+              />
+            </label>
+
+            <label className="input-row">
+              <span className="field-label">특수 효과 (운영진 판정)</span>
+              <input
+                className="ctl input"
+                value={skill.special}
+                maxLength={SKILL_RULES.specialMaxLength}
+                onChange={(event) => patch(index, { special: event.target.value })}
+                placeholder="수치로 표현되지 않는 효과 (선택)"
+              />
+            </label>
+          </article>
+        );
+      })}
+
+      {skills.length < SKILL_RULES.maxSkills && (
+        <button
+          type="button"
+          className="ctl wide"
+          onClick={() => onChange([...skills, blankSkill(side, skills.length)])}
+        >
+          + ADD SKILL
+          <small>
+            {skills.length} / {SKILL_RULES.maxSkills}
+          </small>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function JoinTerminal() {
   const auth = useMemo(() => getAuth(), []);
   const [mode, setMode] = useState<Mode>('REGISTER');
@@ -156,7 +369,7 @@ export default function JoinTerminal() {
   const previewSheet: CharacterSheet = {
     ...draft,
     id: 'PREVIEW',
-    createdAt: new Date(0).toISOString(),
+    createdAt: '1970-01-01T00:00:00.000Z',
   };
   const derivedHunter = draft.side === 'HUNTER' ? deriveHunter(previewSheet) : null;
   const derivedConstellation =
@@ -182,6 +395,7 @@ export default function JoinTerminal() {
           name: draft.name.trim(),
           classId: draft.classId,
           stats: draft.stats,
+          skills: draft.skills.map((skill) => ({ ...skill, name: skill.name.trim() })),
           concept: draft.concept.trim(),
           affiliation: draft.affiliation,
         },
@@ -323,6 +537,32 @@ export default function JoinTerminal() {
               )}
             </div>
           </div>
+
+          {(sheet.skills ?? []).length > 0 && (
+            <>
+              <h3 className="sub-title">CUSTOM SKILL</h3>
+              <ul className="skill-summary">
+                {sheet.skills.map((skill) => (
+                  <li key={skill.id}>
+                    <b>{skill.name}</b>
+                    <span className="tag">{findSkillKind(skill.kind)?.labelKo ?? skill.kind}</span>
+                    <span className="num">AP {skill.apCost}</span>
+                    <span className="num">수치 {skill.power}</span>
+                    <span className="num">
+                      쿨 {skill.cooldown}R
+                      {skill.maxUses !== null ? ` · ${skill.maxUses}회` : ''}
+                    </span>
+                    {skill.applyStatusIds.map((defId) => (
+                      <span key={defId} className="tag warn">
+                        {selectableStatuses().find((row) => row.id === defId)?.label ?? defId}
+                      </span>
+                    ))}
+                    {skill.description && <small className="dim">{skill.description}</small>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
 
           {sheet.concept && (
             <>
@@ -596,6 +836,18 @@ export default function JoinTerminal() {
                 {draft.side === 'HUNTER' ? '클래스' : '권역'}를 선택하면 보정이 반영됩니다.
               </p>
             )}
+
+            <h3 className="sub-title">
+              CUSTOM SKILL
+              <span className="points">
+                {draft.skills.length} / {SKILL_RULES.maxSkills}
+              </span>
+            </h3>
+            <SkillEditor
+              side={draft.side}
+              skills={draft.skills}
+              onChange={(skills) => setDraft({ ...draft, skills })}
+            />
 
             <h3 className="sub-title">CONCEPT</h3>
             <textarea

@@ -152,6 +152,18 @@ export const STATUS_DEFINITIONS: StatusDefinition[] = [
     description: '라운드 종료마다 지속 피해를 입는다.',
   },
   {
+    id: 'enraged',
+    label: 'ENRAGED',
+    labelKo: '분노',
+    kind: 'BUFF',
+    appliesTo: 'ENEMY',
+    duration: 3,
+    stackable: false,
+    maxStacks: 1,
+    modifiers: { attackUp: 0.4 },
+    description: '대상의 공격력이 크게 올라간다.',
+  },
+  {
     id: 'bind',
     label: 'BIND',
     labelKo: '속박',

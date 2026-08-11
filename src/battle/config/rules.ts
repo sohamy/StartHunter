@@ -8,7 +8,7 @@
 import type { ConstellationStage, ContractStage, InjuryStage } from '../types';
 
 /** 현재 구현 단계. 이 값보다 큰 implementedIn 을 가진 행동은 선택할 수 없다. */
-export const CURRENT_PHASE = 2;
+export const CURRENT_PHASE = 4;
 
 /**
  * 저장 데이터 구조 버전.
@@ -23,6 +23,22 @@ export const AP_RULES = {
   constellationMaxAp: 5,
   /** 라운드 시작 시 회복량 */
   recoveryPerRound: 2,
+} as const;
+
+/** 현신 사용 제한 */
+export const MANIFEST_RULES = {
+  /** 전투당 부분 현신 사용 횟수 */
+  partialPerBattle: 2,
+  /** 공략 단위 완전 현신 사용 횟수 */
+  fullPerCampaign: 1,
+} as const;
+
+/** 구조 규칙 */
+export const RESCUE_RULES = {
+  /** 구조 성공 시 회복되는 최대 HP 비율 */
+  revivePercent: 0.3,
+  /** 구조 후 부여되는 상태이상 */
+  applyStatusIds: ['guard.up'] as string[],
 } as const;
 
 /** UI 동작 옵션 */

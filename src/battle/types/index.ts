@@ -219,8 +219,8 @@ export interface RoundSubmission {
   constellationActionId: string | null;
   /** 공격 대상 적 */
   targetEnemyId: string | null;
-  /** 구조 행동의 대상 페어 */
-  rescueTargetPairId: string | null;
+  /** 구조 · 보호 행동의 대상 페어 */
+  supportTargetPairId: string | null;
   submitted: boolean;
   /** 자동 행동으로 채워진 제출인지 */
   auto: boolean;

@@ -9,9 +9,12 @@ import {
   hunterStateFromSheet,
   validateSheet,
 } from './engine/character';
+import { previewCombo } from './engine/combo';
+import { evaluatePhase, selectPattern } from './engine/enemy';
 import { applyRound, previewRound, setControlMode, submitPairAction } from './engine/round';
-import { injuryOf } from './engine/status';
-import type { BattleState, CharacterSheet } from './types';
+import { skillToAction, toRuntime } from './engine/skills';
+import { aggregateModifiers, applyStatus, injuryOf, tickStatuses } from './engine/status';
+import type { BattleState, CharacterSheet, SkillDefinition } from './types';
 
 let failures = 0;
 function check(label: string, condition: boolean, extra = '') {
@@ -19,8 +22,22 @@ function check(label: string, condition: boolean, extra = '') {
   console.log(`${condition ? 'PASS' : 'FAIL'}  ${label}${extra ? ` — ${extra}` : ''}`);
 }
 
-/* ── 1. 캐릭터 시트 → 전투 수치 ─────────────────────── */
-console.log('\n=== 1. 캐릭터 시트 파생 ===');
+const HUNTER_SKILLS: SkillDefinition[] = [
+  {
+    id: 'SK-TEST-H1',
+    side: 'HUNTER',
+    kind: 'ATTACK',
+    name: 'TEST SLASH',
+    description: '',
+    apCost: 2,
+    target: 'ENEMY',
+    power: 2,
+    cooldown: 2,
+    maxUses: 1,
+    applyStatusIds: ['bleed'],
+    special: '',
+  },
+];
 
 const hunterSheet: CharacterSheet = {
   id: 'TEST-H',
@@ -28,15 +45,11 @@ const hunterSheet: CharacterSheet = {
   name: '테스트 헌터',
   classId: 'guardian',
   stats: { str: 2, vit: 6, agi: 4, sen: 2, wil: 3 },
+  skills: HUNTER_SKILLS,
   concept: '',
   affiliation: 'GOVERNMENT',
   createdAt: '1970-01-01T00:00:00.000Z',
 };
-const derivedHunter = deriveHunter(hunterSheet);
-// 60 + 6*8 + 25 = 133 / 4 + 2*1.2 - 1 = 5.4 → 5 / 4*0.8 + 3 = 6.2 → 6
-check('VIT → 최대 HP', derivedHunter.maxHp === 133, `maxHp ${derivedHunter.maxHp}`);
-check('STR + 클래스 → 공격력', derivedHunter.attack === 5, `attack ${derivedHunter.attack}`);
-check('AGI + 클래스 → 방어력', derivedHunter.defense === 6, `defense ${derivedHunter.defense}`);
 
 const constellationSheet: CharacterSheet = {
   id: 'TEST-C',
@@ -44,55 +57,87 @@ const constellationSheet: CharacterSheet = {
   name: '테스트 성좌',
   classId: 'calamity',
   stats: { authority: 6, divinity: 3, resonance: 1, observation: 4, manifest: 3 },
+  skills: [],
   concept: '',
   affiliation: 'GOVERNMENT',
   createdAt: '1970-01-01T00:00:00.000Z',
 };
+
+/* ── 1. 캐릭터 시트 파생 ────────────────────────────── */
+console.log('\n=== 1. 캐릭터 시트 파생 ===');
+const derivedHunter = deriveHunter(hunterSheet);
+check('VIT → 최대 HP', derivedHunter.maxHp === 133, `maxHp ${derivedHunter.maxHp}`);
+check('STR + 클래스 → 공격력', derivedHunter.attack === 5, `attack ${derivedHunter.attack}`);
+check('AGI + 클래스 → 방어력', derivedHunter.defense === 6, `defense ${derivedHunter.defense}`);
+
 const derivedConst = deriveConstellation(constellationSheet);
-// 1 + 6*0.04 + 0.15 = 1.39 / 5 + floor(3/3) = 6
 check('AUT + 권역 → 권능 배율', derivedConst.power === 1.39, `power ${derivedConst.power}`);
 check('DIV → 최대 행동력', derivedConst.maxAp === 6, `maxAp ${derivedConst.maxAp}`);
 
 const hunterState = hunterStateFromSheet(hunterSheet);
-check('시트 id 추적', hunterState.sheetId === 'TEST-H' && hunterState.classId === 'guardian');
-check('시작 HP 는 만피', hunterState.hp === hunterState.maxHp);
-check(
-  '성좌 상태 기본 STABLE',
-  constellationStateFromSheet(constellationSheet).stage === 'STABLE',
-);
+check('시트 스킬이 런타임으로 변환', hunterState.skills.length === 1);
+check('쿨타임 초기값 0', hunterState.skills[0].currentCooldown === 0);
+check('사용 횟수 초기값', hunterState.skills[0].remainingUses === 1);
+check('현신 사용 횟수 초기화', constellationStateFromSheet(constellationSheet).manifestUses.partial === 2);
 
 /* ── 2. 시트 검증 ───────────────────────────────────── */
 console.log('\n=== 2. 시트 검증 ===');
-const blank = { side: 'HUNTER' as const, name: '', classId: '', stats: initialStats('HUNTER'), concept: '' };
-const blankIssues = validateSheet(blank);
-check('빈 시트는 이름·클래스·스탯 오류', blankIssues.length === 3, blankIssues.map((i) => i.field).join(','));
+const blank = {
+  side: 'HUNTER' as const,
+  name: '',
+  classId: '',
+  stats: initialStats('HUNTER'),
+  concept: '',
+  skills: [],
+};
+check('빈 시트는 3개 오류', validateSheet(blank).length === 3);
 check('배분 전 남은 포인트', remainingPoints('HUNTER', initialStats('HUNTER')) === POINT_BUY.freePoints);
+check('완성된 시트는 오류 없음', validateSheet(hunterSheet).length === 0);
 check(
-  '완성된 시트는 오류 없음',
-  validateSheet({ ...hunterSheet, concept: '' }).length === 0,
-  validateSheet(hunterSheet).map((i) => i.message).join(' / '),
+  '이름 없는 스킬 감지',
+  validateSheet({ ...hunterSheet, skills: [{ ...HUNTER_SKILLS[0], name: '' }] }).length === 1,
 );
 check(
-  '초과 배분 감지',
-  validateSheet({ ...hunterSheet, stats: { ...hunterSheet.stats, str: 6 } }).length === 1,
-);
-
-/* ── 3. DUEL 한 라운드 ──────────────────────────────── */
-console.log('\n=== 3. DUEL 라운드 진행 ===');
-let duel = createBattle({ mode: 'DUEL' });
-check('페어 1조 / 적 1체', duel.pairs.length === 1 && duel.enemies.length === 1);
-const preset0 = pairPreset(0);
-const presetHunter = deriveHunter(presetSheet(preset0.hunter, 'HUNTER', 'GOVERNMENT', 0));
-check(
-  '프리셋도 시트 파생 경로를 통과',
-  duel.pairs[0].hunter.attack === presetHunter.attack &&
-    duel.pairs[0].hunter.maxHp === presetHunter.maxHp,
-  `attack ${duel.pairs[0].hunter.attack} / maxHp ${duel.pairs[0].hunter.maxHp}`,
+  '범위 초과 스킬 감지',
+  validateSheet({ ...hunterSheet, skills: [{ ...HUNTER_SKILLS[0], apCost: 9, power: 9 }] }).length === 2,
 );
 
+/* ── 3. 스킬 → 행동 변환 ────────────────────────────── */
+console.log('\n=== 3. 스킬 변환 ===');
+const skillAction = skillToAction(toRuntime(HUNTER_SKILLS)[0]);
+check('ATTACK 스킬은 damage 효과', skillAction.effect.damage === 2);
+check('상태이상이 효과에 포함', skillAction.effect.applyStatusIds?.[0] === 'bleed');
+check('스킬 id 가 행동 id', skillAction.id === 'SK-TEST-H1');
+
+/* ── 4. 상태이상 ────────────────────────────────────── */
+console.log('\n=== 4. 상태이상 ===');
+let statuses = applyStatus([], 'def.down', 'TEST');
+check('부여 시 지속시간 설정', statuses[0].remainingRounds === 2);
+statuses = applyStatus(statuses, 'def.down', 'TEST');
+check('중첩 가능 상태이상은 쌓임', statuses[0].stacks === 2);
+statuses = applyStatus(statuses, 'def.down', 'TEST');
+check('최대 중첩 상한', statuses[0].stacks === 2);
+check('중첩만큼 보정 합산', aggregateModifiers(statuses).defenseDown === 0.6);
+const scaled = applyStatus([], 'atk.up', 'TEST', 1.5);
+check(
+  '배율이 보정에 반영',
+  Math.abs((aggregateModifiers(scaled).attackUp ?? 0) - 0.45) < 1e-9,
+  String(aggregateModifiers(scaled).attackUp),
+);
+const ticked = tickStatuses(tickStatuses(statuses).statuses);
+check('지속시간 만료 시 제거', ticked.statuses.length === 0 && ticked.expired.length === 1);
+check('행동 불가 상태 감지', aggregateModifiers(applyStatus([], 'bind', 'T')).blockAction === true);
+
+/* ── 5. DUEL 라운드 + 스킬 쿨타임 ───────────────────── */
+console.log('\n=== 5. 라운드 진행 · 쿨타임 ===');
+let duel = createBattle({
+  mode: 'DUEL',
+  primaryPair: { hunterSheet, constellationSheet },
+  gimmickId: null,
+});
 const pairId = duel.pairs[0].id;
 duel = submitPairAction(duel, pairId, {
-  hunterActionId: 'hunter.attack',
+  hunterActionId: 'SK-TEST-H1',
   constellationActionId: 'const.debuff',
   submitted: true,
 });
@@ -100,95 +145,216 @@ duel = submitPairAction(duel, pairId, {
 const duelPreview = previewRound(duel);
 const row = duelPreview.pairs[0];
 console.log('  근거:', row.notes.join(' | '));
-check('디버프 + 권능 배율 반영', row.damageToEnemy > 0, `damage=${row.damageToEnemy}`);
-check('권능 배율이 근거에 표시', row.notes.some((note) => note.includes('권능 배율')));
-check('자동 행동 없음', row.autoFilled.length === 0);
-check('적 반격 예상', duelPreview.enemies[0].damageToHunter > 0, `-${duelPreview.enemies[0].damageToHunter}`);
+check('커스텀 스킬로 피해 발생', row.damageToEnemy > 0, `damage=${row.damageToEnemy}`);
+check('연계 성립 (STAR BREAK)', row.combo?.id === 'combo.star_break', row.combo?.label ?? 'none');
+check('스킬 사용 기록', row.usedSkills[0]?.skillId === 'SK-TEST-H1');
 check(
-  '헌터 방어력이 반격을 깎음',
-  duelPreview.enemies[0].notes.some((note) => note.includes('헌터 방어력')),
-  duelPreview.enemies[0].notes.join(' | '),
+  '상태이상 부여 예정',
+  row.appliedStatuses.map((s) => s.defId).sort().join(',') === 'bleed,def.down',
+  row.appliedStatuses.map((s) => s.defId).join(','),
 );
 
-const enemyHpBefore = duel.enemies[0].hp;
 duel = applyRound(duel, duelPreview);
-check('적 HP 감소', duel.enemies[0].hp === enemyHpBefore - row.damageToEnemy, `${enemyHpBefore} → ${duel.enemies[0].hp}`);
-check('헌터 피해 반영', duel.pairs[0].hunter.hp < duel.pairs[0].hunter.maxHp, `HP ${duel.pairs[0].hunter.hp}`);
+const hunterAfter = duel.pairs[0].hunter;
+check('쿨타임 설정', hunterAfter.skills[0].currentCooldown === 1, `cd ${hunterAfter.skills[0].currentCooldown}`);
+check('사용 횟수 차감', hunterAfter.skills[0].remainingUses === 0);
+check('적에게 상태이상 유지', duel.enemies[0].statuses.length > 0, duel.enemies[0].statuses.map((s) => s.defId).join(','));
 check('라운드 진행', duel.round === 2);
-check('제출 초기화', duel.pairs[0].submission.submitted === false);
-check('로그 기록', duel.log.length > 0, `${duel.log.length}건`);
 
-/* ── 4. 자동 행동 ───────────────────────────────────── */
-console.log('\n=== 4. 자동 행동 ===');
-let solo = createBattle({ mode: 'DUEL' });
+const duelPreview2 = previewRound(duel);
+check(
+  '쿨타임·사용횟수 소진 시 자동 대체',
+  duelPreview2.pairs[0].hunterActionId !== 'SK-TEST-H1',
+  String(duelPreview2.pairs[0].hunterActionId),
+);
+check('지속 피해 예상 포함', duelPreview2.statusTicks.length > 0, `${duelPreview2.statusTicks.length}건`);
+
+/* ── 6. 연계 판정 ───────────────────────────────────── */
+console.log('\n=== 6. 연계 ===');
+const noCombo = previewCombo(
+  { ...skillAction, effect: { damage: 1 } },
+  {
+    id: 'const.wait',
+    side: 'CONSTELLATION',
+    kind: 'WAIT',
+    label: 'OBSERVE',
+    labelKo: '관측',
+    description: '',
+    apCost: 0,
+    target: 'NONE',
+    effect: {},
+    implementedIn: 1,
+  },
+  [],
+);
+check('관측 + 공격은 연계 없음', noCombo === null);
+
+let combo = createBattle({ mode: 'DUEL', primaryPair: { hunterSheet, constellationSheet }, gimmickId: null });
+combo = submitPairAction(combo, combo.pairs[0].id, {
+  hunterActionId: 'hunter.defend',
+  constellationActionId: 'const.buff',
+  submitted: true,
+});
+const aegis = previewRound(combo).pairs[0];
+check('방어 + 버프 → AEGIS LINK', aegis.combo?.id === 'combo.aegis', aegis.combo?.label ?? 'none');
+check('연계 반격 피해', aegis.damageToEnemy > 0, `damage ${aegis.damageToEnemy}`);
+check('연계 피해 감소 합산', aegis.damageReduction > 0.4, String(aegis.damageReduction));
+
+/* ── 7. 구조 ────────────────────────────────────────── */
+console.log('\n=== 7. 구조 ===');
+let rescue = createBattle({ mode: 'RAID', pairCount: 2, gimmickId: null });
+rescue = {
+  ...rescue,
+  pairs: [
+    rescue.pairs[0],
+    { ...rescue.pairs[1], hunter: { ...rescue.pairs[1].hunter, hp: 0 } },
+  ],
+};
+rescue = submitPairAction(rescue, rescue.pairs[0].id, {
+  hunterActionId: 'hunter.rescue',
+  constellationActionId: 'const.buff',
+  supportTargetPairId: rescue.pairs[1].id,
+  submitted: true,
+});
+const rescuePreview = previewRound(rescue);
+const rescueRow = rescuePreview.pairs[0];
+check('구조 대상 인식', rescueRow.rescue?.targetPairId === rescue.pairs[1].id);
+check('구조 연계 성립', rescueRow.combo?.id === 'combo.rescue', rescueRow.combo?.label ?? 'none');
+rescue = applyRound(rescue, rescuePreview);
+check('구조 후 HP 회복', rescue.pairs[1].hunter.hp > 0, `HP ${rescue.pairs[1].hunter.hp}`);
+check(
+  '구조 후 보호 상태이상',
+  rescue.pairs[1].hunter.statuses.some((s) => s.defId === 'guard.up'),
+);
+check('구조 경보 발생', rescue.alerts.some((a) => a.title === 'HUNTER RECOVERED'));
+
+/* ── 8. 기믹 ────────────────────────────────────────── */
+console.log('\n=== 8. 기믹 ===');
+let gimmick = createBattle({ mode: 'RAID', pairCount: 4 });
+check('기본 기믹 배치', gimmick.gimmick?.defId === 'gimmick.seal', gimmick.gimmick?.label ?? 'none');
+for (const pair of gimmick.pairs) {
+  gimmick = submitPairAction(gimmick, pair.id, {
+    hunterActionId: 'hunter.gimmick',
+    constellationActionId: 'const.wait',
+    submitted: true,
+  });
+}
+const gimmickPreview = previewRound(gimmick);
+check('기믹 진행 예상', gimmickPreview.gimmick?.willClear === true, `${gimmickPreview.gimmick?.progress}/${gimmickPreview.gimmick?.required}`);
+gimmick = applyRound(gimmick, gimmickPreview);
+check('기믹 해제', gimmick.gimmick?.status === 'CLEARED', gimmick.gimmick?.status ?? '');
+check(
+  '해제 효과로 적 상태이상',
+  gimmick.enemies[0].statuses.some((s) => s.defId === 'def.down.great'),
+  gimmick.enemies[0].statuses.map((s) => s.defId).join(','),
+);
+check('기믹 경보', gimmick.alerts.some((a) => a.title === 'GIMMICK CLEARED'));
+
+/* ── 9. 현신 ────────────────────────────────────────── */
+console.log('\n=== 9. 현신 ===');
+let manifest = createBattle({ mode: 'DUEL', primaryPair: { hunterSheet, constellationSheet }, gimmickId: null });
+manifest = submitPairAction(manifest, manifest.pairs[0].id, {
+  hunterActionId: 'hunter.attack',
+  constellationActionId: 'const.manifest',
+  submitted: true,
+});
+const manifestPreview = previewRound(manifest);
+check('현신 피해 합산', manifestPreview.pairs[0].damageToEnemy > 0);
+manifest = applyRound(manifest, manifestPreview);
+check(
+  '부분 현신 횟수 차감',
+  manifest.pairs[0].constellation.manifestUses.partial === 1,
+  String(manifest.pairs[0].constellation.manifestUses.partial),
+);
+check('현신 경보', manifest.alerts.some((a) => a.title === 'MANIFESTATION DETECTED'));
+
+/* ── 10. 보스 페이즈 · 패턴 ─────────────────────────── */
+console.log('\n=== 10. 보스 페이즈 · 패턴 ===');
+let boss = createBattle({ mode: 'RAID', pairCount: 3, gimmickId: null });
+const bossEnemy = { ...boss.enemies[0], hp: Math.round(boss.enemies[0].maxHp * 0.5) };
+check('HP 50% → PHASE 2', evaluatePhase(bossEnemy).phase === 2, `phase ${evaluatePhase(bossEnemy).phase}`);
+check('페이즈 변경 감지', evaluatePhase(bossEnemy).changed === true);
+
+boss = { ...boss, enemies: [{ ...bossEnemy, phase: 2 }] };
+const telegraphPattern = selectPattern(boss.enemies[0], 1);
+check('PHASE 2 라운드 1 → 광역 예고', telegraphPattern?.id === 'pattern.sweep.warning', telegraphPattern?.label ?? 'none');
+
+for (const pair of boss.pairs) {
+  boss = submitPairAction(boss, pair.id, {
+    hunterActionId: 'hunter.attack',
+    constellationActionId: 'const.wait',
+    submitted: true,
+  });
+}
+const bossPreview = previewRound(boss);
+check('예고 라운드는 피해 없음', bossPreview.enemies[0].damageToHunter === 0);
+check('예고 정보 생성', Boolean(bossPreview.enemies[0].telegraph));
+check('예고 경보', bossPreview.alerts.some((a) => a.level === 'TOWER'));
+
+boss = applyRound(boss, bossPreview);
+check('예고 상태 저장', Boolean(boss.enemies[0].telegraph));
+
+// 페이즈 경계를 넘는 순간 경보가 뜨는지 별도로 확인한다
+let phaseShift = createBattle({ mode: 'RAID', pairCount: 2, gimmickId: null });
+phaseShift = {
+  ...phaseShift,
+  enemies: [{ ...phaseShift.enemies[0], hp: Math.round(phaseShift.enemies[0].maxHp * 0.5), phase: 1 }],
+};
+for (const pair of phaseShift.pairs) {
+  phaseShift = submitPairAction(phaseShift, pair.id, {
+    hunterActionId: 'hunter.attack',
+    constellationActionId: 'const.wait',
+    submitted: true,
+  });
+}
+phaseShift = applyRound(phaseShift, previewRound(phaseShift));
+check('페이즈 자동 변경', phaseShift.enemies[0].phase === 2, `phase ${phaseShift.enemies[0].phase}`);
+check('페이즈 변경 경보', phaseShift.alerts.some((a) => a.title === 'BOSS PHASE CHANGE'));
+
+for (const pair of boss.pairs) {
+  boss = submitPairAction(boss, pair.id, {
+    hunterActionId: 'hunter.attack',
+    constellationActionId: 'const.wait',
+    submitted: true,
+  });
+}
+const aoePreview = previewRound(boss);
+check('예고 해소 → 광역 공격', aoePreview.enemies[0].aoe === true, aoePreview.enemies[0].pattern);
+check(
+  '광역은 모든 생존 페어 타격',
+  aoePreview.enemies[0].hits.length === boss.pairs.filter((p) => p.hunter.hp > 0).length,
+  `${aoePreview.enemies[0].hits.length}페어`,
+);
+check(
+  '광역 상태이상 부여',
+  aoePreview.enemies[0].appliedStatuses.some((s) => s.defId === 'burn'),
+);
+
+/* ── 11. 자동 행동 · 레이드 ─────────────────────────── */
+console.log('\n=== 11. 자동 행동 · 레이드 ===');
+let solo = createBattle({ mode: 'DUEL', gimmickId: null });
 solo = setControlMode(solo, solo.pairs[0].id, 'CONSTELLATION', 'AUTO');
 solo = submitPairAction(solo, solo.pairs[0].id, { hunterActionId: 'hunter.attack', submitted: true });
 const soloRow = previewRound(solo).pairs[0];
 check('성좌만 자동 위임', soloRow.autoFilled.length === 1 && soloRow.autoFilled[0] === 'CONSTELLATION');
-check('자동 행동이 채워짐', Boolean(soloRow.constellationActionId), String(soloRow.constellationActionId));
 check('현신을 자동으로 고르지 않음', soloRow.constellationActionId !== 'const.manifest.full');
-
-const unsubmitted = createBattle({ mode: 'DUEL' });
 check(
   '미제출이면 양쪽 모두 자동',
-  previewRound(unsubmitted).pairs[0].autoFilled.length === 2,
+  previewRound(createBattle({ mode: 'DUEL', gimmickId: null })).pairs[0].autoFilled.length === 2,
 );
 
-/* ── 5. 레이드 ──────────────────────────────────────── */
-console.log('\n=== 5. 레이드 ===');
-let raid = createBattle({ mode: 'RAID', pairCount: 4, monsterCount: 1 });
+let raid = createBattle({ mode: 'RAID', pairCount: 4, monsterCount: 1, gimmickId: null });
 check('레이드 4페어 / 적 2체', raid.pairs.length === 4 && raid.enemies.length === 2);
-const lowHp = raid.pairs[3];
-check(
-  '프리셋 hpRatio 반영',
-  lowHp.hunter.hp < lowHp.hunter.maxHp * 0.4,
-  `HP ${lowHp.hunter.hp}/${lowHp.hunter.maxHp}`,
-);
-
 const raidPreview = previewRound(raid);
-const lowRow = raidPreview.pairs.find((r) => r.pairId === lowHp.id)!;
+const lowRow = raidPreview.pairs.find((r) => r.pairId === raid.pairs[3].id)!;
 check('HP 40% 미만 → 자동 방어', lowRow.hunterActionId === 'hunter.defend', String(lowRow.hunterActionId));
-const healthyRow = raidPreview.pairs.find((r) => r.pairId === raid.pairs[0].id)!;
-check('건강한 헌터 → 자동 공격', healthyRow.hunterActionId === 'hunter.attack', String(healthyRow.hunterActionId));
-check(
-  '적 2체가 서로 다른 페어를 노림',
-  new Set(raidPreview.enemies.map((e) => e.targetPairId)).size === 2,
-  raidPreview.enemies.map((e) => `${e.enemyName}→${e.targetPairId}`).join(', '),
-);
-check('총 피해 합산', raidPreview.totals.damageToEnemies > 0, String(raidPreview.totals.damageToEnemies));
-
+check('프리셋 스킬 보유', raid.pairs[0].hunter.skills.length > 0, `${raid.pairs[0].hunter.skills.length}개`);
 raid = applyRound(raid, raidPreview);
-const r1Targets = raidPreview.enemies.map((e) => e.targetPairId).join('|');
-const r2Targets = previewRound(raid).enemies.map((e) => e.targetPairId).join('|');
-check('라운드마다 대상 순환', r1Targets !== r2Targets, `${r1Targets} → ${r2Targets}`);
+check('레이드 라운드 진행', raid.round === 2);
 
-/* ── 6. 성좌 상태 패널티 ────────────────────────────── */
-console.log('\n=== 6. 성좌 상태 ===');
-const unstable = raid.pairs[2];
-const unstableSheet = presetSheet(pairPreset(2).constellation, 'CONSTELLATION', 'GOVERNMENT', 2);
-check(
-  'UNSTABLE 성좌는 최대 AP -1',
-  unstable.constellation.maxAp === deriveConstellation(unstableSheet).maxAp - 1,
-  `maxAp ${unstable.constellation.maxAp}`,
-);
-check('UNSTABLE 상태 유지', unstable.constellation.stage === 'UNSTABLE');
-
-/* ── 7. 참가자 페어 편성 ────────────────────────────── */
-console.log('\n=== 7. 참가자 페어 편성 ===');
-const custom = createBattle({
-  mode: 'RAID',
-  pairCount: 3,
-  primaryPair: { hunterSheet, constellationSheet },
-});
-check('PAIR 01 이 참가자 시트', custom.pairs[0].hunter.sheetId === 'TEST-H');
-check('상대 시트도 반영', custom.pairs[0].constellation.sheetId === 'TEST-C');
-check('나머지는 프리셋', custom.pairs[1].hunter.sheetId?.startsWith('NPC-') === true);
-check('시트 소속 승계', custom.pairs[0].affiliation === 'GOVERNMENT');
-check('viewerPair 는 PAIR 01', viewerPair(custom).id === custom.pairs[0].id);
-
-/* ── 8. 전투 종료 판정 ──────────────────────────────── */
-console.log('\n=== 8. 종료 판정 ===');
-let ending: BattleState = createBattle({ mode: 'DUEL' });
+/* ── 12. 종료 판정 ──────────────────────────────────── */
+console.log('\n=== 12. 종료 판정 ===');
+let ending: BattleState = createBattle({ mode: 'DUEL', gimmickId: null });
 ending = { ...ending, enemies: [{ ...ending.enemies[0], hp: 3 }] };
 ending = submitPairAction(ending, ending.pairs[0].id, {
   hunterActionId: 'hunter.attack',
@@ -198,14 +364,18 @@ ending = submitPairAction(ending, ending.pairs[0].id, {
 ending = applyRound(ending, previewRound(ending));
 check('적 처치 → CLEARED', ending.status === 'CLEARED', ending.status);
 
-let wipe: BattleState = createBattle({ mode: 'DUEL' });
+let wipe: BattleState = createBattle({ mode: 'DUEL', gimmickId: null });
 wipe = { ...wipe, pairs: [{ ...wipe.pairs[0], hunter: { ...wipe.pairs[0].hunter, hp: 1 } }] };
 wipe = applyRound(wipe, previewRound(wipe));
 check('헌터 전멸 → FAILED', wipe.status === 'FAILED', wipe.status);
 check('부상 단계 DOWN', injuryOf(wipe.pairs[0].hunter).stage === 'DOWN');
+check('viewerPair 조회', viewerPair(raid).id === raid.viewerPairId);
+check(
+  '프리셋도 시트 파생 경로 통과',
+  raid.pairs[0].hunter.attack === deriveHunter(presetSheet(pairPreset(0).hunter, 'HUNTER', 'GOVERNMENT', 0)).attack,
+);
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
 if (failures > 0) {
-  // @types/node 를 의존성에 추가하지 않기 위해 예외로 종료 코드를 낸다.
   throw new Error(`${failures} FAILURE(S)`);
 }

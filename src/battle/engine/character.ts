@@ -13,7 +13,7 @@ import {
   remainingPoints,
   statsFor,
 } from '../config/characters';
-import { AP_RULES, HUNTER_DEFAULTS } from '../config/rules';
+import { AP_RULES, HUNTER_DEFAULTS, MANIFEST_RULES } from '../config/rules';
 import type {
   ActorSide,
   CharacterSheet,
@@ -119,6 +119,10 @@ export function constellationStateFromSheet(sheet: CharacterSheet): Constellatio
     classId: sheet.classId,
     statuses: [],
     skills: toRuntime(sheet.skills ?? []),
+    manifestUses: {
+      partial: MANIFEST_RULES.partialPerBattle,
+      full: MANIFEST_RULES.fullPerCampaign,
+    },
   };
 }
 
