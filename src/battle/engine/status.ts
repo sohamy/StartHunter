@@ -10,11 +10,13 @@ import {
   CONTRACT_STAGES,
   INJURY_THRESHOLDS,
 } from '../config/rules';
+import { findStatus, type StatusDefinition, type StatusModifiers } from '../config/status';
 import type {
   ConstellationStage,
   ContractStage,
   HunterState,
   InjuryStage,
+  StatusEffect,
 } from '../types';
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'critical' | 'offline';
@@ -61,4 +63,128 @@ export function constellationMaxAp(baseMaxAp: number, stage: ConstellationStage)
 
 export function canManifest(stage: ConstellationStage): boolean {
   return CONSTELLATION_STAGES[stage].canManifest;
+}
+
+/* ── 상태이상 ──────────────────────────────────────────
+   정의는 config/status.ts 에 있고, 여기서는 인스턴스를 다룬다. */
+
+/** 상태이상 목록을 하나의 보정치로 합산한다. 비율은 중첩 수만큼 더해진다. */
+export function aggregateModifiers(statuses: StatusEffect[]): StatusModifiers {
+  const total: StatusModifiers = {};
+
+  for (const effect of statuses) {
+    const def = findStatus(effect.defId);
+    if (!def) continue;
+
+    // 중첩 수와 부여 시점의 배율(권능 배율 등)을 함께 곱한다.
+    const weight = Math.max(1, effect.stacks) * (effect.scale ?? 1);
+    const mods = def.modifiers;
+
+    if (mods.attackUp) total.attackUp = (total.attackUp ?? 0) + mods.attackUp * weight;
+    if (mods.attackDown) total.attackDown = (total.attackDown ?? 0) + mods.attackDown * weight;
+    if (mods.defenseDown) total.defenseDown = (total.defenseDown ?? 0) + mods.defenseDown * weight;
+    if (mods.damageTaken) total.damageTaken = (total.damageTaken ?? 0) + mods.damageTaken * weight;
+    if (mods.damageReduction) {
+      total.damageReduction = (total.damageReduction ?? 0) + mods.damageReduction * weight;
+    }
+    if (mods.dotDamage) total.dotDamage = (total.dotDamage ?? 0) + Math.round(mods.dotDamage * weight);
+    if (mods.blockAction) total.blockAction = true;
+    if (mods.healBlock) total.healBlock = true;
+  }
+
+  return total;
+}
+
+/**
+ * 상태이상을 부여한다.
+ * 중첩 불가면 지속시간만 갱신하고, 중첩 가능하면 최대 중첩까지 쌓는다.
+ */
+export function applyStatus(
+  statuses: StatusEffect[],
+  defId: string,
+  sourceLabel: string,
+  scale = 1,
+): StatusEffect[] {
+  const def = findStatus(defId);
+  if (!def) return statuses;
+
+  const existing = statuses.find((effect) => effect.defId === defId);
+  if (!existing) {
+    return [...statuses, { defId, remainingRounds: def.duration, stacks: 1, sourceLabel, scale }];
+  }
+
+  return statuses.map((effect) => {
+    if (effect.defId !== defId) return effect;
+    return {
+      ...effect,
+      // 지속시간은 항상 갱신한다 (더 긴 쪽을 유지)
+      remainingRounds: Math.max(effect.remainingRounds, def.duration),
+      stacks: def.stackable ? Math.min(def.maxStacks, effect.stacks + 1) : effect.stacks,
+      sourceLabel,
+      // 더 강하게 건 쪽을 유지한다
+      scale: Math.max(effect.scale ?? 1, scale),
+    };
+  });
+}
+
+export interface StatusTickResult {
+  statuses: StatusEffect[];
+  expired: StatusDefinition[];
+}
+
+/** 라운드 종료 처리 — 지속시간을 1 줄이고 만료된 항목을 제거한다. */
+export function tickStatuses(statuses: StatusEffect[]): StatusTickResult {
+  const next: StatusEffect[] = [];
+  const expired: StatusDefinition[] = [];
+
+  for (const effect of statuses) {
+    const remaining = effect.remainingRounds - 1;
+    if (remaining > 0) {
+      next.push({ ...effect, remainingRounds: remaining });
+      continue;
+    }
+    const def = findStatus(effect.defId);
+    if (def) expired.push(def);
+  }
+
+  return { statuses: next, expired };
+}
+
+export interface StatusView {
+  defId: string;
+  label: string;
+  labelKo: string;
+  tone: Tone;
+  remainingRounds: number;
+  stacks: number;
+  description: string;
+}
+
+const STATUS_TONE: Record<StatusDefinition['kind'], Tone> = {
+  BUFF: 'ok',
+  DEBUFF: 'warn',
+  DOT: 'danger',
+  CONTROL: 'critical',
+};
+
+export function statusViews(statuses: StatusEffect[]): StatusView[] {
+  return statuses.flatMap((effect) => {
+    const def = findStatus(effect.defId);
+    if (!def) return [];
+    return [
+      {
+        defId: def.id,
+        label: def.label,
+        labelKo: def.labelKo,
+        tone: STATUS_TONE[def.kind],
+        remainingRounds: effect.remainingRounds,
+        stacks: effect.stacks,
+        description: def.description,
+      },
+    ];
+  });
+}
+
+export function isActionBlocked(statuses: StatusEffect[]): boolean {
+  return aggregateModifiers(statuses).blockAction === true;
 }

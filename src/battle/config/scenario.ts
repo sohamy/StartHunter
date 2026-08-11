@@ -8,6 +8,7 @@
  * NPC 만 다른 계산식을 쓰는 일이 생기지 않도록 하기 위한 것이다.
  */
 
+import { PRESET_CONSTELLATION_SKILLS, PRESET_HUNTER_SKILLS } from './skills';
 import type {
   Affiliation,
   CharacterSheet,
@@ -119,12 +120,14 @@ export function presetSheet(
   affiliation: Affiliation,
   index: number,
 ): CharacterSheet {
+  const skillTable = side === 'HUNTER' ? PRESET_HUNTER_SKILLS : PRESET_CONSTELLATION_SKILLS;
   return {
     id: `NPC-${side === 'HUNTER' ? 'H' : 'C'}-${index + 1}`,
     side,
     name: actor.name,
     classId: actor.classId,
     stats: actor.stats,
+    skills: skillTable[index % skillTable.length] ?? [],
     concept: '운영 프리셋 캐릭터',
     affiliation,
     createdAt: '1970-01-01T00:00:00.000Z',

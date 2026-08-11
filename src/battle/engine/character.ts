@@ -19,8 +19,10 @@ import type {
   CharacterSheet,
   ConstellationState,
   HunterState,
+  SkillDefinition,
   StatBlock,
 } from '../types';
+import { toRuntime, validateSkills } from './skills';
 
 export interface DerivedHunter {
   maxHp: number;
@@ -99,6 +101,8 @@ export function hunterStateFromSheet(sheet: CharacterSheet): HunterState {
     control: 'ACTIVE',
     sheetId: sheet.id,
     classId: sheet.classId,
+    statuses: [],
+    skills: toRuntime(sheet.skills ?? []),
   };
 }
 
@@ -113,13 +117,15 @@ export function constellationStateFromSheet(sheet: CharacterSheet): Constellatio
     power: derived.power,
     sheetId: sheet.id,
     classId: sheet.classId,
+    statuses: [],
+    skills: toRuntime(sheet.skills ?? []),
   };
 }
 
 /* ── 검증 ──────────────────────────────────────────────── */
 
 export interface SheetIssue {
-  field: 'name' | 'classId' | 'stats' | 'concept';
+  field: 'name' | 'classId' | 'stats' | 'concept' | 'skills';
   message: string;
 }
 
@@ -129,6 +135,7 @@ export function validateSheet(sheet: {
   classId: string;
   stats: StatBlock;
   concept: string;
+  skills?: SkillDefinition[];
 }): SheetIssue[] {
   const issues: SheetIssue[] = [];
   const name = sheet.name.trim();
@@ -166,6 +173,10 @@ export function validateSheet(sheet: {
 
   if (sheet.concept.trim().length > 400) {
     issues.push({ field: 'concept', message: '컨셉은 400자 이내로 입력하세요.' });
+  }
+
+  for (const issue of validateSkills(sheet.skills ?? [], sheet.side)) {
+    issues.push({ field: 'skills', message: issue.message });
   }
 
   return issues;

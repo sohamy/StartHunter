@@ -8,14 +8,15 @@
 import type { ConstellationStage, ContractStage, InjuryStage } from '../types';
 
 /** 현재 구현 단계. 이 값보다 큰 implementedIn 을 가진 행동은 선택할 수 없다. */
-export const CURRENT_PHASE = 1;
+export const CURRENT_PHASE = 2;
 
 /**
  * 저장 데이터 구조 버전.
  * 상태 구조가 바뀌면 올린다 — 이전 버전 데이터는 불러오지 않고 버린다.
  * 2: 캐릭터 시트 도입 (헌터 방어력 / 성좌 권능 배율 추가)
+ * 3: 커스텀 스킬 · 상태이상 · 쿨타임 도입
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const AP_RULES = {
   hunterMaxAp: 5,
@@ -46,6 +47,8 @@ export const DAMAGE_RULES = {
   minimumDamage: 1,
   /** 기본 방어 시 받는 피해 감소 비율 */
   defenseReduction: 0.4,
+  /** 방어 행동과 상태이상을 합산한 피해 감소 상한 */
+  maxDamageReduction: 0.85,
 } as const;
 
 /** 부상 단계 기준. hp 비율(%) 하한선 기준으로 위에서부터 판정한다. */

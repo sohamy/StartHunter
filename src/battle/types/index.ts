@@ -21,6 +21,8 @@ export type ActionKind =
   | 'ITEM'
   | 'BUFF'
   | 'DEBUFF'
+  | 'HEAL'
+  | 'UTILITY'
   | 'REVELATION'
   | 'MANIFEST'
   | 'FULL_MANIFEST';
@@ -62,6 +64,69 @@ export type BattleMode = 'DUEL' | 'RAID';
  */
 export type ControlMode = 'ACTIVE' | 'AUTO';
 
+/* ── 상태이상 ──────────────────────────────────────────
+   정의(StatusDefinition)는 config/status.ts 에 있고,
+   전투 중에는 인스턴스(StatusEffect)만 상태에 저장한다. */
+
+export type StatusKind = 'BUFF' | 'DEBUFF' | 'DOT' | 'CONTROL';
+
+/** 상태이상을 지닐 수 있는 주체 */
+export type StatusHolder = 'HUNTER' | 'CONSTELLATION' | 'ENEMY';
+
+export interface StatusEffect {
+  /** config/status.ts 의 정의 id */
+  defId: string;
+  remainingRounds: number;
+  stacks: number;
+  /** 누가 걸었는지 — 로그 표기용 */
+  sourceLabel: string;
+  /**
+   * 정의 수치에 곱할 배율.
+   * 성좌가 건 상태이상은 권능 배율과 성좌 상태 보정이 여기에 담긴다.
+   * 생략하면 1 로 본다.
+   */
+  scale?: number;
+}
+
+/* ── 스킬 ──────────────────────────────────────────────
+   캐릭터마다 다른 커스텀 스킬을 전제로 한다.
+   정의는 시트에 저장되고, 전투가 시작되면 런타임 상태가 붙는다. */
+
+export type SkillKind =
+  | 'ATTACK'
+  | 'DEFENSE'
+  | 'BUFF'
+  | 'DEBUFF'
+  | 'HEAL'
+  | 'UTILITY'
+  | 'MANIFESTATION';
+
+export interface SkillDefinition {
+  id: string;
+  side: ActorSide;
+  kind: SkillKind;
+  name: string;
+  description: string;
+  apCost: number;
+  target: TargetType;
+  /** 기본 수치 — 공격 계수 또는 효과 비율의 기준값 */
+  power: number;
+  /** 사용 후 재사용까지 필요한 라운드 수. 0 이면 쿨타임 없음 */
+  cooldown: number;
+  /** 전투당 사용 횟수. null 이면 무제한 */
+  maxUses: number | null;
+  /** 부여하는 상태이상 정의 id */
+  applyStatusIds: string[];
+  /** 수치로 표현되지 않는 특수 효과 — 운영진 판정용 서술 */
+  special: string;
+}
+
+/** 전투 중의 스킬 — 정의 스냅샷 + 쿨타임/사용 횟수 */
+export interface SkillRuntime extends SkillDefinition {
+  currentCooldown: number;
+  remainingUses: number | null;
+}
+
 /**
  * 행동이 만들어내는 효과.
  * Phase 가 올라가면 필드를 추가하되, 엔진은 존재하는 필드만 해석한다.
@@ -77,6 +142,10 @@ export interface ActionEffect {
   enemyDefenseDown?: number;
   /** 적의 다음 패턴 공개 */
   revealPattern?: boolean;
+  /** 부여하는 상태이상 정의 id */
+  applyStatusIds?: string[];
+  /** 상태이상을 누구에게 거는지. 생략하면 정의의 appliesTo 를 따른다 */
+  statusHolder?: StatusHolder;
 }
 
 export interface ActionDefinition {
@@ -112,6 +181,14 @@ export interface HunterState {
   sheetId: string | null;
   /** 클래스 id (config/characters.ts) */
   classId: string | null;
+  statuses: StatusEffect[];
+  skills: SkillRuntime[];
+}
+
+/** 현신 남은 사용 횟수. null 은 무제한 */
+export interface ManifestUses {
+  partial: number | null;
+  full: number | null;
 }
 
 export interface ConstellationState {
@@ -120,11 +197,14 @@ export interface ConstellationState {
   maxAp: number;
   stage: ConstellationStage;
   control: ControlMode;
+  manifestUses: ManifestUses;
   /** 권능 효과 배율. 1 이 기준값 */
   power: number;
   sheetId: string | null;
   /** 권역 id (config/characters.ts) */
   classId: string | null;
+  statuses: StatusEffect[];
+  skills: SkillRuntime[];
 }
 
 export interface ContractState {
@@ -139,6 +219,8 @@ export interface RoundSubmission {
   constellationActionId: string | null;
   /** 공격 대상 적 */
   targetEnemyId: string | null;
+  /** 구조 행동의 대상 페어 */
+  rescueTargetPairId: string | null;
   submitted: boolean;
   /** 자동 행동으로 채워진 제출인지 */
   auto: boolean;
@@ -168,12 +250,36 @@ export interface EnemyState {
   defense: number;
   phase: number;
   maxPhase: number;
-  /** 상태이상 목록 (Phase 2) */
-  statuses: string[];
+  statuses: StatusEffect[];
   /** 다음 패턴 이름. 공개 전에는 UNKNOWN 으로 표시한다. */
   nextPattern: string;
-  /** 보스 여부 — UI 강조와 이후 페이즈 처리에 사용 */
+  /** 보스 여부 — UI 강조와 페이즈 처리에 사용 */
   boss: boolean;
+  /** 이 적이 쓰는 패턴 세트 id (config/patterns.ts) */
+  patternSetId: string | null;
+  /** 예고 중인 패턴 — 발동까지 남은 라운드 */
+  telegraph: {
+    patternId: string;
+    label: string;
+    message: string;
+    roundsLeft: number;
+  } | null;
+}
+
+/* ── 층 기믹 ───────────────────────────────────────────
+   기믹은 전투 단위로 하나 존재하며, 헌터의 기믹 수행 행동으로 진행한다. */
+
+export interface GimmickState {
+  defId: string;
+  label: string;
+  labelKo: string;
+  description: string;
+  /** 필요한 누적 수행 횟수 */
+  required: number;
+  progress: number;
+  /** 남은 라운드. null 이면 제한 없음 */
+  roundsLeft: number | null;
+  status: 'ACTIVE' | 'CLEARED' | 'FAILED';
 }
 
 export type LogChannel = 'SYSTEM' | 'ROLEPLAY';
@@ -203,9 +309,23 @@ export interface BattleState {
   status: BattleStatus;
   pairs: PairState[];
   enemies: EnemyState[];
+  /** 현재 층의 기믹. 없으면 null */
+  gimmick: GimmickState | null;
   /** 이 단말에서 조작 중인 페어 */
   viewerPairId: string;
   log: LogEntry[];
+  /** 화면 전체 경보 — 최근 항목만 유지한다 */
+  alerts: BattleAlert[];
+}
+
+export type AlertLevel = 'WARNING' | 'CRITICAL' | 'EMERGENCY' | 'TOWER';
+
+export interface BattleAlert {
+  id: string;
+  level: AlertLevel;
+  title: string;
+  message: string;
+  round: number;
 }
 
 /* ── 캐릭터 시트와 계정 ────────────────────────────────
@@ -223,6 +343,8 @@ export interface CharacterSheet {
   /** 헌터 클래스 또는 성좌 권역 id */
   classId: string;
   stats: StatBlock;
+  /** 캐릭터별 커스텀 스킬 */
+  skills: SkillDefinition[];
   /** 컨셉 · 설정 자유 서술 */
   concept: string;
   /** 헌터의 소속 진영. 성좌는 계약한 헌터를 따른다. */
@@ -261,11 +383,53 @@ export interface BattleSummary {
    운영진은 APPLY 전에 이 값을 수정할 수 있어야 한다 (Phase 5).
    따라서 preview 는 계산 결과를 담기만 하고, 상태를 직접 바꾸지 않는다. */
 
+/** 상태이상 부여 예정 항목 */
+export interface StatusApplication {
+  holder: StatusHolder;
+  /** 대상 페어 id 또는 적 id */
+  ownerId: string;
+  defId: string;
+  label: string;
+  /** 부여 시점의 효과 배율 (권능 배율 등) */
+  scale: number;
+}
+
+/** 성립한 연계의 표시용 정보 */
+export interface ComboResultView {
+  id: string;
+  label: string;
+  labelKo: string;
+  description: string;
+  effects: string[];
+}
+
+/** 라운드 종료 시 상태이상이 주는 고정 피해 */
+export interface StatusTick {
+  holder: StatusHolder;
+  ownerId: string;
+  ownerLabel: string;
+  defId: string;
+  label: string;
+  amount: number;
+}
+
 export interface PairPreview {
   pairId: string;
   pairLabel: string;
   hunterActionId: string | null;
+  hunterActionLabel: string;
   constellationActionId: string | null;
+  constellationActionLabel: string;
+  /** 이번 라운드 사용한 스킬 (쿨타임 · 사용 횟수 차감 대상) */
+  usedSkills: Array<{ side: ActorSide; skillId: string }>;
+  /** 이번 라운드 부여되는 상태이상 */
+  appliedStatuses: StatusApplication[];
+  /** 성립한 페어 연계 */
+  combo: ComboResultView | null;
+  /** 구조 행동 결과 */
+  rescue: { targetPairId: string; targetLabel: string; restoredHp: number } | null;
+  /** 기믹 수행 진행량 */
+  gimmickProgress: number;
   /** 자동 행동으로 채워진 항목 */
   autoFilled: ActorSide[];
   targetEnemyId: string | null;
@@ -284,8 +448,20 @@ export interface EnemyActionPreview {
   enemyId: string;
   enemyName: string;
   pattern: string;
+  patternId: string | null;
+  /** 광역 공격이면 모든 페어가 대상이 된다 */
+  aoe: boolean;
+  /** 대상별 피해 */
+  hits: Array<{ pairId: string; pairLabel: string; damage: number }>;
+  /** 단일 대상 표기용 — 광역이면 null */
   targetPairId: string | null;
   damageToHunter: number;
+  /** 부여하는 상태이상 */
+  appliedStatuses: StatusApplication[];
+  /** 상태이상으로 행동이 막혔는지 */
+  blocked: boolean;
+  /** 이번 라운드에 새로 예고되는 패턴 */
+  telegraph: { patternId: string; label: string; message: string; roundsLeft: number } | null;
   notes: string[];
 }
 
@@ -293,6 +469,12 @@ export interface RoundPreview {
   round: number;
   pairs: PairPreview[];
   enemies: EnemyActionPreview[];
+  /** 라운드 종료 시 처리되는 지속 피해 */
+  statusTicks: StatusTick[];
+  /** 기믹 진행 예상 */
+  gimmick: { progress: number; required: number; willClear: boolean; willFail: boolean } | null;
+  /** 이번 라운드 처리로 발생하는 경보 */
+  alerts: Array<{ level: AlertLevel; title: string; message: string }>;
   totals: {
     damageToEnemies: number;
     damageToHunters: number;
