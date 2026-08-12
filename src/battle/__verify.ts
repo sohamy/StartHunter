@@ -16,7 +16,7 @@ import { declarationValid, planCheck } from './engine/gimmick';
 import { applyRound, previewRound, setControlMode, submitPairAction } from './engine/round';
 import { skillToAction, toRuntime } from './engine/skills';
 import { aggregateModifiers, applyStatus, injuryOf, tickStatuses } from './engine/status';
-import type { BattleState, CharacterSheet, SkillDefinition } from './types';
+import type { BattleState, CharacterSheet, CustomAttack, SkillDefinition } from './types';
 
 let failures = 0;
 function check(label: string, condition: boolean, extra = '') {
@@ -421,6 +421,90 @@ check(
   '광역 상태이상 부여',
   aoePreview.enemies[0].appliedStatuses.some((s) => s.defId === 'burn'),
 );
+
+/* ── 10-2. 커스텀 공격 패턴 ─────────────────────────── */
+console.log('\n=== 10-2. 커스텀 공격 패턴 ===');
+
+function attack(over: Partial<CustomAttack>): CustomAttack {
+  return {
+    id: over.id ?? 'A',
+    name: over.name ?? '공격',
+    description: '',
+    powerRatio: 1,
+    aoe: false,
+    applyStatusIds: [],
+    selfStatusIds: [],
+    revealed: true,
+    telegraphRounds: 0,
+    telegraphMessage: '',
+    phases: [],
+    ...over,
+  };
+}
+
+let custom = createBattle({ mode: 'RAID', pairCount: 2, gimmickId: null });
+const customEnemy = {
+  ...custom.enemies[0],
+  patternSetId: null,
+  maxPhase: 2,
+  phase: 1,
+  attacks: [
+    attack({ id: 'p1a', name: '일격', phases: [1] }),
+    attack({ id: 'p1b', name: '연격', phases: [1] }),
+    attack({
+      id: 'p2',
+      name: '포식',
+      phases: [2],
+      aoe: true,
+      powerRatio: 2,
+      telegraphRounds: 1,
+      telegraphMessage: '탑이 울린다',
+      applyStatusIds: ['burn'],
+    }),
+  ],
+};
+
+check('1페이즈 라운드 1 → 첫 공격', selectPattern(customEnemy, 1)?.label === '일격');
+check('라운드가 지나면 다음 공격', selectPattern(customEnemy, 2)?.label === '연격');
+check('목록을 한 바퀴 돌면 처음으로', selectPattern(customEnemy, 3)?.label === '일격');
+check(
+  '다른 페이즈 공격은 섞이지 않음',
+  [1, 2, 3, 4].every((round) => selectPattern(customEnemy, round)?.label !== '포식'),
+);
+
+const phase2Enemy = { ...customEnemy, phase: 2 };
+const warn = selectPattern(phase2Enemy, 1);
+check('2페이즈 → 예고 패턴', warn?.shape === 'TELEGRAPH', warn?.label ?? 'none');
+check('예고 문구 전달', warn?.telegraphMessage === '탑이 울린다');
+
+const resolved = selectPattern(
+  { ...phase2Enemy, telegraph: { patternId: warn!.id, label: warn!.label, message: '', roundsLeft: 0 } },
+  2,
+);
+check('예고가 끝나면 본 공격 발동', resolved?.label === '포식', resolved?.label ?? 'none');
+check('광역 · 계수 유지', resolved?.shape === 'AOE' && resolved?.powerRatio === 2);
+
+check(
+  '패턴 세트가 없으면 HP 로 페이즈를 나눈다',
+  evaluatePhase({ ...customEnemy, hp: Math.round(customEnemy.maxHp * 0.4) }).phase === 2,
+  `phase ${evaluatePhase({ ...customEnemy, hp: Math.round(customEnemy.maxHp * 0.4) }).phase}`,
+);
+check('가득 찬 HP 는 1페이즈', evaluatePhase({ ...customEnemy, hp: customEnemy.maxHp }).phase === 1);
+
+// 실제 라운드 처리까지 통과하는지 확인한다
+custom = { ...custom, enemies: [customEnemy] };
+for (const pair of custom.pairs) {
+  custom = submitPairAction(custom, pair.id, {
+    hunterActionId: 'hunter.attack',
+    constellationActionId: 'const.wait',
+    hunterSubmitted: true,
+    constellationSubmitted: true,
+  });
+}
+const customPreview = previewRound(custom);
+check('커스텀 공격으로 피해 발생', customPreview.enemies[0].damageToHunter > 0, `${customPreview.enemies[0].damageToHunter}`);
+check('커스텀 공격 이름이 그대로 표기', customPreview.enemies[0].pattern === '일격');
+check('빈 페이즈는 아무 공격도 하지 않음', selectPattern({ ...customEnemy, phase: 5 }, 1) === null);
 
 /* ── 11. 자동 행동 · 레이드 ─────────────────────────── */
 console.log('\n=== 11. 자동 행동 · 레이드 ===');

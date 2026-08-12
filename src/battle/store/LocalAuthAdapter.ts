@@ -181,6 +181,13 @@ export class LocalAuthAdapter implements AuthAdapter {
     return updated;
   }
 
+  /** 로컬 모드는 1계정 = 1시트이므로 계정을 지운다 */
+  async deleteSheet(sheetId: string): Promise<void> {
+    const target = readAccounts().find((account) => account.sheet.id === sheetId);
+    if (!target) throw new AuthError('NOT_FOUND', '시트를 찾을 수 없습니다.');
+    await this.deleteAccount(target.id);
+  }
+
   async deleteAccount(accountId: string): Promise<void> {
     writeAccounts(readAccounts().filter((account) => account.id !== accountId));
     const session = await this.currentSession();

@@ -5,6 +5,10 @@
  * 모든 판정은 engine/ 에, 모든 수치는 config/ 에 있다.
  *
  * 진입 조건: 계약자 등록(로그인)이 되어 있어야 한다.
+ *
+ * 서버 모드에서 참가자는 **전투 상태를 쓰지 않는다**.
+ * 자기 쪽 제출만 `submitSide()` 로 보내고, 나머지는 구독으로 받아 본다.
+ * 라운드 처리는 관리국이 하므로, 화면이 스스로 갱신되지 않으면 진행을 볼 수 없다.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -30,14 +34,7 @@ import {
   rollCheck,
 } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
-import {
-  actionAvailability,
-  applyRound,
-  dismissAlert,
-  previewRound,
-  setControlMode,
-  submitPairAction,
-} from '../engine/round';
+import { actionAvailability, setControlMode, submitPairAction } from '../engine/round';
 import { actionsFor, findSkillRuntime, resolveActionFor } from '../engine/skills';
 import {
   constellationView,
@@ -46,8 +43,10 @@ import {
   isDown,
   statusViews,
 } from '../engine/status';
-import { getAuth, getStorage, type PublicProfile } from '../store';
+import { getAuth, getServerStorage, getStorage, type PublicProfile } from '../store';
 import ChatPanel from './ChatPanel';
+import Collapsible from './Collapsible';
+import { ActorSheet } from './SheetView';
 import type {
   ActionDefinition,
   Account,
@@ -56,10 +55,21 @@ import type {
   BattleState,
   CharacterSheet,
   EnemyState,
+  PairBond,
   PairState,
-  RoundPreview,
   StatusEffect,
 } from '../types';
+
+/** 서버에 보내는 제출 조각 — 자기 쪽 칼럼만 담는다 */
+interface SidePatch {
+  actionId?: string | null;
+  targetEnemyId?: string | null;
+  supportTargetPairId?: string | null;
+  gimmickNote?: string | null;
+  gimmickStage?: string | null;
+  gimmickCheck?: unknown;
+  submitted?: boolean;
+}
 
 function joinUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -197,6 +207,7 @@ function ActionList({
 
 export default function BattleTerminal() {
   const storage = useMemo(() => getStorage(), []);
+  const serverStorage = useMemo(() => getServerStorage(), []);
   const auth = useMemo(() => getAuth(), []);
 
   const [authState, setAuthState] = useState<'LOADING' | 'GUEST' | 'READY'>('LOADING');
@@ -206,10 +217,33 @@ export default function BattleTerminal() {
   const [setupMode, setSetupMode] = useState<BattleMode>('DUEL');
 
   const [battle, setBattle] = useState<BattleState | null>(null);
-  const [preview, setPreview] = useState<RoundPreview | null>(null);
   const [gimmickDraft, setGimmickDraft] = useState('');
+  /** 제출이 서버에 닿지 않았을 때의 안내 — 조용히 삼키면 안 된다 */
+  const [syncError, setSyncError] = useState<string | null>(null);
+  /** 경보 닫기는 이 단말에서만 유효하다 (전투 상태는 관리국 소유) */
+  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
+  const [checking, setChecking] = useState(false);
+  /** 내가 속한 영구 편성 — 전투가 아직 없을 때 진행 상황을 알려 준다 */
+  const [myBond, setMyBond] = useState<PairBond | null>(null);
 
   const battleId = account ? `BATTLE-${account.id}` : null;
+
+  /** 내 계정이 배정된 전투를 찾는다. 관리국이 편성하면 여기에 걸린다. */
+  const findAssignedBattle = useCallback(
+    async (accountId: string): Promise<BattleState | null> => {
+      for (const summary of await storage.listBattles()) {
+        if (summary.status === 'CLEARED' || summary.status === 'FAILED') continue;
+        const candidate = await storage.loadBattle(summary.id);
+        if (!candidate) continue;
+        const myPair = candidate.pairs.find(
+          (row) => row.hunterAccountId === accountId || row.constellationAccountId === accountId,
+        );
+        if (myPair) return { ...candidate, viewerPairId: myPair.id };
+      }
+      return null;
+    },
+    [storage],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -231,20 +265,7 @@ export default function BattleTerminal() {
       const profiles = (await auth.listProfiles(opposite)).filter(
         (profile) => profile.accountId !== found.id,
       );
-
-      // 운영진이 편성한 전투 중 내 계정이 배정된 것을 찾는다.
-      let joined: BattleState | null = null;
-      for (const summary of await storage.listBattles()) {
-        const candidate = await storage.loadBattle(summary.id);
-        if (!candidate) continue;
-        const myPair = candidate.pairs.find(
-          (row) => row.hunterAccountId === found.id || row.constellationAccountId === found.id,
-        );
-        if (myPair) {
-          joined = { ...candidate, viewerPairId: myPair.id };
-          break;
-        }
-      }
+      const joined = await findAssignedBattle(found.id);
 
       if (cancelled) return;
       setAccount(found);
@@ -256,16 +277,103 @@ export default function BattleTerminal() {
     return () => {
       cancelled = true;
     };
-  }, [auth, storage]);
+  }, [auth, findAssignedBattle]);
 
   useEffect(() => {
-    if (battle) void storage.saveBattle(battle);
-  }, [battle, storage]);
+    // 서버 모드에서 전투 상태는 관리국만 쓴다. 참가자는 제출만 보낸다.
+    if (battle && !serverStorage) void storage.saveBattle(battle);
+  }, [battle, serverStorage, storage]);
 
   const update = useCallback((next: BattleState) => {
     setBattle(next);
-    setPreview(null);
   }, []);
+
+  /** 서버 상태를 다시 읽어 화면을 맞춘다. 보고 있는 페어는 유지한다. */
+  const reload = useCallback(
+    async (id: string) => {
+      const next = await storage.loadBattle(id);
+      if (!next) return;
+      setBattle((current) => {
+        if (!current || current.id !== next.id) return current;
+        const keep = next.pairs.some((row) => row.id === current.viewerPairId)
+          ? current.viewerPairId
+          : next.viewerPairId;
+        return { ...next, viewerPairId: keep };
+      });
+    },
+    [storage],
+  );
+
+  /**
+   * 라운드 처리 결과와 상대의 제출을 자동으로 받아 본다.
+   * 새로고침을 눌러야 진행이 보이는 화면은 쓸 수 없다.
+   */
+  useEffect(() => {
+    const id = battle?.id;
+    if (!id || !serverStorage) return;
+
+    const stop = serverStorage.subscribe(id, () => void reload(id));
+    // Realtime 이 끊겨도 진행이 멈추지 않도록 주기적으로도 확인한다
+    const timer = window.setInterval(() => void reload(id), 15000);
+    return () => {
+      stop();
+      window.clearInterval(timer);
+    };
+  }, [battle?.id, reload, serverStorage]);
+
+  /** 배정 대기 중에는 편성과 전투가 준비됐는지 스스로 확인한다 */
+  const checkAssignment = useCallback(async () => {
+    if (!account) return;
+    setChecking(true);
+    try {
+      const bonds = await storage.listBonds();
+      setMyBond(
+        bonds.find(
+          (row) =>
+            row.active &&
+            (row.hunterAccountId === account.id || row.constellationAccountId === account.id),
+        ) ?? null,
+      );
+
+      const found = await findAssignedBattle(account.id);
+      if (found) setBattle(found);
+    } finally {
+      setChecking(false);
+    }
+  }, [account, findAssignedBattle, storage]);
+
+  useEffect(() => {
+    if (authState === 'READY' && !battle) void checkAssignment();
+    // 최초 진입에서 한 번 — 이후는 아래 주기 확인이 맡는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState !== 'READY' || battle || !account) return;
+    const timer = window.setInterval(() => void checkAssignment(), 10000);
+    return () => window.clearInterval(timer);
+  }, [account, authState, battle, checkAssignment]);
+
+  /**
+   * 내 쪽 제출을 서버에 보낸다.
+   * 서버 모드에서는 이것만이 다른 참가자와 관리국에 전달되는 경로다.
+   */
+  const pushSide = useCallback(
+    async (pairId: string, round: number, side: ActorSide, patch: SidePatch) => {
+      if (!serverStorage) return;
+      try {
+        await serverStorage.submitSide(pairId, round, side, patch);
+        setSyncError(null);
+      } catch (caught) {
+        setSyncError(
+          caught instanceof Error
+            ? `제출이 서버에 저장되지 않았습니다: ${caught.message}`
+            : '제출이 서버에 저장되지 않았습니다.',
+        );
+      }
+    },
+    [serverStorage],
+  );
 
   const startBattle = useCallback(async () => {
     if (!account || !battleId) return;
@@ -292,7 +400,6 @@ export default function BattleTerminal() {
     const hunterSheet = mySheet.side === 'HUNTER' ? mySheet : partnerSheet;
     const constellationSheet = mySheet.side === 'CONSTELLATION' ? mySheet : partnerSheet;
 
-    setPreview(null);
     setBattle(
       createBattle({
         id: battleId,
@@ -368,20 +475,48 @@ export default function BattleTerminal() {
         </header>
 
         <section className="panel">
-          <h2 className="panel-title">AWAITING ASSIGNMENT</h2>
+          <h2 className="panel-title">배정 대기</h2>
           <p>
             {account.sheet.name} · {mySheetClass?.label ?? '—'} 시트로 등록되어 있습니다.
             <br />
-            <b>페어 편성은 관리국(운영진)이 진행합니다.</b> 배정이 완료되면 이 화면에서 자동으로
-            전투 단말이 열립니다.
+            <b>페어 편성과 전투 시작은 관리국(운영진)이 진행합니다.</b> 전투가 열리면 이 화면이
+            스스로 전투 단말로 바뀝니다 — 새로고침하지 않아도 됩니다.
           </p>
+
+          {/* 편성만 끝나도 전투 단말은 열리지 않는다 — 두 단계를 나눠서 보여준다 */}
+          <ol className="progress-steps">
+            <li className={myBond ? 'done' : 'now'}>
+              <span className="field-label">1 · 페어 편성</span>
+              {myBond ? (
+                <b className="ok-text">
+                  {myBond.label} — {myBond.hunterName} × {myBond.constellationName}
+                </b>
+              ) : (
+                <b className="warn-text">아직 편성되지 않았습니다. 관리국의 편성을 기다립니다.</b>
+              )}
+            </li>
+            <li className={myBond ? 'now' : ''}>
+              <span className="field-label">2 · 전투 시작</span>
+              <b className={myBond ? 'warn-text' : 'dim'}>
+                {myBond
+                  ? '관리국이 이 페어를 전투에 배치하면 자동으로 입장합니다.'
+                  : '편성이 끝난 뒤 진행됩니다.'}
+              </b>
+            </li>
+          </ol>
           <div className="btn-row" style={{ marginTop: 16 }}>
-            <button type="button" className="ctl" onClick={() => window.location.reload()}>
-              배정 확인 · 새로고침
+            <button
+              type="button"
+              className="ctl"
+              disabled={checking}
+              onClick={() => void checkAssignment()}
+            >
+              {checking ? '확인 중…' : '지금 배정 확인'}
             </button>
             <a className="ctl small" href={joinUrl()}>
               내 시트 보기
             </a>
+            <span className="hint">10초마다 자동으로 확인합니다.</span>
           </div>
         </section>
 
@@ -497,7 +632,9 @@ export default function BattleTerminal() {
   const selectAction = (side: ActorSide, actionId: string) => {
     const key = side === 'HUNTER' ? 'hunterActionId' : 'constellationActionId';
     const current = side === 'HUNTER' ? submission.hunterActionId : submission.constellationActionId;
-    update(submitPairAction(battle, pair.id, { [key]: current === actionId ? null : actionId }));
+    const next = current === actionId ? null : actionId;
+    update(submitPairAction(battle, pair.id, { [key]: next }));
+    void pushSide(pair.id, battle.round, side, { actionId: next });
   };
 
   /**
@@ -567,11 +704,22 @@ export default function BattleTerminal() {
       }
     }
 
-    update(
-      submitPairAction(next, pair.id, {
-        [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: true,
-      }),
-    );
+    const submitted = submitPairAction(next, pair.id, {
+      [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: true,
+    });
+    update(submitted);
+
+    const pushed = submitted.pairs.find((row) => row.id === pair.id)?.submission;
+    await pushSide(pair.id, battle.round, mySide, {
+      submitted: true,
+      ...(mySide === 'HUNTER' && pushed
+        ? {
+            gimmickNote: pushed.gimmickNote,
+            gimmickStage: pushed.gimmickStage,
+            gimmickCheck: pushed.gimmickCheck,
+          }
+        : {}),
+    });
     setGimmickDraft('');
   };
 
@@ -596,19 +744,53 @@ export default function BattleTerminal() {
     // 기믹 수행은 선언을 적어야 확정할 수 있다
     !(mySide === 'HUNTER' && isGimmickAction && !gimmickNoteOk);
 
+  const visibleAlerts = battle.alerts.filter((item) => !dismissedAlerts.includes(item.id));
+  const myPairLabel =
+    battle.pairs.find(
+      (row) =>
+        row.hunterAccountId === account.id || row.constellationAccountId === account.id,
+    )?.label ?? null;
+  /** AUTO 위임은 전투 상태 변경이다 — 서버 모드에서는 관리국만 바꿀 수 있다 */
+  const controlLocked = Boolean(serverStorage);
+
   const statusLabel: Record<BattleState['status'], string> = {
-    PREPARING: 'STANDBY',
-    ENGAGED: 'ENGAGED',
-    CLEARED: 'CLEARED',
-    FAILED: 'FAILED',
+    PREPARING: '준비',
+    ENGAGED: '교전 중',
+    CLEARED: '클리어',
+    FAILED: '실패',
   };
+
+  /**
+   * 지금 무엇을 해야 하는지 한 줄로 알려 준다.
+   * 참가자는 이 화면을 처음 보는 사람일 수 있다.
+   */
+  const guidance: { tone: 'ok' | 'warn' | 'dim'; text: string } = !engaged
+    ? { tone: 'dim', text: `전투가 종료되었습니다 — ${statusLabel[battle.status]}` }
+    : mySide === null
+      ? { tone: 'dim', text: '이 페어의 참가자가 아닙니다 — 조회만 할 수 있습니다.' }
+      : mySide === 'HUNTER' && isDown(pair.hunter)
+        ? { tone: 'warn', text: '전투 불능 상태입니다 — 다른 페어의 구조를 기다립니다.' }
+        : mySubmitted
+          ? {
+              tone: 'ok',
+              text: partnerReady
+                ? '양쪽 제출 완료 — 관리국이 라운드를 처리하면 결과가 자동으로 보입니다.'
+                : `제출 완료 — ${partnerSide === 'HUNTER' ? '헌터' : '성좌'} 의 제출을 기다립니다.`,
+            }
+          : {
+              tone: 'warn',
+              text:
+                mySide === 'HUNTER'
+                  ? `${pair.hunter.name} (헌터) 의 행동을 고르고 아래 확정 버튼을 누르세요.`
+                  : `${pair.constellation.name} (성좌) 의 권능을 고르고 아래 확정 버튼을 누르세요.`,
+            };
 
   return (
     <div className="console">
       {/* ── 경보 ── */}
-      {battle.alerts.length > 0 && (
+      {visibleAlerts.length > 0 && (
         <section className="alert-stack">
-          {battle.alerts
+          {visibleAlerts
             .slice(-3)
             .reverse()
             .map((item) => (
@@ -620,13 +802,22 @@ export default function BattleTerminal() {
                 <button
                   type="button"
                   className="ctl small"
-                  onClick={() => setBattle(dismissAlert(battle, item.id))}
+                  onClick={() => setDismissedAlerts((current) => [...current, item.id])}
                 >
-                  DISMISS
+                  닫기
                 </button>
               </div>
             ))}
         </section>
+      )}
+
+      {syncError && (
+        <p className="notice error">
+          {syncError}
+          <button type="button" className="ctl small" onClick={() => setSyncError(null)}>
+            닫기
+          </button>
+        </p>
       )}
 
       {/* ── 헤더 ── */}
@@ -636,18 +827,23 @@ export default function BattleTerminal() {
           <span>TOWER RAID CONTROL SYSTEM</span>
         </div>
         <dl className="ops">
-          <Field label="OPERATION">{battle.operation.name}</Field>
-          <Field label="FLOOR">{String(battle.operation.floor).padStart(2, '0')}</Field>
-          <Field label="ROUND">{String(battle.round).padStart(2, '0')}</Field>
-          <Field label="THREAT">{battle.operation.threatLevel}</Field>
-          <Field label="MODE">{battle.mode}</Field>
-          <Field label="STATUS">
+          <Field label="작전">{battle.operation.name}</Field>
+          <Field label="층">{String(battle.operation.floor).padStart(2, '0')}</Field>
+          <Field label="라운드">{String(battle.round).padStart(2, '0')}</Field>
+          <Field label="위협도">{battle.operation.threatLevel}</Field>
+          <Field label="상태">
             <span className={`tag ${battle.status === 'ENGAGED' ? 'ok' : 'warn'}`}>
               {statusLabel[battle.status]}
             </span>
           </Field>
         </dl>
       </header>
+
+      {/* ── 지금 할 일 ── */}
+      <p className={`guide-bar tone-${guidance.tone}`}>
+        <span className="field-label">지금</span>
+        <b>{guidance.text}</b>
+      </p>
 
       {/* ── 단말 정보 ── */}
       <section className="panel session">
@@ -672,29 +868,33 @@ export default function BattleTerminal() {
           </button>
         </div>
         <div className="session-row">
-          <span className="field-label">TERMINAL</span>
+          <span className="field-label">보는 페어</span>
           <select
             className="ctl"
             value={battle.viewerPairId}
             onChange={(event) => update({ ...battle, viewerPairId: event.target.value })}
           >
-            {battle.pairs.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.label} · {candidate.hunter.name} / {candidate.constellation.name}
-              </option>
-            ))}
+            {battle.pairs.map((candidate) => {
+              const mine =
+                candidate.hunterAccountId === account.id ||
+                candidate.constellationAccountId === account.id;
+              return (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.label} · {candidate.hunter.name} / {candidate.constellation.name}
+                  {mine ? ' (내 페어)' : ''}
+                </option>
+              );
+            })}
           </select>
-          <button
-            type="button"
-            className="ctl small"
-            onClick={() => {
-              setBattle(null);
-              setPreview(null);
-            }}
-          >
-            RE-DEPLOY
-          </button>
-          <span className="hint">PAIR 01 이 본인 페어입니다.</span>
+          {/* 솔로 테스트로 만든 전투만 여기서 접는다 — 배정된 전투는 관리국이 관리한다 */}
+          {!serverStorage && (
+            <button type="button" className="ctl small" onClick={() => setBattle(null)}>
+              전투 닫기
+            </button>
+          )}
+          <span className="hint">
+            {myPairLabel ? `${myPairLabel} 이 본인 페어입니다.` : '이 전투에 배정되지 않았습니다.'}
+          </span>
         </div>
       </section>
 
@@ -803,7 +1003,7 @@ export default function BattleTerminal() {
 
       {/* ── 타깃 ── */}
       <section className="panel targets">
-        <h2 className="panel-title">TARGET</h2>
+        <h2 className="panel-title">적 · TARGET</h2>
         <div className="target-grid">
           {battle.enemies.map((enemy) => {
             const dead = enemy.hp <= 0;
@@ -855,14 +1055,17 @@ export default function BattleTerminal() {
                     <small>{Math.max(0, enemy.telegraph.roundsLeft)} ROUNDS UNTIL ACTIVATION</small>
                   </p>
                 )}
+                {/* 공격 대상은 헌터가 지정한다 */}
                 {!dead && battle.enemies.length > 1 && (
                   <button
                     type="button"
                     className="ctl small"
-                    disabled={locked}
-                    onClick={() =>
-                      update(submitPairAction(battle, pair.id, { targetEnemyId: enemy.id }))
-                    }
+                    disabled={hunterLocked}
+                    title={mySide === 'CONSTELLATION' ? '대상 지정은 헌터가 합니다.' : undefined}
+                    onClick={() => {
+                      update(submitPairAction(battle, pair.id, { targetEnemyId: enemy.id }));
+                      void pushSide(pair.id, battle.round, 'HUNTER', { targetEnemyId: enemy.id });
+                    }}
                   >
                     {selected ? 'TARGET LOCKED' : 'SET TARGET'}
                   </button>
@@ -888,8 +1091,13 @@ export default function BattleTerminal() {
             <button
               type="button"
               className={`ctl small ${pair.hunter.control === 'AUTO' ? 'on' : ''}`}
+              disabled={controlLocked}
               onClick={() => toggleControl('HUNTER')}
-              title="참가자가 자리를 비우면 자동 행동에 위임합니다."
+              title={
+                controlLocked
+                  ? 'AUTO 위임은 관리국이 설정합니다. 자리를 비울 때는 채널에 알려 주세요.'
+                  : '참가자가 자리를 비우면 자동 행동에 위임합니다.'
+              }
             >
               {pair.hunter.control === 'AUTO' ? 'AUTO ON' : 'AUTO OFF'}
             </button>
@@ -925,7 +1133,7 @@ export default function BattleTerminal() {
             <StatusChips statuses={pair.hunter.statuses} />
           </div>
 
-          <h3 className="sub-title">ACTION</h3>
+          <h3 className="sub-title">행동 선택 · ACTION</h3>
           <ActionList
             actions={actionsFor(pair, 'HUNTER')}
             pair={pair}
@@ -943,15 +1151,13 @@ export default function BattleTerminal() {
               </span>
               <select
                 className="ctl"
-                disabled={locked}
+                disabled={hunterLocked}
                 value={submission.supportTargetPairId ?? ''}
-                onChange={(event) =>
-                  update(
-                    submitPairAction(battle, pair.id, {
-                      supportTargetPairId: event.target.value || null,
-                    }),
-                  )
-                }
+                onChange={(event) => {
+                  const value = event.target.value || null;
+                  update(submitPairAction(battle, pair.id, { supportTargetPairId: value }));
+                  void pushSide(pair.id, battle.round, 'HUNTER', { supportTargetPairId: value });
+                }}
               >
                 <option value="">자동 선택</option>
                 {(hunterAction?.kind === 'RESCUE' ? downPairs : battle.pairs).map((row) => (
@@ -1042,8 +1248,13 @@ export default function BattleTerminal() {
             <button
               type="button"
               className={`ctl small ${pair.constellation.control === 'AUTO' ? 'on' : ''}`}
+              disabled={controlLocked}
               onClick={() => toggleControl('CONSTELLATION')}
-              title="참가자가 자리를 비우면 자동 행동에 위임합니다."
+              title={
+                controlLocked
+                  ? 'AUTO 위임은 관리국이 설정합니다. 자리를 비울 때는 채널에 알려 주세요.'
+                  : '참가자가 자리를 비우면 자동 행동에 위임합니다.'
+              }
             >
               {pair.constellation.control === 'AUTO' ? 'AUTO ON' : 'AUTO OFF'}
             </button>
@@ -1086,7 +1297,7 @@ export default function BattleTerminal() {
             <StatusChips statuses={pair.constellation.statuses} />
           </div>
 
-          <h3 className="sub-title">AUTHORITY</h3>
+          <h3 className="sub-title">권능 선택 · AUTHORITY</h3>
           <ActionList
             actions={actionsFor(pair, 'CONSTELLATION')}
             pair={pair}
@@ -1103,21 +1314,21 @@ export default function BattleTerminal() {
       <section className="panel confirm">
         {!engaged ? (
           <p className="confirm-note">
-            {battle.status === 'CLEARED' ? 'OPERATION CLEARED' : 'OPERATION FAILED'}
-            <small>RE-DEPLOY 로 새 전투를 편성할 수 있습니다.</small>
+            {battle.status === 'CLEARED' ? '작전 클리어' : '작전 실패'}
+            <small>관리국이 다음 전투를 편성하면 이 화면이 바뀝니다.</small>
           </p>
         ) : mySide === null ? (
           <p className="confirm-note">
-            OBSERVING
-            <small>내 페어가 아닙니다 — 조회만 가능합니다.</small>
+            조회 전용
+            <small>내 페어가 아닙니다 — 다른 페어의 행동은 조작할 수 없습니다.</small>
           </p>
         ) : mySubmitted ? (
           <div className="confirm-done">
             <p>
-              ACTION SUBMITTED
+              제출 완료
               <small>
                 {partnerReady
-                  ? 'Waiting for Raid Control…'
+                  ? '관리국의 라운드 처리를 기다립니다…'
                   : `${partnerSide === 'HUNTER' ? '헌터' : '성좌'} 제출 대기 중…`}
               </small>
             </p>
@@ -1125,15 +1336,16 @@ export default function BattleTerminal() {
               <button
                 type="button"
                 className="ctl"
-                onClick={() =>
+                onClick={() => {
                   update(
                     submitPairAction(battle, pair.id, {
                       [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: false,
                     }),
-                  )
-                }
+                  );
+                  void pushSide(pair.id, battle.round, mySide, { submitted: false });
+                }}
               >
-                CANCEL
+                제출 취소
               </button>
             )}
           </div>
@@ -1144,15 +1356,81 @@ export default function BattleTerminal() {
             disabled={!canConfirm}
             onClick={() => void confirmMySide()}
           >
-            CONFIRM ACTION · {mySide}
+            {mySide === 'HUNTER' ? '헌터 행동 확정' : '성좌 권능 확정'}
             {!canConfirm && (
               <small>
                 {mySide === 'HUNTER' && isDown(pair.hunter)
                   ? '헌터 전투 불능 — 다른 페어의 구조를 기다립니다'
-                  : '내 쪽 행동을 선택하세요'}
+                  : mySide === 'HUNTER' && isGimmickAction && !gimmickNoteOk
+                    ? '기믹 선언을 8자 이상 적어야 확정할 수 있습니다'
+                    : '위에서 내 쪽 행동을 먼저 고르세요'}
               </small>
             )}
           </button>
+        )}
+      </section>
+
+      {/* ── 같이 싸우는 사람 ── */}
+      <section className="panel">
+        <div className="process-head">
+          <h2 className="panel-title">같이 싸우는 사람</h2>
+          <span className="hint">
+            연계를 맞추려면 상대가 무엇을 할 수 있는지 알아야 합니다. 스탯과 스킬은 전투에 들어간
+            값입니다.
+          </span>
+        </div>
+        <div className="sheet-list">
+          <ActorSheet
+            side="HUNTER"
+            name={pair.hunter.name}
+            classId={pair.hunter.classId}
+            stats={pair.hunter.stats}
+            skills={pair.hunter.skills}
+            accountId={pair.hunterAccountId}
+            badge={
+              mySide === 'HUNTER' ? <span className="tag blue">내 캐릭터</span> : undefined
+            }
+          />
+          <ActorSheet
+            side="CONSTELLATION"
+            name={pair.constellation.name}
+            classId={pair.constellation.classId}
+            stats={pair.constellation.stats}
+            skills={pair.constellation.skills}
+            accountId={pair.constellationAccountId}
+            badge={
+              mySide === 'CONSTELLATION' ? <span className="tag gold">내 캐릭터</span> : undefined
+            }
+          />
+        </div>
+
+        {battle.pairs.length > 1 && (
+          <Collapsible label={`다른 공략조 ${battle.pairs.length - 1}`}>
+            <div className="sheet-list">
+              {battle.pairs
+                .filter((row) => row.id !== pair.id)
+                .flatMap((row) => [
+                  <ActorSheet
+                    key={`${row.id}-h`}
+                    side="HUNTER"
+                    name={row.hunter.name}
+                    classId={row.hunter.classId}
+                    stats={row.hunter.stats}
+                    skills={row.hunter.skills}
+                    badge={<span className="tag">{row.label}</span>}
+                  />,
+                  <ActorSheet
+                    key={`${row.id}-c`}
+                    side="CONSTELLATION"
+                    name={row.constellation.name}
+                    classId={row.constellation.classId}
+                    stats={row.constellation.stats}
+                    skills={row.constellation.skills}
+                    badge={<span className="tag">{row.label}</span>}
+                  />,
+                ])}
+            </div>
+          </Collapsible>
         )}
       </section>
 
@@ -1216,7 +1494,7 @@ export default function BattleTerminal() {
       {/* ── 제출 현황 ── */}
       <section className="panel process">
         <div className="process-head">
-          <h2 className="panel-title">SUBMISSION STATUS</h2>
+          <h2 className="panel-title">제출 현황</h2>
           <span className="hint">라운드 처리는 관리국(운영진) 화면에서 진행됩니다.</span>
         </div>
         <div className="submit-status">
@@ -1246,7 +1524,9 @@ export default function BattleTerminal() {
           </div>
         </div>
         <p className="hint">
-          상대가 자리를 비웠다면 해당 쪽의 <b>AUTO</b> 를 켜서 자동 행동으로 진행할 수 있습니다.
+          {controlLocked
+            ? '상대가 자리를 비웠다면 채널로 관리국에 알려 주세요. AUTO 위임은 관리국이 설정합니다.'
+            : '상대가 자리를 비웠다면 해당 쪽의 AUTO 를 켜서 자동 행동으로 진행할 수 있습니다.'}
         </p>
       </section>
 

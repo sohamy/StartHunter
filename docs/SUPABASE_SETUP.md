@@ -9,9 +9,17 @@
 ## 1. 스키마 적용 (필수 · 1회)
 
 Supabase 대시보드 → **SQL Editor** → **New query** 에
-`supabase/migrations/0001_battle_schema.sql` 전체를 붙여넣고 **Run**.
+`supabase/migrations/` 의 파일을 **번호 순서대로** 붙여넣고 **Run**.
 
-만들어지는 것:
+| 파일 | 내용 |
+| --- | --- |
+| `0001_battle_schema.sql` | 계정 · 시트 · 전투 · 편성 · 제출 · 로그 + RLS |
+| `0002_roster_and_enemies.sql` | 영구 편성(`pair_bonds`) · 적 세팅(`enemy_templates`) |
+| `0003_chat.sql` | 채팅(`chat_messages`) |
+| `0004_gimmick_checks.sql` | 기믹 선언 · 판정 칼럼 |
+| `0005_attacks_and_sheet_admin.sql` | 적 커스텀 공격(`enemy_templates.attacks`) · 시트 삭제 정책 |
+
+0001 이 만드는 테이블:
 
 | 테이블 | 내용 |
 | --- | --- |
@@ -23,6 +31,9 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `battle_log` | 시스템 · 연출 로그 |
 
 같이 걸리는 것: RLS 정책, 회원가입 시 프로필 자동 생성 트리거, 제출 쪽 보호 트리거, Realtime 구독 등록.
+
+> 이미 0001~0004 를 적용한 프로젝트라면 **0005 만** 실행하면 된다.
+> 0005 를 적용하지 않으면 적 공격 패턴 저장과 시트 삭제가 실패한다.
 
 ## 2. 이메일 확인 끄기 (필수)
 

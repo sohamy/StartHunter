@@ -3,7 +3,7 @@
  *
  * 참가자가 시트에 등록하는 스킬의 허용 범위를 정의한다.
  * 정해진 스킬 목록을 강제하지 않되, 수치 범위는 여기서 제한한다.
- * 운영진은 전투 중 이 범위를 넘겨 수정할 수 있다 (PHASE 5).
+ * 운영진은 시트 편집에서 이 범위를 넘겨 수정할 수 있다.
  */
 
 import type { ActorSide, SkillDefinition, SkillKind, TargetType } from '../types';
@@ -34,6 +34,7 @@ export interface SkillKindDefinition {
   sides: ActorSide[];
   /** power 값이 무엇으로 해석되는지 */
   powerMeaning: string;
+  /** 계산에 반영되는 구현 단계. CURRENT_PHASE 보다 크면 화면에 '미반영'으로 표시한다. */
   activeFrom: number;
 }
 
@@ -45,7 +46,7 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     defaultTarget: 'ENEMY',
     sides: ['HUNTER', 'CONSTELLATION'],
     powerMeaning: '공격력에 곱하는 계수',
-    activeFrom: 2,
+    activeFrom: 1,
   },
   {
     kind: 'DEFENSE',
@@ -54,7 +55,7 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     defaultTarget: 'SELF',
     sides: ['HUNTER'],
     powerMeaning: '받는 피해 감소 비율 (0.4 = 40%)',
-    activeFrom: 2,
+    activeFrom: 1,
   },
   {
     kind: 'BUFF',
@@ -63,7 +64,7 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     defaultTarget: 'PAIR',
     sides: ['CONSTELLATION'],
     powerMeaning: '헌터 공격력 증가 비율',
-    activeFrom: 2,
+    activeFrom: 1,
   },
   {
     kind: 'DEBUFF',
@@ -72,7 +73,7 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     defaultTarget: 'ENEMY',
     sides: ['CONSTELLATION'],
     powerMeaning: '적 방어력 감소 비율',
-    activeFrom: 2,
+    activeFrom: 1,
   },
   {
     kind: 'UTILITY',
@@ -81,7 +82,7 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     defaultTarget: 'NONE',
     sides: ['HUNTER', 'CONSTELLATION'],
     powerMeaning: '상태이상 부여 전용 — 수치 없음',
-    activeFrom: 2,
+    activeFrom: 1,
   },
   {
     kind: 'HEAL',
@@ -89,8 +90,8 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     labelKo: '회복',
     defaultTarget: 'PAIR',
     sides: ['HUNTER', 'CONSTELLATION'],
-    powerMeaning: '회복량 (PHASE 3)',
-    activeFrom: 3,
+    powerMeaning: '회복량 — 아직 계산에 반영되지 않는다',
+    activeFrom: 99,
   },
   {
     kind: 'MANIFESTATION',
@@ -98,8 +99,8 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     labelKo: '현신',
     defaultTarget: 'ENEMY',
     sides: ['CONSTELLATION'],
-    powerMeaning: '현신 공격 계수 (PHASE 3)',
-    activeFrom: 3,
+    powerMeaning: '현신 공격 계수',
+    activeFrom: 1,
   },
 ];
 

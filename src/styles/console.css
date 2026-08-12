@@ -25,6 +25,9 @@
 
   --c-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   --c-sans: "Pretendard Variable", Pretendard, Inter, system-ui, "Noto Sans KR", sans-serif;
+
+  /* 드롭다운 · 스크롤바 같은 네이티브 위젯도 어두운 쪽으로 그리게 한다 */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -224,6 +227,19 @@ body.console-body::before {
 
 /* 기본 폭은 넓게 두되, 그리드 안에서는 칸을 넘치지 않는다 */
 select.ctl { min-width: min(260px, 100%); max-width: 100%; }
+
+/*
+   드롭다운 목록은 브라우저가 그린다.
+   반투명 배경을 물려주면 흰 시스템 팝업 위에 밝은 글자가 얹혀 읽을 수 없으므로,
+   select 와 option 에 불투명한 색을 직접 지정한다. (변수를 못 받는 팝업이 있어 실색을 쓴다)
+*/
+select.ctl { background-color: #131a26; color: var(--c-text); }
+select.ctl option,
+select.ctl optgroup {
+  background-color: #131a26;
+  color: #eaf0f8;
+}
+select.ctl option:disabled { color: #7a8598; }
 
 /* ── 헤더 ────────────────────────────────────────────── */
 .console-head {
@@ -802,6 +818,61 @@ input[type='range']::-moz-range-thumb {
 .stat-summary li .num { font-size: 15px; }
 .stat-summary.derived { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .concept-text { margin: 0; color: var(--c-dim); font-size: 13px; white-space: pre-wrap; }
+
+/* ── 진행 단계 안내 ──────────────────────────────────── */
+.progress-steps { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.progress-steps li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  border-left: 3px solid var(--c-offline);
+  background: rgba(255, 255, 255, .02);
+}
+.progress-steps li.done { border-left-color: var(--c-ok); }
+.progress-steps li.now { border-left-color: var(--c-warn); }
+.progress-steps b { font-size: 13.5px; font-weight: 600; }
+
+/* ── 적 공격 패턴 편집 ───────────────────────────────── */
+.attack-editor { display: grid; gap: 12px; }
+.attack-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.attack-card {
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-danger);
+  background: rgba(255, 255, 255, .02);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+.attack-head { display: flex; align-items: center; gap: 8px; }
+.attack-head input { flex: 1; min-width: 0; }
+/* 한 줄에 여러 입력을 두되 좁아지면 자연히 접힌다 */
+.attack-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+.attack-row .num-field { min-width: 0; }
+.attack-row small { font-size: 11px; }
+.sheet-card.editing { border-left-color: var(--c-warn); }
+
+/* ── 지금 할 일 안내줄 ───────────────────────────────── */
+.guide-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--c-line);
+  border-left: 3px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .03);
+  font-size: 14px;
+}
+.guide-bar.tone-warn { border-left-color: var(--c-warn); color: var(--c-warn); }
+.guide-bar.tone-ok { border-left-color: var(--c-ok); color: var(--c-ok); }
+.guide-bar.tone-dim { border-left-color: var(--c-offline); color: var(--c-dim); }
+.guide-bar b { font-weight: 600; }
 
 /* ── 참가자 시트 열람 (운영진) ───────────────────────── */
 /* min() 로 최소폭을 잡아 좁은 카드(페어 모니터 · 편성 카드) 안에서도 넘치지 않게 한다 */

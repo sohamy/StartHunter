@@ -15,6 +15,7 @@ import {
   remainingPoints,
   statsFor,
 } from '../config/characters';
+import { CURRENT_PHASE } from '../config/rules';
 import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
 import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
@@ -116,7 +117,8 @@ function StatRow({
       </div>
       <p className="stat-effect">
         {effect}
-        {activeFrom > 1 && <span className="tag warn">PHASE {activeFrom}</span>}
+        {/* 이미 구현된 단계 번호는 띄우지 않는다 — 아직 반영되지 않은 것만 표시한다 */}
+        {activeFrom > CURRENT_PHASE && <span className="tag warn">미반영</span>}
       </p>
     </div>
   );
@@ -250,7 +252,7 @@ function SkillEditor({
                   {kinds.map((row) => (
                     <option key={row.kind} value={row.kind}>
                       {row.label} · {row.labelKo}
-                      {row.activeFrom > 2 ? ` (PHASE ${row.activeFrom})` : ''}
+                      {row.activeFrom > CURRENT_PHASE ? ' (미반영)' : ''}
                     </option>
                   ))}
                 </select>

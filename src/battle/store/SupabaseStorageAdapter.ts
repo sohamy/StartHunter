@@ -82,9 +82,46 @@ function toSubmission(row: SubmissionRow | undefined): RoundSubmission {
   };
 }
 
+/** 활동명과 계정 uuid 를 구분한다 */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class SupabaseStorageAdapter implements StorageAdapter {
+  /**
+   * 계정 식별자 변환표.
+   *
+   * 화면과 편성(pair_bonds)은 계정을 **활동명**으로 다루는데,
+   * battle_pairs 는 RLS 가 `auth.uid()` 와 비교해야 하므로 **uuid** 를 저장해야 한다.
+   * 이 어댑터 경계에서만 서로 바꾼다 — 섞이면 참가자가 자기 전투를 못 찾는다.
+   */
+  private handleToId = new Map<string, string>();
+  private idToHandle = new Map<string, string>();
+
+  private async syncProfileMap(): Promise<void> {
+    const { data } = await requireSupabase().from('profiles').select('id, handle');
+    this.handleToId.clear();
+    this.idToHandle.clear();
+    for (const row of data ?? []) {
+      this.handleToId.set(row.handle as string, row.id as string);
+      this.idToHandle.set(row.id as string, row.handle as string);
+    }
+  }
+
+  /** 활동명 → uuid. 이미 uuid 면 그대로 둔다. */
+  private accountUuid(accountId: string | null): string | null {
+    if (!accountId) return null;
+    if (UUID_PATTERN.test(accountId)) return accountId;
+    return this.handleToId.get(accountId) ?? null;
+  }
+
+  /** uuid → 활동명. 매핑이 없으면 원본을 그대로 둔다. */
+  private accountHandle(id: string | null): string | null {
+    if (!id) return null;
+    return this.idToHandle.get(id) ?? id;
+  }
+
   async loadBattle(id: string): Promise<BattleState | null> {
     const supabase = requireSupabase();
+    await this.syncProfileMap();
 
     const { data: battle } = await supabase.from('battles').select('*').eq('id', id).maybeSingle();
     if (!battle) return null;
@@ -114,8 +151,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         id: row.id,
         label: row.label,
         affiliation: row.affiliation,
-        hunterAccountId: row.hunter_account,
-        constellationAccountId: row.constellation_account,
+        hunterAccountId: this.accountHandle(row.hunter_account),
+        constellationAccountId: this.accountHandle(row.constellation_account),
         hunter: row.hunter,
         constellation: row.constellation,
         contract: row.contract,
@@ -156,6 +193,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   /** 운영진 전용 — RLS 가 참가자의 호출을 거부한다. */
   async saveBattle(state: BattleState): Promise<void> {
     const supabase = requireSupabase();
+    await this.syncProfileMap();
 
     const { error: battleError } = await supabase.from('battles').upsert({
       id: state.id,
@@ -171,14 +209,29 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (battleError) throw new Error(`전투 저장 실패: ${battleError.message}`);
 
     for (const [index, pair] of state.pairs.entries()) {
+      const hunterAccount = this.accountUuid(pair.hunterAccountId);
+      const constellationAccount = this.accountUuid(pair.constellationAccountId);
+
+      // 활동명이 계정으로 이어지지 않으면 참가자가 자기 전투를 찾지 못한다 — 조용히 넘기지 않는다.
+      for (const [label, given, resolved] of [
+        ['헌터', pair.hunterAccountId, hunterAccount],
+        ['성좌', pair.constellationAccountId, constellationAccount],
+      ] as Array<[string, string | null, string | null]>) {
+        if (given && !resolved) {
+          throw new Error(
+            `${pair.label} 의 ${label} 계정(${given})을 찾을 수 없습니다. 활동명이 바뀌었는지 확인하세요.`,
+          );
+        }
+      }
+
       const { error } = await supabase.from('battle_pairs').upsert({
         id: pair.id,
         battle_id: state.id,
         ordinal: index,
         label: pair.label,
         affiliation: pair.affiliation,
-        hunter_account: pair.hunterAccountId,
-        constellation_account: pair.constellationAccountId,
+        hunter_account: hunterAccount,
+        constellation_account: constellationAccount,
         hunter: pair.hunter,
         constellation: pair.constellation,
         contract: pair.contract,
@@ -319,6 +372,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       defense: row.defense as number,
       maxPhase: row.max_phase as number,
       patternSetId: (row.pattern_set_id as string) ?? null,
+      attacks: (row.attacks as EnemyTemplate['attacks']) ?? [],
       boss: Boolean(row.boss),
     }));
   }
@@ -333,6 +387,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       defense: template.defense,
       max_phase: template.maxPhase,
       pattern_set_id: template.patternSetId,
+      attacks: template.attacks ?? [],
       boss: template.boss,
     });
     if (error) throw new Error(`적 저장 실패: ${error.message}`);

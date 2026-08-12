@@ -262,6 +262,35 @@ export interface PairState {
   patternRevealed: boolean;
 }
 
+/* ── 커스텀 공격 ───────────────────────────────────────
+   운영진이 공격을 하나하나 만들어 적의 패턴으로 쓴다.
+   페이즈별로 목록을 두면 라운드마다 순서대로 돌아간다.
+   커스텀 공격이 하나라도 있으면 config/patterns.ts 의 패턴 세트는 쓰지 않는다. */
+
+export interface CustomAttack {
+  id: string;
+  /** 표기 이름 — 로그와 예고에 그대로 나간다 */
+  name: string;
+  /** 연출 문구 */
+  description: string;
+  /** 적 공격력에 곱하는 계수. 0 이면 피해 없이 연출 · 상태이상만 */
+  powerRatio: number;
+  /** 살아 있는 모든 페어를 때린다 */
+  aoe: boolean;
+  /** 맞은 쪽에게 부여하는 상태이상 정의 id */
+  applyStatusIds: string[];
+  /** 자신에게 부여하는 상태이상 (분노 등) */
+  selfStatusIds: string[];
+  /** 참가자에게 이름을 미리 공개하는지 */
+  revealed: boolean;
+  /** 예고 라운드. 0 이면 즉시, 1 이상이면 그만큼 예고한 뒤 발동한다 */
+  telegraphRounds: number;
+  /** 예고 문구 */
+  telegraphMessage: string;
+  /** 이 공격을 쓰는 페이즈 목록. 비어 있으면 모든 페이즈 */
+  phases: number[];
+}
+
 export interface EnemyState {
   id: string;
   name: string;
@@ -273,6 +302,8 @@ export interface EnemyState {
   phase: number;
   maxPhase: number;
   statuses: StatusEffect[];
+  /** 이 적의 커스텀 공격. 있으면 패턴 세트보다 우선한다 */
+  attacks: CustomAttack[];
   /** 다음 패턴 이름. 공개 전에는 UNKNOWN 으로 표시한다. */
   nextPattern: string;
   /** 보스 여부 — UI 강조와 페이즈 처리에 사용 */
@@ -444,8 +475,10 @@ export interface EnemyTemplate {
   attack: number;
   defense: number;
   maxPhase: number;
-  /** config/patterns.ts 의 패턴 세트 */
+  /** config/patterns.ts 의 패턴 세트. 커스텀 공격이 있으면 무시된다 */
   patternSetId: string | null;
+  /** 운영진이 만든 공격 목록 */
+  attacks: CustomAttack[];
   boss: boolean;
 }
 

@@ -11,7 +11,7 @@
  * 원칙: 자동 판정 결과를 운영진이 언제든 덮어쓸 수 있어야 한다.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { GIMMICK_DEFINITIONS } from '../config/gimmicks';
 import { PATTERN_SETS } from '../config/patterns';
@@ -33,12 +33,16 @@ import {
   AuthError,
   getAuth,
   getServerAuth,
+  getServerStorage,
   getStorage,
   isServerMode,
   type PublicProfile,
   type SheetRecord,
 } from '../store';
+import AttackEditor from './AttackEditor';
 import ChatPanel from './ChatPanel';
+import Collapsible from './Collapsible';
+import SheetEditor from './SheetEditor';
 import { ActorSheet, SheetDetail, sideLabel } from './SheetView';
 import type {
   ActorSide,
@@ -63,6 +67,21 @@ type LogTab = 'SYSTEM' | 'ROLEPLAY';
 function terminalUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return `${base}/battle/`;
+}
+
+/** 되돌리기 어려운 조작은 한 번 되묻는다 */
+function confirmed(message: string): boolean {
+  return typeof window === 'undefined' || window.confirm(message);
+}
+
+/** 목록에 쓰는 짧은 시각 표기 */
+function shortTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}`;
 }
 
 /** 서버 기본키가 uuid 이므로 클라이언트도 uuid 를 만든다 */
@@ -144,27 +163,6 @@ function TextField({
   );
 }
 
-function Collapsible({
-  label,
-  children,
-  defaultOpen = false,
-}: {
-  label: string;
-  children: ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className={`collapse ${open ? 'open' : ''}`}>
-      <button type="button" className="collapse-head" onClick={() => setOpen(!open)}>
-        <span>{label}</span>
-        <i aria-hidden="true">{open ? '−' : '+'}</i>
-      </button>
-      {open && <div className="collapse-body">{children}</div>}
-    </div>
-  );
-}
-
 function Bar({ value, max, tone }: { value: number; max: number; tone: string }) {
   const percent = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
@@ -238,6 +236,7 @@ function StatusEditor({
 
 export default function ControlTerminal() {
   const storage = useMemo(() => getStorage(), []);
+  const serverStorage = useMemo(() => getServerStorage(), []);
   const auth = useMemo(() => getAuth(), []);
   const serverAuth = useMemo(() => getServerAuth(), []);
 
@@ -276,6 +275,7 @@ export default function ControlTerminal() {
   const [filter, setFilter] = useState<PairFilter>('ALL');
   const [sheetFilter, setSheetFilter] = useState<SheetFilter>('ALL');
   const [sheetQuery, setSheetQuery] = useState('');
+  const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
   const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [logDraft, setLogDraft] = useState('');
@@ -322,7 +322,11 @@ export default function ControlTerminal() {
   }, [serverAuth]);
 
   useEffect(() => {
-    if (battle) void storage.saveBattle(battle);
+    if (!battle) return;
+    // 저장 실패(권한 · 스키마 · 계정 불일치)를 조용히 삼키면 운영 중에 원인을 알 수 없다.
+    void storage.saveBattle(battle).catch((caught: unknown) => {
+      setError(caught instanceof Error ? `전투 저장 실패: ${caught.message}` : '전투 저장 실패');
+    });
   }, [battle, storage]);
 
   const update = useCallback((next: BattleState) => {
@@ -331,15 +335,87 @@ export default function ControlTerminal() {
   }, []);
 
   /**
+   * 참가자의 제출만 가져와 덮는다.
+   *
+   * 전투 상태 전체를 다시 읽으면 운영진이 지금 고치고 있는 수치를 덮어쓸 수 있다.
+   * 참가자가 바꿀 수 있는 것은 제출뿐이므로 그것만 반영한다.
+   * 바뀐 게 없으면 같은 객체를 돌려줘 저장 루프가 돌지 않게 한다.
+   */
+  const syncSubmissions = useCallback(
+    async (battleId: string) => {
+      const remote = await storage.loadBattle(battleId);
+      if (!remote) return;
+
+      setBattle((current) => {
+        if (!current || current.id !== remote.id || current.round !== remote.round) return current;
+
+        const changed = remote.pairs.some((row) => {
+          const mine = current.pairs.find((candidate) => candidate.id === row.id);
+          return mine && JSON.stringify(mine.submission) !== JSON.stringify(row.submission);
+        });
+        if (!changed) return current;
+
+        return {
+          ...current,
+          pairs: current.pairs.map((pair) => {
+            const row = remote.pairs.find((candidate) => candidate.id === pair.id);
+            return row ? { ...pair, submission: row.submission } : pair;
+          }),
+        };
+      });
+    },
+    [storage],
+  );
+
+  /** 제출이 들어오는 것을 실시간으로 본다 — 새로고침을 눌러야 보이면 운영이 불가능하다 */
+  useEffect(() => {
+    const id = battle?.id;
+    if (!id || !serverStorage) return;
+
+    const stop = serverStorage.subscribe(id, () => void syncSubmissions(id));
+    const timer = window.setInterval(() => void syncSubmissions(id), 10000);
+    return () => {
+      stop();
+      window.clearInterval(timer);
+    };
+  }, [battle?.id, serverStorage, syncSubmissions]);
+
+  /** 새로고침 후에도 진행 중인 전투를 다시 찾아 열지 않아도 되게 한다 */
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || battle) return;
+    const live = battles.find((row) => row.status === 'ENGAGED');
+    if (!live) return;
+
+    autoOpened.current = true;
+    void (async () => {
+      const loaded = await storage.loadBattle(live.id);
+      if (!loaded) return;
+      setBattle(loaded);
+      setMessage(`진행 중인 전투를 열었습니다 — ${live.operationName} · ROUND ${live.round}`);
+    })();
+  }, [battle, battles, storage]);
+
+  /** 알림은 스스로 사라진다. 오류는 남긴다. */
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
+  /**
    * 저장 실패를 조용히 삼키지 않는다.
    * 테이블이 없거나 권한이 없으면 화면에 그대로 띄운다.
    */
   const guard = useCallback(async (task: () => Promise<void>) => {
     setError(null);
+    setBusy(true);
     try {
       await task();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '작업에 실패했습니다.');
+    } finally {
+      setBusy(false);
     }
   }, []);
 
@@ -478,6 +554,31 @@ export default function ControlTerminal() {
     });
   };
 
+  /* ── 참가자 시트 조작 ────────────────────────────── */
+
+  const saveSheet = async (accountId: string, next: CharacterSheet) => {
+    await guard(async () => {
+      await auth.updateSheet(accountId, next);
+      await refresh();
+      setEditingSheetId(null);
+      setMessage(`${next.name} 시트를 저장했습니다.`);
+    });
+  };
+
+  const deleteSheet = async (accountId: string, sheet: CharacterSheet, bondLabel?: string) => {
+    const warning = bondLabel
+      ? `${sheet.name} (@${accountId}) 의 시트를 삭제합니다.\n이 참가자는 ${bondLabel} 에 편성되어 있습니다 — 편성 기록은 남습니다.\n되돌릴 수 없습니다.`
+      : `${sheet.name} (@${accountId}) 의 시트를 삭제합니다. 되돌릴 수 없습니다.`;
+    if (!confirmed(warning)) return;
+
+    await guard(async () => {
+      await auth.deleteSheet(sheet.id);
+      await refresh();
+      setEditingSheetId(null);
+      setMessage(`${sheet.name} 시트를 삭제했습니다.`);
+    });
+  };
+
   /* ── 적 세팅 조작 ────────────────────────────────── */
 
   const addTemplate = async (boss: boolean) => {
@@ -490,6 +591,7 @@ export default function ControlTerminal() {
       defense: boss ? 6 : 3,
       maxPhase: boss ? 3 : 1,
       patternSetId: boss ? 'set.star_devourer' : 'set.husk',
+      attacks: [],
       boss,
     };
     await guard(async () => {
@@ -562,12 +664,28 @@ export default function ControlTerminal() {
       gimmickId: gimmickId || null,
     });
 
-    setBattle(next);
-    setPreview(null);
-    setTab('OPERATION');
-    setMessage(`FLOOR ${floor} 전투를 시작했습니다.`);
-    await storage.saveBattle(next);
-    await refresh();
+    setBusy(true);
+    setError(null);
+    try {
+      // 저장이 실패하면 참가자 단말에 전투가 열리지 않는다 — 반드시 알린다.
+      await storage.saveBattle(next);
+      setBattle(next);
+      setPreview(null);
+      autoOpened.current = true;
+      setTab('OPERATION');
+      setMessage(
+        `FLOOR ${floor} 전투를 시작했습니다. 참가자 단말이 자동으로 전투 화면으로 넘어갑니다.`,
+      );
+      await refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? `전투를 시작하지 못했습니다: ${caught.message}`
+          : '전투를 시작하지 못했습니다.',
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   /* ── 데이터 입출력 ───────────────────────────────── */
@@ -796,8 +914,19 @@ export default function ControlTerminal() {
         </div>
       </nav>
 
-      {error && <p className="notice error">{error}</p>}
-      {message && <p className="notice ok">{message}</p>}
+      {error && (
+        <p className="notice error">
+          {error}
+          <button type="button" className="ctl small" onClick={() => setError(null)}>
+            닫기
+          </button>
+        </p>
+      )}
+      {message && (
+        <p className="notice ok" onClick={() => setMessage(null)} title="클릭하면 닫기">
+          {message}
+        </p>
+      )}
       {access === 'LOCAL' && (
         <p className="notice warn">
           LOCAL MODE — 서버에 연결되지 않아 인증 없이 열려 있습니다. 공개 배포 시에는 반드시 서버
@@ -861,8 +990,13 @@ export default function ControlTerminal() {
                     })}
                 </select>
               </label>
-              <button type="button" className="ctl primary" onClick={() => void createBond()}>
-                계약 성립
+              <button
+                type="button"
+                className="ctl primary"
+                disabled={busy || !pairingHunter || !pairingConstellation}
+                onClick={() => void createBond()}
+              >
+                {busy ? '처리 중…' : '계약 성립'}
               </button>
             </div>
             {unpaired.length > 0 && (
@@ -954,7 +1088,12 @@ export default function ControlTerminal() {
                       <button
                         type="button"
                         className="ctl small"
-                        onClick={() => void patchBond(bond, { active: false })}
+                        disabled={busy}
+                        onClick={() => {
+                          if (confirmed(`${bond.label} 을 해산합니다. 기록은 남고 편성에서만 빠집니다.`)) {
+                            void patchBond(bond, { active: false });
+                          }
+                        }}
                         title="기록은 남고 편성에서만 제외됩니다"
                       >
                         해산
@@ -990,9 +1129,12 @@ export default function ControlTerminal() {
                           <button
                             type="button"
                             className="ctl small"
-                            onClick={async () => {
-                              await storage.deleteBond(bond.id);
-                              await refresh();
+                            onClick={() => {
+                              if (!confirmed(`${bond.label} 기록을 영구 삭제합니다. 되돌릴 수 없습니다.`)) return;
+                              void guard(async () => {
+                                await storage.deleteBond(bond.id);
+                                await refresh();
+                              });
                             }}
                           >
                             영구 삭제
@@ -1066,17 +1208,41 @@ export default function ControlTerminal() {
             <div className="sheet-list">
               {filteredSheets.map((row) => {
                 const bond = bondOf(row.accountId);
+
+                if (editingSheetId === row.sheet.id) {
+                  return (
+                    <SheetEditor
+                      key={`${row.accountId}-${row.sheet.id}`}
+                      sheet={row.sheet}
+                      accountId={row.accountId}
+                      busy={busy}
+                      onCancel={() => setEditingSheetId(null)}
+                      onSave={(next) => void saveSheet(row.accountId, next)}
+                      onDelete={() => void deleteSheet(row.accountId, row.sheet, bond?.label)}
+                    />
+                  );
+                }
+
                 return (
                   <SheetDetail
                     key={`${row.accountId}-${row.sheet.id}`}
                     sheet={row.sheet}
                     accountId={row.accountId}
                     note={
-                      bond ? (
-                        <span className="tag ok">{bond.label}</span>
-                      ) : (
-                        <span className="tag offline">미편성</span>
-                      )
+                      <>
+                        {bond ? (
+                          <span className="tag ok">{bond.label}</span>
+                        ) : (
+                          <span className="tag offline">미편성</span>
+                        )}
+                        <button
+                          type="button"
+                          className="ctl small"
+                          onClick={() => setEditingSheetId(row.sheet.id)}
+                        >
+                          수정
+                        </button>
+                      </>
                     }
                   />
                 );
@@ -1092,10 +1258,20 @@ export default function ControlTerminal() {
           <div className="process-head">
             <h2 className="panel-title">적 목록</h2>
             <div className="btn-row">
-              <button type="button" className="ctl primary" onClick={() => void addTemplate(true)}>
+              <button
+                type="button"
+                className="ctl primary"
+                disabled={busy}
+                onClick={() => void addTemplate(true)}
+              >
                 + 보스 추가
               </button>
-              <button type="button" className="ctl" onClick={() => void addTemplate(false)}>
+              <button
+                type="button"
+                className="ctl"
+                disabled={busy}
+                onClick={() => void addTemplate(false)}
+              >
                 + 일반 몬스터 추가
               </button>
             </div>
@@ -1115,9 +1291,13 @@ export default function ControlTerminal() {
                     <button
                       type="button"
                       className="ctl small"
-                      onClick={async () => {
-                        await storage.deleteEnemyTemplate(template.id);
-                        await refresh();
+                      title="이 적을 삭제합니다"
+                      onClick={() => {
+                        if (!confirmed(`${template.name} 을 삭제합니다. 되돌릴 수 없습니다.`)) return;
+                        void guard(async () => {
+                          await storage.deleteEnemyTemplate(template.id);
+                          await refresh();
+                        });
                       }}
                     >
                       ✕
@@ -1160,10 +1340,13 @@ export default function ControlTerminal() {
                       onCommit={(value) => void patchTemplate(template, { maxPhase: value })}
                     />
                     <label className="num-field">
-                      <span className="field-label">패턴 세트</span>
+                      <span className="field-label">
+                        프리셋 패턴 {(template.attacks ?? []).length > 0 && '(사용 안 함)'}
+                      </span>
                       <select
                         className="ctl input"
                         value={template.patternSetId ?? ''}
+                        disabled={(template.attacks ?? []).length > 0}
                         onChange={(event) =>
                           void patchTemplate(template, { patternSetId: event.target.value || null })
                         }
@@ -1190,6 +1373,18 @@ export default function ControlTerminal() {
                       </select>
                     </label>
                   </div>
+
+                  <Collapsible
+                    label={`공격 패턴 ${(template.attacks ?? []).length}개 — 페이즈별로 적용`}
+                    defaultOpen={(template.attacks ?? []).length > 0}
+                  >
+                    <AttackEditor
+                      attacks={template.attacks ?? []}
+                      maxPhase={template.maxPhase}
+                      enemyAttack={template.attack}
+                      onChange={(attacks) => void patchTemplate(template, { attacks })}
+                    />
+                  </Collapsible>
                 </article>
               ))}
             </div>
@@ -1285,39 +1480,98 @@ export default function ControlTerminal() {
             </label>
           </div>
 
-          <button type="button" className="confirm-btn" onClick={() => void startOperation()}>
-            START OPERATION
+          <button
+            type="button"
+            className="confirm-btn"
+            disabled={busy || selectedBonds.length === 0 || selectedEnemies.length === 0}
+            onClick={() => void startOperation()}
+          >
+            {busy ? '전투를 만드는 중…' : '전투 시작'}
             <small>
               {selectedBonds.length}페어 · 적 {selectedEnemies.length}체 · FLOOR {floor}
             </small>
           </button>
 
           {battles.length > 0 && (
-            <Collapsible label={`저장된 전투 ${battles.length}`}>
+            <Collapsible label={`지난 전투 ${battles.length}`} defaultOpen={battles.length <= 3}>
               <table className="preview-table">
+                <thead>
+                  <tr>
+                    <th>작전</th>
+                    <th>규모</th>
+                    <th>라운드</th>
+                    <th>상태</th>
+                    <th>마지막 갱신</th>
+                    <th />
+                  </tr>
+                </thead>
                 <tbody>
                   {battles.map((row) => (
                     <tr key={row.id}>
-                      <td className="dim small-text">{row.id}</td>
-                      <td>{row.mode}</td>
+                      <td>{row.operationName || '이름 없는 작전'}</td>
+                      <td className="dim small-text">
+                        {row.mode === 'RAID' ? '레이드' : '단독'}
+                      </td>
                       <td className="num">R{row.round}</td>
                       <td>
-                        <span className={`tag ${row.status === 'ENGAGED' ? 'ok' : 'warn'}`}>
-                          {row.status}
+                        <span
+                          className={`tag ${
+                            row.status === 'ENGAGED'
+                              ? 'ok'
+                              : row.status === 'CLEARED'
+                                ? 'blue'
+                                : row.status === 'FAILED'
+                                  ? 'critical'
+                                  : 'warn'
+                          }`}
+                        >
+                          {row.status === 'ENGAGED'
+                            ? '진행 중'
+                            : row.status === 'CLEARED'
+                              ? '클리어'
+                              : row.status === 'FAILED'
+                                ? '실패'
+                                : '준비'}
                         </span>
                       </td>
+                      <td className="dim small-text num">{shortTime(row.updatedAt)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="ctl small"
-                          onClick={async () => {
-                            const loaded = await storage.loadBattle(row.id);
-                            if (loaded) update(loaded);
-                            else setMessage('불러올 수 없습니다 (스키마 버전 불일치).');
-                          }}
-                        >
-                          열기
-                        </button>
+                        <div className="btn-row">
+                          <button
+                            type="button"
+                            className="ctl small"
+                            onClick={async () => {
+                              const loaded = await storage.loadBattle(row.id);
+                              if (loaded) {
+                                autoOpened.current = true;
+                                update(loaded);
+                              } else setMessage('불러올 수 없습니다 (스키마 버전 불일치).');
+                            }}
+                          >
+                            열기
+                          </button>
+                          <button
+                            type="button"
+                            className="ctl small"
+                            title="이 전투 기록을 지웁니다"
+                            onClick={() => {
+                              if (
+                                !confirmed(
+                                  `${row.operationName || '이 전투'} 기록을 삭제합니다. 로그와 제출까지 함께 지워지고 되돌릴 수 없습니다.`,
+                                )
+                              ) {
+                                return;
+                              }
+                              void guard(async () => {
+                                await storage.deleteBattle(row.id);
+                                await refresh();
+                                setMessage('전투 기록을 삭제했습니다.');
+                              });
+                            }}
+                          >
+                            삭제
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1366,28 +1620,43 @@ export default function ControlTerminal() {
                 <button
                   type="button"
                   className="ctl small"
-                  onClick={() => update(admin.setBattleStatus(battle, 'CLEARED'))}
+                  onClick={() => {
+                    if (confirmed('이 전투를 클리어로 종료합니다. 참가자는 더 이상 제출할 수 없습니다.')) {
+                      update(admin.setBattleStatus(battle, 'CLEARED'));
+                    }
+                  }}
                 >
                   종료 · 클리어
                 </button>
                 <button
                   type="button"
                   className="ctl small"
-                  onClick={() => update(admin.setBattleStatus(battle, 'FAILED'))}
+                  onClick={() => {
+                    if (confirmed('이 전투를 실패로 종료합니다. 참가자는 더 이상 제출할 수 없습니다.')) {
+                      update(admin.setBattleStatus(battle, 'FAILED'));
+                    }
+                  }}
                 >
                   종료 · 실패
                 </button>
                 <button
                   type="button"
                   className="ctl small"
-                  onClick={() => update(admin.resetAllSubmissions(battle))}
+                  title="모든 페어의 이번 라운드 제출을 지웁니다"
+                  onClick={() => {
+                    if (confirmed('모든 페어의 이번 라운드 제출을 지웁니다. 참가자가 다시 골라야 합니다.')) {
+                      update(admin.resetAllSubmissions(battle));
+                    }
+                  }}
                 >
                   제출 초기화
                 </button>
                 <button
                   type="button"
                   className="ctl small"
+                  title="전투는 서버에 남습니다. 이 화면에서만 닫습니다."
                   onClick={() => {
+                    autoOpened.current = true;
                     setBattle(null);
                     setPreview(null);
                     void refresh();
@@ -1496,6 +1765,17 @@ export default function ControlTerminal() {
                       </>
                     )}
                   </div>
+                  <Collapsible label={`공격 패턴 ${(enemy.attacks ?? []).length}개`}>
+                    <AttackEditor
+                      attacks={enemy.attacks ?? []}
+                      maxPhase={enemy.maxPhase}
+                      enemyAttack={enemy.attack}
+                      onChange={(attacks) =>
+                        update(admin.setEnemyAttacks(battle, enemy.id, attacks))
+                      }
+                    />
+                  </Collapsible>
+
                   <Collapsible label="수치 편집">
                     <div className="admin-grid">
                       <NumberField
@@ -2066,11 +2346,12 @@ export default function ControlTerminal() {
                     onClick={() => {
                       setBattle(applyRound(battle, preview));
                       setPreview(null);
-                      setTab('LOG');
-                      setLogTab('ROLEPLAY');
+                      setMessage(
+                        `ROUND ${battle.round} 결과를 확정했습니다. 연출 로그가 만들어졌고 참가자 화면이 갱신됩니다.`,
+                      );
                     }}
                   >
-                    APPLY · 결과 확정
+                    결과 확정 · APPLY
                   </button>
                   <button
                     type="button"
@@ -2206,7 +2487,12 @@ export default function ControlTerminal() {
                         <button
                           type="button"
                           className="ctl small"
-                          onClick={() => update(admin.removeLogEntry(battle, entry.id))}
+                          title="이 기록을 지웁니다"
+                          onClick={() => {
+                            if (confirmed('이 연출 기록을 지웁니다. 되돌릴 수 없습니다.')) {
+                              update(admin.removeLogEntry(battle, entry.id));
+                            }
+                          }}
                         >
                           ✕
                         </button>

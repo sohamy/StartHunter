@@ -147,6 +147,7 @@ export function ActorSheet({
   skills,
   accountId,
   concept,
+  badge,
 }: {
   side: ActorSide;
   name: string;
@@ -155,6 +156,8 @@ export function ActorSheet({
   skills: SkillRuntime[];
   accountId?: string | null;
   concept?: string;
+  /** 제목 줄에 붙일 표시 (내 캐릭터 · 소속 페어 등) */
+  badge?: ReactNode;
 }) {
   const classDef = findClass(side, classId);
 
@@ -169,6 +172,7 @@ export function ActorSheet({
           </span>
         )}
         {accountId && <span className="field-label">@{accountId}</span>}
+        {badge}
       </header>
 
       <div className="sheet-card-row">

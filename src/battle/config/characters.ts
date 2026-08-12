@@ -23,7 +23,11 @@ export interface StatDefinition {
   labelKo: string;
   /** 이 스탯이 무엇에 영향을 주는지 — UI 에 그대로 노출한다 */
   effect: string;
-  /** 실제로 계산에 반영되기 시작하는 구현 단계 */
+  /**
+   * 실제로 계산에 반영되기 시작하는 구현 단계.
+   * `CURRENT_PHASE` 이하면 이미 동작하는 것이므로 화면에 아무 표시도 하지 않는다.
+   * 그보다 크면 "미반영"으로 표시한다 — 완료된 단계 번호를 띄우면 거짓말이 된다.
+   */
   activeFrom: number;
 }
 
@@ -53,22 +57,23 @@ export const HUNTER_STATS: StatDefinition[] = [
     key: 'sen',
     label: 'SEN',
     labelKo: '관찰력',
-    effect: '기믹 파악 판정 +1 / 1점 · 약점 포착',
-    activeFrom: 3,
+    effect: '기믹 파악 판정 +1 / 1점 · 성좌 관측이 절반 더해짐',
+    activeFrom: 1,
   },
   {
     key: 'luk',
     label: 'LUK',
     labelKo: '운',
     effect: '기믹 해결 판정 +1 / 1점 · 대성공 확률',
-    activeFrom: 3,
+    activeFrom: 1,
   },
   {
     key: 'wil',
     label: 'WIL',
     labelKo: '의지',
-    effect: '상태이상 저항 · 전투 불능 저항 (PHASE 2)',
-    activeFrom: 2,
+    effect: '상태이상 저항 · 전투 불능 저항',
+    // 저항 계산이 아직 없다 — 시트에는 남기고 미반영으로 표시한다
+    activeFrom: 99,
   },
 ];
 
@@ -91,22 +96,24 @@ export const CONSTELLATION_STATS: StatDefinition[] = [
     key: 'resonance',
     label: 'RES',
     labelKo: '공명',
-    effect: '계약 안정도 회복 (PHASE 3)',
-    activeFrom: 3,
+    effect: '계약 안정도 회복',
+    // 계약 안정도 자동 회복이 아직 없다
+    activeFrom: 99,
   },
   {
     key: 'observation',
     label: 'OBS',
     labelKo: '관측',
-    effect: '계시 정확도 · 헌터의 기믹 파악 지원 (2점당 +1)',
-    activeFrom: 2,
+    effect: '헌터의 기믹 파악 지원 (2점당 +1) · 계시 정확도',
+    activeFrom: 1,
   },
   {
     key: 'manifest',
     label: 'MAN',
     labelKo: '현신',
-    effect: '현신 위력 · 반동 경감 (PHASE 3)',
-    activeFrom: 3,
+    effect: '현신 위력 · 반동 경감',
+    // 현신은 동작하지만 이 스탯이 위력에 개입하지는 않는다
+    activeFrom: 99,
   },
 ];
 
@@ -145,7 +152,7 @@ export interface ClassDefinition {
     /** 권능 효과 배율에 더해지는 값 */
     power?: number;
   };
-  /** 아직 반영되지 않은 특성 설명 */
+  /** 아직 반영되지 않은 특성 설명. 숫자 보정(bonus)은 이미 적용된다. */
   pending?: string;
 }
 
@@ -167,7 +174,7 @@ export const HUNTER_CLASSES: ClassDefinition[] = [
     description: '피해를 자기 쪽으로 끌어와 페어와 다른 공략조를 지킨다.',
     focus: ['vit', 'agi'],
     bonus: { attack: -1, maxHp: 25, defense: 3 },
-    pending: '보호 행동 보정 — PHASE 3',
+    pending: '보호 행동 보정 미반영',
   },
   {
     id: 'ranger',
@@ -177,7 +184,7 @@ export const HUNTER_CLASSES: ClassDefinition[] = [
     description: '거리를 유지하며 약점을 노린다. 맞으면 크게 아프다.',
     focus: ['sen', 'agi'],
     bonus: { attack: 2, maxHp: -5, defense: -1 },
-    pending: '약점 공격 판정 — PHASE 3',
+    pending: '약점 공격 판정 미반영',
   },
   {
     id: 'caster',
@@ -187,7 +194,7 @@ export const HUNTER_CLASSES: ClassDefinition[] = [
     description: '성좌의 권능을 몸으로 받아 그대로 쏟아낸다. 행동력이 넉넉하다.',
     focus: ['wil', 'str'],
     bonus: { attack: 1, maxAp: 1 },
-    pending: '권능 증폭 — PHASE 2',
+    pending: '권능 증폭 미반영',
   },
   {
     id: 'medic',
@@ -197,7 +204,7 @@ export const HUNTER_CLASSES: ClassDefinition[] = [
     description: '쓰러진 헌터를 끌어내고 응급 처치를 담당한다.',
     focus: ['wil', 'vit'],
     bonus: { maxHp: 12, defense: 1 },
-    pending: '구조 · 치료 보정 — PHASE 3',
+    pending: '구조 · 치료 보정 미반영',
   },
 ];
 
@@ -219,7 +226,7 @@ export const CONSTELLATION_CLASSES: ClassDefinition[] = [
     description: '성벽과 맹세의 이름을 가진 성좌. 헌터를 지키는 데 특화되어 있다.',
     focus: ['resonance', 'authority'],
     bonus: { power: 0.05, maxAp: 1 },
-    pending: '피해 감소 강화 — PHASE 2',
+    pending: '피해 감소 강화 미반영',
   },
   {
     id: 'omen',
@@ -229,7 +236,7 @@ export const CONSTELLATION_CLASSES: ClassDefinition[] = [
     description: '앞을 내다보는 성좌. 계시가 정확하고 멀리 닿는다.',
     focus: ['observation', 'divinity'],
     bonus: { maxAp: 1 },
-    pending: '계시 범위 확장 — PHASE 2',
+    pending: '계시 범위 확장 미반영',
   },
   {
     id: 'calamity',
@@ -239,7 +246,7 @@ export const CONSTELLATION_CLASSES: ClassDefinition[] = [
     description: '역병과 기근의 이름을 가진 성좌. 적을 무너뜨리는 데 능하다.',
     focus: ['authority', 'observation'],
     bonus: { power: 0.15 },
-    pending: '상태이상 부여 강화 — PHASE 2',
+    pending: '상태이상 부여 강화 미반영',
   },
   {
     id: 'grace',
@@ -249,7 +256,7 @@ export const CONSTELLATION_CLASSES: ClassDefinition[] = [
     description: '치유와 자비의 이름을 가진 성좌. 헌터를 살려 돌려보낸다.',
     focus: ['resonance', 'divinity'],
     bonus: { maxAp: 1 },
-    pending: '치유 · 구조 보정 — PHASE 3',
+    pending: '치유 · 구조 보정 미반영',
   },
 ];
 

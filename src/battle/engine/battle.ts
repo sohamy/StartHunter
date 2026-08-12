@@ -184,6 +184,7 @@ export function enemyFromTemplate(template: EnemyTemplate, index = 0): EnemyStat
     phase: 1,
     maxPhase: template.maxPhase,
     statuses: [],
+    attacks: template.attacks ?? [],
     nextPattern: 'UNKNOWN',
     boss: template.boss,
     patternSetId: template.patternSetId,
@@ -202,6 +203,7 @@ export function templateFromEnemy(enemy: EnemyState): EnemyTemplate {
     defense: enemy.defense,
     maxPhase: enemy.maxPhase,
     patternSetId: enemy.patternSetId,
+    attacks: enemy.attacks ?? [],
     boss: enemy.boss,
   };
 }

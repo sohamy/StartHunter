@@ -260,6 +260,20 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     return account;
   }
 
+  /**
+   * 시트 삭제 — 운영진 전용 (RLS: 본인 또는 운영진).
+   * 계정 자체는 남는다. 계정 삭제는 서버 권한이 필요해 대시보드에서 처리한다.
+   */
+  async deleteSheet(sheetId: string): Promise<void> {
+    const { error } = await requireSupabase().from('sheets').delete().eq('id', sheetId);
+    if (error) {
+      throw new AuthError(
+        'UNAVAILABLE',
+        `시트를 삭제할 수 없습니다: ${error.message} — 0005 마이그레이션(삭제 정책)을 적용했는지 확인하세요.`,
+      );
+    }
+  }
+
   async deleteAccount(): Promise<void> {
     // 계정 삭제는 서버 권한이 필요하다 — 운영진이 대시보드에서 처리한다.
     throw new AuthError('UNAVAILABLE', '계정 삭제는 운영진에게 요청해 주세요.');

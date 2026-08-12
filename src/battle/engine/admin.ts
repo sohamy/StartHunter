@@ -19,6 +19,7 @@ import type {
   CharacterSheet,
   ConstellationStage,
   ContractStage,
+  CustomAttack,
   PairState,
   SkillRuntime,
   StatusHolder,
@@ -282,6 +283,19 @@ export function setEnemyHp(state: BattleState, enemyId: string, hp: number): Bat
     ),
   };
   return note(next, `적 HP 변경 — ${enemyId} → ${hp}`);
+}
+
+/** 전투 중 공격 패턴 교체 — 다음 라운드 선택부터 반영된다 */
+export function setEnemyAttacks(
+  state: BattleState,
+  enemyId: string,
+  attacks: CustomAttack[],
+): BattleState {
+  const next = {
+    ...state,
+    enemies: state.enemies.map((enemy) => (enemy.id === enemyId ? { ...enemy, attacks } : enemy)),
+  };
+  return note(next, `적 공격 패턴 변경 — ${enemyId}`, `${attacks.length}개`);
 }
 
 export function setEnemyStats(

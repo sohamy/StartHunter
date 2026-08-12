@@ -71,5 +71,7 @@ export interface AuthAdapter {
    */
   listSheets(): Promise<SheetRecord[]>;
   updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account>;
+  /** 운영진용 — 참가자 시트를 지운다. 편성 기록(PairBond)은 남는다. */
+  deleteSheet(sheetId: string): Promise<void>;
   deleteAccount(accountId: string): Promise<void>;
 }

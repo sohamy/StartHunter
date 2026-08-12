@@ -92,7 +92,7 @@ export function actionAvailability(
   hasTarget: boolean,
 ): Availability {
   if (action.implementedIn > CURRENT_PHASE) {
-    return { usable: false, reason: `PHASE ${action.implementedIn} 구현 예정` };
+    return { usable: false, reason: '아직 구현되지 않은 행동' };
   }
 
   const actor = action.side === 'HUNTER' ? pair.hunter : pair.constellation;

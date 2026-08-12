@@ -1,0 +1,315 @@
+/**
+ * 적 공격 패턴 편집 — 운영진 전용.
+ *
+ * 공격을 하나하나 만들어 페이즈에 붙인다. 라운드가 지나면 그 페이즈의 목록을
+ * 순서대로 돌린다. 커스텀 공격이 하나라도 있으면 프리셋 패턴 세트는 쓰지 않는다.
+ *
+ * 여기서 만든 값은 `engine/enemy.ts` 가 패턴 정의로 바꿔 쓰므로,
+ * 라운드 처리 쪽은 프리셋과 커스텀을 구분하지 않는다.
+ */
+
+import { STATUS_DEFINITIONS } from '../config/status';
+import { newUuid } from '../engine/id';
+import type { CustomAttack } from '../types';
+
+/** 새 공격의 시작값 — 바로 쓸 수 있는 단일 공격 */
+export function blankAttack(order: number): CustomAttack {
+  return {
+    id: newUuid(),
+    name: `공격 ${order + 1}`,
+    description: '',
+    powerRatio: 1,
+    aoe: false,
+    applyStatusIds: [],
+    selfStatusIds: [],
+    revealed: true,
+    telegraphRounds: 0,
+    telegraphMessage: '',
+    phases: [],
+  };
+}
+
+function NumberInput({
+  label,
+  value,
+  onChange,
+  min = 0,
+  max,
+  step = 1,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (next: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  hint?: string;
+}) {
+  return (
+    <label className="num-field">
+      <span className="field-label">{label}</span>
+      <input
+        className="ctl input tiny"
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => {
+          const parsed = Number(event.target.value);
+          if (!Number.isNaN(parsed)) onChange(parsed);
+        }}
+      />
+      {hint && <small className="dim">{hint}</small>}
+    </label>
+  );
+}
+
+export default function AttackEditor({
+  attacks,
+  maxPhase,
+  enemyAttack,
+  onChange,
+}: {
+  attacks: CustomAttack[];
+  /** 페이즈 선택 범위 */
+  maxPhase: number;
+  /** 계수 안내에 쓰는 적 공격력 */
+  enemyAttack: number;
+  onChange: (next: CustomAttack[]) => void;
+}) {
+  const patch = (index: number, next: Partial<CustomAttack>) => {
+    onChange(attacks.map((attack, i) => (i === index ? { ...attack, ...next } : attack)));
+  };
+
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= attacks.length) return;
+    const next = [...attacks];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  };
+
+  const toggleStatus = (index: number, field: 'applyStatusIds' | 'selfStatusIds', defId: string) => {
+    const current = attacks[index][field];
+    patch(index, {
+      [field]: current.includes(defId)
+        ? current.filter((id) => id !== defId)
+        : [...current, defId],
+    });
+  };
+
+  const togglePhase = (index: number, phase: number) => {
+    const current = attacks[index].phases;
+    patch(index, {
+      phases: current.includes(phase)
+        ? current.filter((row) => row !== phase)
+        : [...current, phase].sort((a, b) => a - b),
+    });
+  };
+
+  /** 페이즈별로 몇 개가 걸려 있는지 — 빈 페이즈를 바로 알 수 있다 */
+  const perPhase = Array.from({ length: Math.max(1, maxPhase) }, (_, i) => {
+    const phase = i + 1;
+    return {
+      phase,
+      count: attacks.filter((attack) => attack.phases.length === 0 || attack.phases.includes(phase))
+        .length,
+    };
+  });
+
+  return (
+    <div className="attack-editor">
+      <div className="attack-summary">
+        {perPhase.map((row) => (
+          <span key={row.phase} className={`tag ${row.count === 0 ? 'critical' : 'ok'}`}>
+            PHASE {row.phase} · {row.count}개
+          </span>
+        ))}
+        <span className="hint">
+          해당 페이즈의 공격을 라운드마다 순서대로 씁니다. 0개면 그 페이즈에서 아무것도 하지
+          않습니다.
+        </span>
+      </div>
+
+      {attacks.length === 0 && (
+        <p className="hint">
+          만든 공격이 없습니다 — 아래 프리셋 패턴 세트를 그대로 씁니다. 공격을 하나라도 만들면
+          이 목록만 사용합니다.
+        </p>
+      )}
+
+      {attacks.map((attack, index) => (
+        <article className="attack-card" key={attack.id}>
+          <header className="attack-head">
+            <span className="field-label">{index + 1}</span>
+            <input
+              className="ctl input"
+              value={attack.name}
+              maxLength={24}
+              placeholder="공격 이름"
+              onChange={(event) => patch(index, { name: event.target.value })}
+            />
+            <div className="btn-row">
+              <button
+                type="button"
+                className="ctl small"
+                disabled={index === 0}
+                title="위로"
+                onClick={() => move(index, -1)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="ctl small"
+                disabled={index === attacks.length - 1}
+                title="아래로"
+                onClick={() => move(index, 1)}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="ctl small"
+                title="이 공격을 지웁니다"
+                onClick={() => onChange(attacks.filter((_, i) => i !== index))}
+              >
+                ✕
+              </button>
+            </div>
+          </header>
+
+          <label className="input-row">
+            <span className="field-label">연출 문구</span>
+            <input
+              className="ctl input"
+              value={attack.description}
+              maxLength={160}
+              placeholder="예: 꼬리를 휘둘러 전열을 쓸어낸다"
+              onChange={(event) => patch(index, { description: event.target.value })}
+            />
+          </label>
+
+          <div className="attack-row">
+            <NumberInput
+              label="피해 계수"
+              value={attack.powerRatio}
+              step={0.1}
+              max={5}
+              onChange={(value) => patch(index, { powerRatio: Math.max(0, value) })}
+              hint={`공격력 ${enemyAttack} × ${attack.powerRatio} ≈ ${Math.round(
+                enemyAttack * attack.powerRatio,
+              )}`}
+            />
+            <label className="num-field">
+              <span className="field-label">범위</span>
+              <select
+                className="ctl input"
+                value={attack.aoe ? 'AOE' : 'SINGLE'}
+                onChange={(event) => patch(index, { aoe: event.target.value === 'AOE' })}
+              >
+                <option value="SINGLE">단일 — 한 페어</option>
+                <option value="AOE">광역 — 모든 페어</option>
+              </select>
+            </label>
+            <NumberInput
+              label="예고 라운드"
+              value={attack.telegraphRounds}
+              max={3}
+              onChange={(value) => patch(index, { telegraphRounds: Math.max(0, value) })}
+              hint={attack.telegraphRounds > 0 ? '예고 후 발동' : '즉시 발동'}
+            />
+            <label className="num-field">
+              <span className="field-label">이름 공개</span>
+              <select
+                className="ctl input"
+                value={attack.revealed ? 'YES' : 'NO'}
+                onChange={(event) => patch(index, { revealed: event.target.value === 'YES' })}
+              >
+                <option value="YES">공개 — 참가자가 다음 공격을 안다</option>
+                <option value="NO">비공개 — UNKNOWN 으로 보인다</option>
+              </select>
+            </label>
+          </div>
+
+          {attack.telegraphRounds > 0 && (
+            <label className="input-row">
+              <span className="field-label">예고 문구</span>
+              <input
+                className="ctl input"
+                value={attack.telegraphMessage}
+                maxLength={160}
+                placeholder="예: 탑이 울린다 — 다음 라운드 광역 공격"
+                onChange={(event) => patch(index, { telegraphMessage: event.target.value })}
+              />
+            </label>
+          )}
+
+          <div className="input-row">
+            <span className="field-label">사용 페이즈 (선택하지 않으면 전체)</span>
+            <div className="btn-row">
+              {Array.from({ length: Math.max(1, maxPhase) }, (_, i) => i + 1).map((phase) => (
+                <button
+                  key={phase}
+                  type="button"
+                  className={`ctl small ${attack.phases.includes(phase) ? 'on' : ''}`}
+                  onClick={() => togglePhase(index, phase)}
+                >
+                  PHASE {phase}
+                </button>
+              ))}
+              {attack.phases.length === 0 && <span className="hint">모든 페이즈에서 사용</span>}
+            </div>
+          </div>
+
+          <div className="input-row">
+            <span className="field-label">맞은 쪽에 부여</span>
+            <div className="status-picker">
+              {STATUS_DEFINITIONS.filter((def) => def.appliesTo !== 'ENEMY').map((def) => (
+                <button
+                  key={def.id}
+                  type="button"
+                  className={`chip-btn ${attack.applyStatusIds.includes(def.id) ? 'on' : ''}`}
+                  title={`${def.description} · ${def.duration}R`}
+                  onClick={() => toggleStatus(index, 'applyStatusIds', def.id)}
+                >
+                  {def.label}
+                  <small>{def.labelKo}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="input-row">
+            <span className="field-label">자신에게 부여</span>
+            <div className="status-picker">
+              {STATUS_DEFINITIONS.filter((def) => def.appliesTo === 'ENEMY').map((def) => (
+                <button
+                  key={def.id}
+                  type="button"
+                  className={`chip-btn ${attack.selfStatusIds.includes(def.id) ? 'on' : ''}`}
+                  title={`${def.description} · ${def.duration}R`}
+                  onClick={() => toggleStatus(index, 'selfStatusIds', def.id)}
+                >
+                  {def.label}
+                  <small>{def.labelKo}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        </article>
+      ))}
+
+      <button
+        type="button"
+        className="ctl wide"
+        onClick={() => onChange([...attacks, blankAttack(attacks.length)])}
+      >
+        + 공격 추가
+        <small>{attacks.length}개</small>
+      </button>
+    </div>
+  );
+}
