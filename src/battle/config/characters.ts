@@ -52,8 +52,15 @@ export const HUNTER_STATS: StatDefinition[] = [
   {
     key: 'sen',
     label: 'SEN',
-    labelKo: '감각',
-    effect: '기믹 판정 · 약점 포착 (PHASE 3)',
+    labelKo: '관찰력',
+    effect: '기믹 파악 판정 +1 / 1점 · 약점 포착',
+    activeFrom: 3,
+  },
+  {
+    key: 'luk',
+    label: 'LUK',
+    labelKo: '운',
+    effect: '기믹 해결 판정 +1 / 1점 · 대성공 확률',
     activeFrom: 3,
   },
   {
@@ -91,7 +98,7 @@ export const CONSTELLATION_STATS: StatDefinition[] = [
     key: 'observation',
     label: 'OBS',
     labelKo: '관측',
-    effect: '계시 정확도 · 패턴 공개 범위 (PHASE 2)',
+    effect: '계시 정확도 · 헌터의 기믹 파악 지원 (2점당 +1)',
     activeFrom: 2,
   },
   {

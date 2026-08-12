@@ -7,6 +7,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { formatDice, rollDice } from '../engine/dice';
+import { newUuid } from '../engine/id';
 import { getStorage, getServerStorage } from '../store';
 import type { ActorSide, ChatKind, ChatMessage } from '../types';
 
@@ -18,10 +20,22 @@ export interface ChatAuthor {
 }
 
 const KIND_LABEL: Record<ChatKind, string> = {
-  TALK: '대화',
+  /** 대사와 행동은 한 글에 함께 쓴다 — 말머리를 나누지 않는다 */
+  TALK: '대사 · 행동',
+  /** 예전 글에만 남아 있는 말머리 */
   ACTION: '행동',
   OOC: '잡담',
+  ROLL: '판정',
 };
+
+/**
+ * 입력용 말머리.
+ * 대사와 행동은 하나로 묶었고, 진행 외 잡담만 따로 둔다.
+ * 판정은 슬래시 명령이나 다이스 버튼으로 만든다.
+ */
+const INPUT_KINDS: ChatKind[] = ['TALK', 'OOC'];
+
+const ROLL_COMMAND = /^\/(?:roll|r)\s+(.+)$/i;
 
 function clock(iso: string): string {
   const date = new Date(iso);
@@ -81,17 +95,33 @@ export default function ChatPanel({
     const body = draft.trim();
     if (!body || !author) return;
 
+    // /roll 2d6+3 또는 /r d20 → 판정 메시지
+    const command = ROLL_COMMAND.exec(body);
+    const rolled = command ? rollDice(command[1]) : null;
+    if (command && !rolled) {
+      setError('다이스 표기를 이해할 수 없습니다. 예: /roll 2d6+3, /r d20');
+      return;
+    }
+
     setSending(true);
     try {
       await storage.postMessage({
-        id: `MSG-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`,
+        id: newUuid(),
         channel,
         authorId: author.id,
         authorName: author.name,
         role: author.role,
         side: author.side,
-        kind,
-        body,
+        kind: rolled ? 'ROLL' : kind,
+        body: rolled ? formatDice(rolled) : body,
+        dice: rolled
+          ? {
+              expression: rolled.expression,
+              rolls: rolled.rolls,
+              modifier: rolled.modifier,
+              total: rolled.total,
+            }
+          : null,
         at: new Date().toISOString(),
       });
       setDraft('');
@@ -160,10 +190,34 @@ export default function ChatPanel({
               <b>{message.authorName}</b>
             </span>
             <span className="chat-body">
-              {message.kind !== 'TALK' && (
-                <span className="chat-kind">[{KIND_LABEL[message.kind]}]</span>
+              {message.kind === 'ROLL' && message.dice ? (
+                <span className="dice-result">
+                  <span className="dice-icon" aria-hidden="true">
+                    🎲
+                  </span>
+                  <b className="dice-expr">{message.dice.expression}</b>
+                  <span className="dice-rolls">[{message.dice.rolls.join(', ')}]</span>
+                  {message.dice.modifier !== 0 && (
+                    <span className="dice-mod">
+                      {message.dice.modifier > 0 ? `+${message.dice.modifier}` : message.dice.modifier}
+                    </span>
+                  )}
+                  <b className="dice-total">= {message.dice.total}</b>
+                  {message.dice.dc !== undefined && (
+                    <span className={`tag ${message.dice.success ? 'ok' : 'critical'}`}>
+                      목표 {message.dice.dc} · {message.dice.success ? '성공' : '실패'}
+                    </span>
+                  )}
+                  {message.dice.label && <span className="dim">{message.dice.label}</span>}
+                </span>
+              ) : (
+                <>
+                  {message.kind !== 'TALK' && (
+                    <span className="chat-kind">[{KIND_LABEL[message.kind]}]</span>
+                  )}
+                  {message.body}
+                </>
               )}
-              {message.body}
             </span>
             {author && (message.authorId === author.id || author.role === 'OPERATOR') && (
               <button
@@ -182,7 +236,7 @@ export default function ChatPanel({
       {author ? (
         <div className="chat-input">
           <div className="btn-row">
-            {(['TALK', 'ACTION', 'OOC'] as ChatKind[]).map((value) => (
+            {INPUT_KINDS.map((value) => (
               <button
                 key={value}
                 type="button"
@@ -192,8 +246,16 @@ export default function ChatPanel({
                 {KIND_LABEL[value]}
               </button>
             ))}
+            <button
+              type="button"
+              className="ctl small"
+              onClick={() => setDraft((current) => (current.startsWith('/roll') ? current : '/roll 1d20'))}
+              title="/roll 2d6+3 처럼 입력해도 됩니다"
+            >
+              🎲 다이스
+            </button>
             <span className="hint">
-              {author.role === 'OPERATOR' ? '관리국' : author.name} 으로 발언
+              {author.role === 'OPERATOR' ? '관리국' : author.name} 으로 발언 · /roll 2d6+3
             </span>
           </div>
           <div className="chat-send">
@@ -203,11 +265,9 @@ export default function ChatPanel({
               value={draft}
               maxLength={2000}
               placeholder={
-                kind === 'ACTION'
-                  ? '행동 서술 — 예: 검을 뽑아 앞으로 나선다'
-                  : kind === 'OOC'
-                    ? '진행 외 잡담'
-                    : '대사를 입력하세요 (Enter 전송 · Shift+Enter 줄바꿈)'
+                kind === 'OOC'
+                  ? '진행 외 잡담'
+                  : '대사와 행동을 함께 적으세요 — 예: "물러서." 검을 뽑아 앞으로 나선다 (Enter 전송 · Shift+Enter 줄바꿈)'
               }
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {

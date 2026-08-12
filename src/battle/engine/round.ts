@@ -10,7 +10,7 @@
  * 이 사이에 운영진 수정 단계(Phase 5)를 끼워 넣을 수 있어야 하므로 둘을 분리해 둔다.
  */
 
-import { GIMMICK_RULES, findGimmick } from '../config/gimmicks';
+import { findGimmick } from '../config/gimmicks';
 import { findPattern, type PatternDefinition } from '../config/patterns';
 import {
   AP_RULES,
@@ -27,6 +27,8 @@ import type {
   BattleState,
   EnemyActionPreview,
   EnemyState,
+  GimmickCheck,
+  GimmickStage,
   GimmickState,
   LogEntry,
   PairPreview,
@@ -41,6 +43,7 @@ import { clearSubmissions, resolveTarget } from './battle';
 import { detectCombo } from './combo';
 import { enemyAttackDamage, hunterAttackDamage } from './damage';
 import { evaluatePhase, nextPatternLabel, selectPattern } from './enemy';
+import { declarationValid, progressFrom } from './gimmick';
 import { appendLog, createLogEntry } from './log';
 import { buildRoleplayText } from './roleplay';
 import {
@@ -278,6 +281,9 @@ function previewPair(state: BattleState, pair: PairState): PairPreview {
     combo: null,
     rescue: null,
     gimmickProgress: 0,
+    gimmickNote: null,
+    gimmickCheck: null,
+    gimmickIdentified: false,
     autoFilled: [],
     targetEnemyId: enemy?.id ?? null,
     apSpent: { hunter: 0, constellation: 0 },
@@ -426,11 +432,33 @@ function previewPair(state: BattleState, pair: PairState): PairPreview {
     }
   }
 
-  // 4) 기믹 수행
+  // 4) 기믹 — 파악(INSIGHT) → 해결(RESOLVE)
+  //    선언 없는 시도는 인정하지 않고, 판정은 확정 시점에 굴린 값을 쓴다.
   let gimmickProgress = 0;
+  let gimmickIdentified = false;
+  const gimmickCheck = pair.submission.gimmickCheck;
+  const gimmickNote = pair.submission.gimmickNote;
+
   if (hunterResolved.action.kind === 'GIMMICK' && state.gimmick?.status === 'ACTIVE') {
-    gimmickProgress = GIMMICK_RULES.progressPerAction + (combo?.effect.gimmickBonus ?? 0);
-    notes.push(`기믹 진행 +${gimmickProgress}`);
+    if (!declarationValid(gimmickNote)) {
+      notes.push('기믹 선언 없음 — 진행으로 인정되지 않습니다');
+    } else if (!gimmickCheck) {
+      notes.push('기믹 판정 기록 없음 — 관리국 수동 판정 필요');
+    } else if (gimmickCheck.stage === 'INSIGHT') {
+      gimmickIdentified = gimmickCheck.success;
+      notes.push(
+        `기믹 파악 판정 ${gimmickCheck.total} vs ${gimmickCheck.dc} — ${
+          gimmickCheck.success ? '성공' : '실패'
+        }`,
+      );
+    } else {
+      gimmickProgress = progressFrom(gimmickCheck) + (combo?.effect.gimmickBonus ?? 0);
+      notes.push(
+        `기믹 해결 판정 ${gimmickCheck.total} vs ${gimmickCheck.dc} — ${
+          gimmickCheck.critical ? '대성공' : gimmickCheck.success ? '성공' : '실패'
+        } (진행 +${gimmickProgress})`,
+      );
+    }
   }
 
   // 사용한 커스텀 스킬 기록
@@ -453,6 +481,9 @@ function previewPair(state: BattleState, pair: PairState): PairPreview {
     combo: combo?.view ?? null,
     rescue,
     gimmickProgress,
+    gimmickNote,
+    gimmickCheck,
+    gimmickIdentified,
     autoFilled,
     apSpent: {
       hunter: hunterResolved.action.apCost,
@@ -779,6 +810,15 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
     if (row.autoFilled.length > 0) {
       log(`${pair.label} AUTO CONTROL ENGAGED`, row.autoFilled.join(' / '), pair.id);
     }
+    if (row.gimmickNote) {
+      log(
+        `${pair.label} GIMMICK ${row.gimmickCheck?.stage === 'INSIGHT' ? 'INSIGHT' : 'RESOLVE'}`,
+        row.gimmickCheck
+          ? `${row.gimmickNote} / 판정 ${row.gimmickCheck.total} vs ${row.gimmickCheck.dc}`
+          : row.gimmickNote,
+        pair.id,
+      );
+    }
     if (row.combo) {
       log(
         `${pair.label} PAIR COMBINATION — ${row.combo.label}`,
@@ -1048,6 +1088,28 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
 
   /* 6) 기믹 정산 */
   let gimmick: GimmickState | null = state.gimmick;
+
+  // 파악에 성공한 페어가 있으면 장치 정보가 공략조 전체에 공유된다
+  if (gimmick && gimmick.status === 'ACTIVE') {
+    const identifiers = preview.pairs.filter((row) => row.gimmickIdentified);
+    if (identifiers.length > 0 && !gimmick.identified) {
+      gimmick = {
+        ...gimmick,
+        identified: true,
+        identifiedBy: [...gimmick.identifiedBy, ...identifiers.map((row) => row.pairLabel)],
+      };
+      alert(
+        'WARNING',
+        'GIMMICK IDENTIFIED',
+        `${identifiers.map((row) => row.pairLabel).join(', ')} — ${findGimmick(gimmick.defId)?.insightReveal ?? '장치를 파악했습니다.'}`,
+      );
+    } else if (identifiers.length > 0) {
+      for (const row of identifiers) {
+        log(`GIMMICK INSIGHT — ${row.pairLabel} (이미 파악됨)`, undefined, row.pairId);
+      }
+    }
+  }
+
   if (gimmick && gimmick.status === 'ACTIVE') {
     const gained = preview.pairs.reduce((sum, row) => sum + row.gimmickProgress, 0);
     const progress = gimmick.progress + gained;
@@ -1191,6 +1253,9 @@ export function submitPairAction(
     constellationActionId?: string | null;
     targetEnemyId?: string | null;
     supportTargetPairId?: string | null;
+    gimmickNote?: string | null;
+    gimmickStage?: GimmickStage | null;
+    gimmickCheck?: GimmickCheck | null;
     hunterSubmitted?: boolean;
     constellationSubmitted?: boolean;
   },

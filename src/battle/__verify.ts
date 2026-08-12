@@ -10,7 +10,9 @@ import {
   validateSheet,
 } from './engine/character';
 import { previewCombo } from './engine/combo';
+import { formatDice, parseDice, rollDice } from './engine/dice';
 import { evaluatePhase, selectPattern } from './engine/enemy';
+import { declarationValid, planCheck } from './engine/gimmick';
 import { applyRound, previewRound, setControlMode, submitPairAction } from './engine/round';
 import { skillToAction, toRuntime } from './engine/skills';
 import { aggregateModifiers, applyStatus, injuryOf, tickStatuses } from './engine/status';
@@ -231,21 +233,90 @@ check(
 );
 check('구조 경보 발생', rescue.alerts.some((a) => a.title === 'HUNTER RECOVERED'));
 
-/* ── 8. 기믹 ────────────────────────────────────────── */
-console.log('\n=== 8. 기믹 ===');
+/* ── 8. 기믹 — 파악 → 해결 ──────────────────────────── */
+console.log('\n=== 8. 기믹 (파악 → 해결) ===');
 let gimmick = createBattle({ mode: 'RAID', pairCount: 4 });
 check('기본 기믹 배치', gimmick.gimmick?.defId === 'gimmick.seal', gimmick.gimmick?.label ?? 'none');
-for (const pair of gimmick.pairs) {
+check('처음에는 미파악', gimmick.gimmick?.identified === false);
+
+// 판정 보정이 관찰력 · 운 · 성좌 관측에서 나오는지
+const insightPlan = planCheck(
+  'INSIGHT',
+  gimmick.gimmick!,
+  gimmick.pairs[2].hunter.stats,
+  gimmick.pairs[2].constellation.stats,
+);
+check('파악 보정 = 관찰력 + 관측/2', insightPlan.bonus > 0, `+${insightPlan.bonus} (${insightPlan.breakdown.join(' / ')})`);
+check('파악 목표치', insightPlan.dc === 12, `DC ${insightPlan.dc}`);
+
+const resolvePlan = planCheck(
+  'RESOLVE',
+  gimmick.gimmick!,
+  gimmick.pairs[0].hunter.stats,
+  gimmick.pairs[0].constellation.stats,
+);
+check('해결 보정 = 운 + 관찰력/2', resolvePlan.bonus > 0, `+${resolvePlan.bonus} (${resolvePlan.breakdown.join(' / ')})`);
+
+// 선언 없이 시도하면 진행되지 않는다
+gimmick = submitPairAction(gimmick, gimmick.pairs[0].id, {
+  hunterActionId: 'hunter.gimmick',
+  constellationActionId: 'const.wait',
+  hunterSubmitted: true,
+  constellationSubmitted: true,
+});
+check('선언 없는 기믹은 진행 0', previewRound(gimmick).pairs[0].gimmickProgress === 0);
+check('선언 검증', declarationValid('짧다') === false && declarationValid('문양의 홈을 훑는다') === true);
+
+// 파악 성공
+const insightCheck = {
+  stage: 'INSIGHT' as const,
+  expression: '1d20',
+  rolls: [18],
+  bonus: insightPlan.bonus,
+  breakdown: insightPlan.breakdown,
+  total: 18 + insightPlan.bonus,
+  dc: insightPlan.dc,
+  success: true,
+  critical: false,
+};
+gimmick = submitPairAction(gimmick, gimmick.pairs[0].id, {
+  gimmickNote: '문양의 홈을 따라 반복되는 배열을 찾는다',
+  gimmickStage: 'INSIGHT',
+  gimmickCheck: insightCheck,
+});
+const insightPreview = previewRound(gimmick);
+check('파악 판정 성립', insightPreview.pairs[0].gimmickIdentified === true);
+check('파악은 진행량을 주지 않음', insightPreview.pairs[0].gimmickProgress === 0);
+gimmick = applyRound(gimmick, insightPreview);
+check('파악 결과가 공유됨', gimmick.gimmick?.identified === true, gimmick.gimmick?.identifiedBy.join(','));
+check('파악 경보', gimmick.alerts.some((a) => a.title === 'GIMMICK IDENTIFIED'));
+
+// 해결 — 3회 필요하므로 페어 3조가 성공시킨다
+for (const pair of gimmick.pairs.slice(0, 3)) {
+  const plan = planCheck('RESOLVE', gimmick.gimmick!, pair.hunter.stats, pair.constellation.stats);
   gimmick = submitPairAction(gimmick, pair.id, {
     hunterActionId: 'hunter.gimmick',
     constellationActionId: 'const.wait',
+    gimmickNote: '파악한 순서대로 고정점을 끊어낸다',
+    gimmickStage: 'RESOLVE',
+    gimmickCheck: {
+      stage: 'RESOLVE',
+      expression: '1d20',
+      rolls: [15],
+      bonus: plan.bonus,
+      breakdown: plan.breakdown,
+      total: 15 + plan.bonus,
+      dc: plan.dc,
+      success: true,
+      critical: false,
+    },
     hunterSubmitted: true,
-  constellationSubmitted: true,
+    constellationSubmitted: true,
   });
 }
-const gimmickPreview = previewRound(gimmick);
-check('기믹 진행 예상', gimmickPreview.gimmick?.willClear === true, `${gimmickPreview.gimmick?.progress}/${gimmickPreview.gimmick?.required}`);
-gimmick = applyRound(gimmick, gimmickPreview);
+const resolvePreview = previewRound(gimmick);
+check('해결 성공 시 진행량', resolvePreview.gimmick?.willClear === true, `${resolvePreview.gimmick?.progress}/${resolvePreview.gimmick?.required}`);
+gimmick = applyRound(gimmick, resolvePreview);
 check('기믹 해제', gimmick.gimmick?.status === 'CLEARED', gimmick.gimmick?.status ?? '');
 check(
   '해제 효과로 적 상태이상',
@@ -253,6 +324,19 @@ check(
   gimmick.enemies[0].statuses.map((s) => s.defId).join(','),
 );
 check('기믹 경보', gimmick.alerts.some((a) => a.title === 'GIMMICK CLEARED'));
+
+// 다이스
+console.log('\n=== 8-2. 다이스 ===');
+check('표기 해석', JSON.stringify(parseDice('2d6+3')) === '{"count":2,"sides":6,"modifier":3}');
+check('생략 표기', parseDice('d20')?.count === 1);
+check('잘못된 표기 거부', parseDice('2x6') === null && parseDice('99d6') === null);
+const rolled = rollDice('3d6+2');
+check(
+  '굴림 범위',
+  rolled !== null && rolled.rolls.length === 3 && rolled.rolls.every((v) => v >= 1 && v <= 6),
+  rolled ? formatDice(rolled) : 'null',
+);
+check('합계 = 눈 + 보정', rolled !== null && rolled.total === rolled.rolls.reduce((a, b) => a + b, 0) + 2);
 
 /* ── 9. 현신 ────────────────────────────────────────── */
 console.log('\n=== 9. 현신 ===');

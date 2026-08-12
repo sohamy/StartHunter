@@ -125,6 +125,8 @@ export function createGimmick(defId: string | null): GimmickState | null {
     progress: 0,
     roundsLeft: def.roundLimit,
     status: 'ACTIVE',
+    identified: false,
+    identifiedBy: [],
   };
 }
 

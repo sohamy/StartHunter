@@ -3,6 +3,7 @@
  *
  * 작업 단위로 화면을 나눈다.
  *   ROSTER     영구 편성 — 페어는 한 번 맺으면 유지된다
+ *   SHEET      참가자 시트 — 스탯 · 스킬 · 컨셉 전문 열람
  *   ENCOUNTER  적 세팅 — 층에 배치할 적을 만들어 둔다
  *   OPERATION  전투 — 참가 페어와 적을 골라 시작하고, 라운드를 처리한다
  *   LOG        시스템 · 연출 로그
@@ -28,12 +29,22 @@ import { nextPatternAdmin } from '../engine/enemy';
 import { newUuid } from '../engine/id';
 import { applyRound, previewRound } from '../engine/round';
 import { injuryOf, statusViews } from '../engine/status';
-import { AuthError, getAuth, getServerAuth, getStorage, isServerMode, type PublicProfile } from '../store';
+import {
+  AuthError,
+  getAuth,
+  getServerAuth,
+  getStorage,
+  isServerMode,
+  type PublicProfile,
+  type SheetRecord,
+} from '../store';
 import ChatPanel from './ChatPanel';
+import { ActorSheet, SheetDetail, sideLabel } from './SheetView';
 import type {
   ActorSide,
   BattleState,
   BattleSummary,
+  CharacterSheet,
   ConstellationStage,
   ContractStage,
   EnemyState,
@@ -44,8 +55,9 @@ import type {
   StatusHolder,
 } from '../types';
 
-type Tab = 'ROSTER' | 'ENCOUNTER' | 'OPERATION' | 'LOG';
+type Tab = 'ROSTER' | 'SHEET' | 'ENCOUNTER' | 'OPERATION' | 'LOG';
 type PairFilter = 'ALL' | 'GOVERNMENT' | 'GUILD' | 'INJURED' | 'DOWN' | 'NOT_SUBMITTED';
+type SheetFilter = 'ALL' | 'HUNTER' | 'CONSTELLATION' | 'UNPAIRED';
 type LogTab = 'SYSTEM' | 'ROLEPLAY';
 
 function terminalUrl(): string {
@@ -244,6 +256,7 @@ export default function ControlTerminal() {
 
   // 데이터
   const [profiles, setProfiles] = useState<PublicProfile[]>([]);
+  const [sheets, setSheets] = useState<SheetRecord[]>([]);
   const [bonds, setBonds] = useState<PairBond[]>([]);
   const [templates, setTemplates] = useState<EnemyTemplate[]>([]);
   const [battles, setBattles] = useState<BattleSummary[]>([]);
@@ -261,6 +274,8 @@ export default function ControlTerminal() {
   const [floor, setFloor] = useState<number>(DEFAULT_OPERATION.floor);
 
   const [filter, setFilter] = useState<PairFilter>('ALL');
+  const [sheetFilter, setSheetFilter] = useState<SheetFilter>('ALL');
+  const [sheetQuery, setSheetQuery] = useState('');
   const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [logDraft, setLogDraft] = useState('');
@@ -269,13 +284,15 @@ export default function ControlTerminal() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [profileRows, bondRows, templateRows, battleRows] = await Promise.all([
+      const [profileRows, sheetRows, bondRows, templateRows, battleRows] = await Promise.all([
         auth.listProfiles(),
+        auth.listSheets(),
         storage.listBonds(),
         storage.listEnemyTemplates(),
         storage.listBattles(),
       ]);
       setProfiles(profileRows);
+      setSheets(sheetRows);
       setBonds(bondRows);
       setTemplates(templateRows);
       setBattles(battleRows);
@@ -325,6 +342,16 @@ export default function ControlTerminal() {
       setError(caught instanceof Error ? caught.message : '작업에 실패했습니다.');
     }
   }, []);
+
+  /**
+   * 활동명으로 시트를 찾는다.
+   * 편성(PairBond)과 전투 상태는 계정을 활동명으로 참조한다.
+   */
+  const sheetOf = useCallback(
+    (accountId: string | null): CharacterSheet | null =>
+      accountId ? (sheets.find((row) => row.accountId === accountId)?.sheet ?? null) : null,
+    [sheets],
+  );
 
   /* ── 인증 ────────────────────────────────────────── */
 
@@ -491,28 +518,32 @@ export default function ControlTerminal() {
       return;
     }
 
+    // 이미 불러온 시트 목록을 먼저 쓰고, 없을 때만 서버에 다시 묻는다.
+    const loadSheet = async (accountId: string | null): Promise<CharacterSheet | null> => {
+      if (!accountId) return null;
+      return sheetOf(accountId) ?? (await auth.getAccount(accountId))?.sheet ?? null;
+    };
+
     const entries: BondEntry[] = [];
     for (const bondId of selectedBonds) {
       const bond = bonds.find((row) => row.id === bondId);
       if (!bond) continue;
 
-      const hunterAccount = bond.hunterAccountId
-        ? await auth.getAccount(bond.hunterAccountId)
-        : null;
-      const constellationAccount = bond.constellationAccountId
-        ? await auth.getAccount(bond.constellationAccountId)
-        : null;
+      const hunterSheet = await loadSheet(bond.hunterAccountId);
+      const constellationSheet = await loadSheet(bond.constellationAccountId);
 
-      if (!hunterAccount || !constellationAccount) {
-        setMessage(`${bond.label} 의 시트를 불러올 수 없습니다.`);
+      if (!hunterSheet || !constellationSheet) {
+        const missing = [
+          hunterSheet ? null : `헌터 ${bond.hunterAccountId ?? '미지정'}`,
+          constellationSheet ? null : `성좌 ${bond.constellationAccountId ?? '미지정'}`,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        setMessage(`${bond.label} 의 시트를 불러올 수 없습니다 — ${missing}`);
         return;
       }
 
-      entries.push({
-        bond,
-        hunterSheet: hunterAccount.sheet,
-        constellationSheet: constellationAccount.sheet,
-      });
+      entries.push({ bond, hunterSheet, constellationSheet });
     }
 
     const enemies: EnemyState[] = selectedEnemies
@@ -583,6 +614,37 @@ export default function ControlTerminal() {
           bond.constellationAccountId === profile.accountId,
       ),
   );
+
+  /** 시트 소유자가 속한 활성 페어 */
+  const bondOf = (accountId: string) =>
+    activeBonds.find(
+      (bond) =>
+        bond.hunterAccountId === accountId || bond.constellationAccountId === accountId,
+    ) ?? null;
+
+  const query = sheetQuery.trim().toLowerCase();
+  const filteredSheets = sheets
+    .filter((row) => {
+      switch (sheetFilter) {
+        case 'HUNTER':
+          return row.sheet.side === 'HUNTER';
+        case 'CONSTELLATION':
+          return row.sheet.side === 'CONSTELLATION';
+        case 'UNPAIRED':
+          return !bondOf(row.accountId);
+        default:
+          return true;
+      }
+    })
+    .filter(
+      (row) =>
+        !query ||
+        row.sheet.name.toLowerCase().includes(query) ||
+        row.accountId.toLowerCase().includes(query) ||
+        row.sheet.classId.toLowerCase().includes(query) ||
+        (row.sheet.concept ?? '').toLowerCase().includes(query) ||
+        (row.sheet.skills ?? []).some((skill) => skill.name.toLowerCase().includes(query)),
+    );
 
   const injured = battle
     ? battle.pairs.filter((p) => p.hunter.hp > 0 && p.hunter.hp < p.hunter.maxHp * 0.7).length
@@ -695,6 +757,7 @@ export default function ControlTerminal() {
         {(
           [
             ['ROSTER', `편성 · ${activeBonds.length}`],
+            ['SHEET', `참가자 시트 · ${sheets.length}`],
             ['ENCOUNTER', `적 세팅 · ${templates.length}`],
             ['OPERATION', battle ? `전투 · ROUND ${battle.round}` : '전투'],
             ['LOG', '로그'],
@@ -839,6 +902,34 @@ export default function ControlTerminal() {
                         <small className="dim">{bond.constellationAccountId}</small>
                       </div>
                     </div>
+                    <Collapsible label="시트 열람 — 스탯 · 스킬 · 컨셉">
+                      <div className="sheet-list">
+                        {(
+                          [
+                            ['HUNTER', bond.hunterAccountId],
+                            ['CONSTELLATION', bond.constellationAccountId],
+                          ] as Array<[ActorSide, string | null]>
+                        ).map(([side, accountId]) => {
+                          const sheet = sheetOf(accountId);
+                          if (!sheet) {
+                            return (
+                              <p className="dim small-text" key={side}>
+                                {sideLabel(side)} 시트를 불러올 수 없습니다
+                                {accountId ? ` (${accountId})` : ' — 계정 미지정'}.
+                              </p>
+                            );
+                          }
+                          return (
+                            <SheetDetail
+                              key={side}
+                              sheet={sheet}
+                              accountId={accountId ?? undefined}
+                            />
+                          );
+                        })}
+                      </div>
+                    </Collapsible>
+
                     <div className="bond-foot">
                       <TextField
                         label="표기명"
@@ -914,6 +1005,85 @@ export default function ControlTerminal() {
             )}
           </section>
         </>
+      )}
+
+      {/* ══════════ 참가자 시트 ══════════ */}
+      {tab === 'SHEET' && (
+        <section className="panel">
+          <div className="process-head">
+            <h2 className="panel-title">참가자 시트 · {filteredSheets.length}</h2>
+            <div className="btn-row">
+              {(
+                [
+                  ['ALL', `전체 ${sheets.length}`],
+                  ['HUNTER', `헌터 ${sheets.filter((r) => r.sheet.side === 'HUNTER').length}`],
+                  [
+                    'CONSTELLATION',
+                    `성좌 ${sheets.filter((r) => r.sheet.side === 'CONSTELLATION').length}`,
+                  ],
+                  ['UNPAIRED', `미편성 ${sheets.filter((r) => !bondOf(r.accountId)).length}`],
+                ] as Array<[SheetFilter, string]>
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`ctl small ${sheetFilter === value ? 'on' : ''}`}
+                  onClick={() => setSheetFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+              <button type="button" className="ctl small" onClick={() => void refresh()}>
+                새로 고침
+              </button>
+            </div>
+          </div>
+
+          <label className="input-row sheet-search">
+            <span className="field-label">검색</span>
+            <input
+              className="ctl input"
+              value={sheetQuery}
+              placeholder="이름 · 활동명 · 스킬명 · 컨셉"
+              onChange={(event) => setSheetQuery(event.target.value)}
+            />
+          </label>
+
+          {sheets.length === 0 ? (
+            <p className="dim">
+              불러온 시트가 없습니다.
+              {profiles.length > 0 && (
+                <>
+                  {' '}
+                  등록된 참가자는 {profiles.length}명입니다 — 이 계정의 <b>profiles.role</b> 이
+                  OPERATOR 가 아니면 서버가 남의 시트를 내려주지 않습니다.
+                </>
+              )}
+            </p>
+          ) : filteredSheets.length === 0 ? (
+            <p className="dim">조건에 맞는 시트가 없습니다.</p>
+          ) : (
+            <div className="sheet-list">
+              {filteredSheets.map((row) => {
+                const bond = bondOf(row.accountId);
+                return (
+                  <SheetDetail
+                    key={`${row.accountId}-${row.sheet.id}`}
+                    sheet={row.sheet}
+                    accountId={row.accountId}
+                    note={
+                      bond ? (
+                        <span className="tag ok">{bond.label}</span>
+                      ) : (
+                        <span className="tag offline">미편성</span>
+                      )
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
 
       {/* ══════════ 적 세팅 ══════════ */}
@@ -1556,6 +1726,30 @@ export default function ControlTerminal() {
                       />
                     </div>
 
+                    {/* 판정 근거 — 스탯과 스킬을 모르면 기믹도 연출도 판정할 수 없다 */}
+                    <Collapsible label="시트 · 스킬 (판정 참고)">
+                      <div className="sheet-list">
+                        <ActorSheet
+                          side="HUNTER"
+                          name={pair.hunter.name}
+                          classId={pair.hunter.classId}
+                          stats={pair.hunter.stats}
+                          skills={pair.hunter.skills}
+                          accountId={pair.hunterAccountId}
+                          concept={sheetOf(pair.hunterAccountId)?.concept}
+                        />
+                        <ActorSheet
+                          side="CONSTELLATION"
+                          name={pair.constellation.name}
+                          classId={pair.constellation.classId}
+                          stats={pair.constellation.stats}
+                          skills={pair.constellation.skills}
+                          accountId={pair.constellationAccountId}
+                          concept={sheetOf(pair.constellationAccountId)?.concept}
+                        />
+                      </div>
+                    </Collapsible>
+
                     <Collapsible label="수치 편집">
                       <div className="admin-grid">
                         <NumberField
@@ -1753,12 +1947,62 @@ export default function ControlTerminal() {
                           />
                         </td>
                         <td className="dim small-text">
+                          {row.gimmickNote && (
+                            <div className="judge-box">
+                              <span className={`tag ${row.gimmickCheck?.stage === 'INSIGHT' ? 'blue' : 'gold'}`}>
+                                {row.gimmickCheck?.stage === 'INSIGHT' ? '파악' : '해결'}
+                              </span>
+                              <span className="judge-note">{row.gimmickNote}</span>
+                              {row.gimmickCheck && (
+                                <span
+                                  className={`tag ${row.gimmickCheck.success ? 'ok' : 'critical'}`}
+                                  title={row.gimmickCheck.breakdown.join(' / ')}
+                                >
+                                  {row.gimmickCheck.rolls.join('+')}+{row.gimmickCheck.bonus}={' '}
+                                  {row.gimmickCheck.total} vs {row.gimmickCheck.dc}
+                                </span>
+                              )}
+                              {row.gimmickCheck?.stage === 'RESOLVE' && (
+                                <label className="judge-progress">
+                                  <span className="field-label">진행</span>
+                                  <input
+                                    className="ctl input tiny"
+                                    type="number"
+                                    value={row.gimmickProgress}
+                                    onChange={(event) =>
+                                      patchPreviewPair(row.pairId, {
+                                        gimmickProgress: Math.max(
+                                          0,
+                                          Number(event.target.value) || 0,
+                                        ),
+                                      })
+                                    }
+                                  />
+                                </label>
+                              )}
+                              {row.gimmickCheck?.stage === 'INSIGHT' && (
+                                <button
+                                  type="button"
+                                  className={`ctl small ${row.gimmickIdentified ? 'on' : ''}`}
+                                  onClick={() =>
+                                    patchPreviewPair(row.pairId, {
+                                      gimmickIdentified: !row.gimmickIdentified,
+                                    })
+                                  }
+                                >
+                                  {row.gimmickIdentified ? '파악 인정' : '파악 불인정'}
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {[
                             row.skipped ? row.skipReason : null,
                             row.rescue
                               ? `구조 ${row.rescue.targetLabel} +${row.rescue.restoredHp}`
                               : null,
-                            row.gimmickProgress > 0 ? `기믹 +${row.gimmickProgress}` : null,
+                            !row.gimmickNote && row.gimmickProgress > 0
+                              ? `기믹 +${row.gimmickProgress}`
+                              : null,
                             row.appliedStatuses.map((s) => s.label).join(' · ') || null,
                           ]
                             .filter(Boolean)

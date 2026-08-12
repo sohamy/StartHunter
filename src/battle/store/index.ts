@@ -56,5 +56,11 @@ export function setAuth(next: AuthAdapter): void {
 }
 
 export { AuthError } from './AuthAdapter';
-export type { AuthAdapter, Credentials, PublicProfile, RegisterInput } from './AuthAdapter';
+export type {
+  AuthAdapter,
+  Credentials,
+  PublicProfile,
+  RegisterInput,
+  SheetRecord,
+} from './AuthAdapter';
 export type { StorageAdapter } from './StorageAdapter';

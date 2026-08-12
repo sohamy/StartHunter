@@ -103,6 +103,7 @@ export function hunterStateFromSheet(sheet: CharacterSheet): HunterState {
     classId: sheet.classId,
     statuses: [],
     skills: toRuntime(sheet.skills ?? []),
+    stats: { ...sheet.stats },
   };
 }
 
@@ -119,6 +120,7 @@ export function constellationStateFromSheet(sheet: CharacterSheet): Constellatio
     classId: sheet.classId,
     statuses: [],
     skills: toRuntime(sheet.skills ?? []),
+    stats: { ...sheet.stats },
     manifestUses: {
       partial: MANIFEST_RULES.partialPerBattle,
       full: MANIFEST_RULES.fullPerCampaign,

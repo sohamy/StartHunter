@@ -9,9 +9,11 @@ import { requireSupabase } from './supabaseClient';
 import {
   AuthError,
   type AuthAdapter,
+  type AuthErrorCode,
   type Credentials,
   type PublicProfile,
   type RegisterInput,
+  type SheetRecord,
 } from './AuthAdapter';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 
@@ -28,6 +30,39 @@ function handleToEmail(handle: string): string {
     .replace(/[^a-z0-9._-]/g, (char) => `_${char.charCodeAt(0).toString(36)}`);
   return `${slug}@${HANDLE_DOMAIN}`;
 }
+
+/**
+ * Supabase 인증 오류를 참가자가 이해할 수 있는 문장으로 바꾼다.
+ * 원문을 그대로 보여주면 무엇을 해야 하는지 알 수 없다.
+ */
+function describeSignUpError(message: string): [AuthErrorCode, string] {
+  if (/rate limit/i.test(message)) {
+    return [
+      'UNAVAILABLE',
+      '가입 요청이 일시적으로 제한되었습니다. 관리자가 Supabase 설정에서 ' +
+        '이메일 확인(Confirm email)을 끄면 해결됩니다. ' +
+        '잠시 후 다시 시도하거나 운영진에게 문의해 주세요.',
+    ];
+  }
+  if (/already|registered|exists/i.test(message)) {
+    return ['ID_TAKEN', '이미 등록된 활동명입니다.'];
+  }
+  if (/password/i.test(message)) {
+    return ['INVALID_INPUT', '비밀번호가 조건을 만족하지 않습니다. 6자 이상 입력하세요.'];
+  }
+  if (/invalid|email/i.test(message)) {
+    return ['INVALID_INPUT', '활동명에 사용할 수 없는 문자가 있습니다. 영문·숫자 위주로 지어 주세요.'];
+  }
+  return ['INVALID_INPUT', `가입에 실패했습니다: ${message}`];
+}
+
+/**
+ * 계정 식별자 두 가지.
+ *
+ * 세션은 uuid 를 주고, 편성(pair_bonds)과 프로필 목록은 활동명을 준다.
+ * 어느 쪽이 들어와도 조회가 되어야 하므로 형태를 보고 판별한다.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface SheetRow {
   id: string;
@@ -75,8 +110,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     });
 
     if (error) {
-      const taken = /already|registered|exists/i.test(error.message);
-      throw new AuthError(taken ? 'ID_TAKEN' : 'INVALID_INPUT', error.message);
+      throw new AuthError(...describeSignUpError(error.message));
     }
     if (!data.user) {
       throw new AuthError('UNAVAILABLE', '가입은 되었지만 세션을 받지 못했습니다. 로그인해 주세요.');
@@ -141,9 +175,15 @@ export class SupabaseAuthAdapter implements AuthAdapter {
   async getAccount(accountId: string): Promise<Account | null> {
     const supabase = requireSupabase();
 
+    // 활동명으로 불려도 조회가 되어야 한다 — 편성은 활동명으로 계정을 참조한다.
+    const userId = UUID_PATTERN.test(accountId)
+      ? accountId
+      : await this.resolveAccountId(accountId);
+    if (!userId) return null;
+
     const [{ data: profile }, { data: sheetRow }] = await Promise.all([
-      supabase.from('profiles').select('id, handle, created_at').eq('id', accountId).maybeSingle(),
-      supabase.from('sheets').select('*').eq('owner', accountId).maybeSingle(),
+      supabase.from('profiles').select('id, handle, created_at').eq('id', userId).maybeSingle(),
+      supabase.from('sheets').select('*').eq('owner', userId).maybeSingle(),
     ]);
 
     if (!profile || !sheetRow) return null;
@@ -170,6 +210,31 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       side: row.side as ActorSide,
       name: row.name as string,
       classId: row.class_id as string,
+    }));
+  }
+
+  /**
+   * 시트 전문 목록 — 운영진만 전체를 받는다.
+   *
+   * sheets 의 RLS 가 남의 시트를 걸러내므로, 참가자가 호출하면 자기 것만 온다.
+   * profiles 는 누구나 읽을 수 있어 활동명 매핑은 여기서 붙인다.
+   */
+  async listSheets(): Promise<SheetRecord[]> {
+    const supabase = requireSupabase();
+
+    const [{ data: sheetRows }, { data: profileRows }] = await Promise.all([
+      supabase.from('sheets').select('*').order('created_at', { ascending: true }),
+      supabase.from('profiles').select('id, handle'),
+    ]);
+    if (!sheetRows) return [];
+
+    const handleOf = new Map(
+      (profileRows ?? []).map((row) => [row.id as string, row.handle as string]),
+    );
+
+    return (sheetRows as SheetRow[]).map((row) => ({
+      accountId: handleOf.get(row.owner) ?? row.owner,
+      sheet: toSheet(row),
     }));
   }
 

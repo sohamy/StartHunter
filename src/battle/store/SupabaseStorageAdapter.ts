@@ -46,6 +46,9 @@ interface SubmissionRow {
   constellation_action_id: string | null;
   target_enemy_id: string | null;
   support_target_pair_id: string | null;
+  gimmick_note: string | null;
+  gimmick_stage: string | null;
+  gimmick_check: unknown;
   hunter_submitted: boolean;
   constellation_submitted: boolean;
 }
@@ -56,6 +59,9 @@ function emptySubmissionRow(): RoundSubmission {
     constellationActionId: null,
     targetEnemyId: null,
     supportTargetPairId: null,
+    gimmickNote: null,
+    gimmickStage: null,
+    gimmickCheck: null,
     hunterSubmitted: false,
     constellationSubmitted: false,
   };
@@ -68,6 +74,9 @@ function toSubmission(row: SubmissionRow | undefined): RoundSubmission {
     constellationActionId: row.constellation_action_id,
     targetEnemyId: row.target_enemy_id,
     supportTargetPairId: row.support_target_pair_id,
+    gimmickNote: row.gimmick_note ?? null,
+    gimmickStage: (row.gimmick_stage as RoundSubmission['gimmickStage']) ?? null,
+    gimmickCheck: (row.gimmick_check as RoundSubmission['gimmickCheck']) ?? null,
     hunterSubmitted: row.hunter_submitted,
     constellationSubmitted: row.constellation_submitted,
   };
@@ -215,6 +224,9 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       actionId?: string | null;
       targetEnemyId?: string | null;
       supportTargetPairId?: string | null;
+      gimmickNote?: string | null;
+      gimmickStage?: string | null;
+      gimmickCheck?: unknown;
       submitted?: boolean;
     },
   ): Promise<void> {
@@ -234,6 +246,9 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       if (patch.supportTargetPairId !== undefined) {
         update.support_target_pair_id = patch.supportTargetPairId;
       }
+      if (patch.gimmickNote !== undefined) update.gimmick_note = patch.gimmickNote;
+      if (patch.gimmickStage !== undefined) update.gimmick_stage = patch.gimmickStage;
+      if (patch.gimmickCheck !== undefined) update.gimmick_check = patch.gimmickCheck;
     } else {
       if (patch.actionId !== undefined) update.constellation_action_id = patch.actionId;
       if (patch.submitted !== undefined) update.constellation_submitted = patch.submitted;
@@ -350,6 +365,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         side: (row.side as ChatMessage['side']) ?? null,
         kind: row.kind as ChatMessage['kind'],
         body: row.body as string,
+        dice: (row.dice as ChatMessage['dice']) ?? null,
         at: row.created_at as string,
       }))
       .reverse();
@@ -368,6 +384,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       side: message.side,
       kind: message.kind,
       body: message.body,
+      dice: message.dice,
     });
 
     if (error) throw new Error(`전송 실패: ${error.message}`);

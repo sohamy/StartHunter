@@ -183,6 +183,8 @@ export interface HunterState {
   classId: string | null;
   statuses: StatusEffect[];
   skills: SkillRuntime[];
+  /** 시트 스탯 사본 — 기믹 판정처럼 스탯을 직접 쓰는 계산에 필요하다 */
+  stats: StatBlock;
 }
 
 /** 현신 남은 사용 횟수. null 은 무제한 */
@@ -205,6 +207,8 @@ export interface ConstellationState {
   classId: string | null;
   statuses: StatusEffect[];
   skills: SkillRuntime[];
+  /** 시트 스탯 사본 — 기믹 판정처럼 스탯을 직접 쓰는 계산에 필요하다 */
+  stats: StatBlock;
 }
 
 export interface ContractState {
@@ -226,6 +230,16 @@ export interface RoundSubmission {
   targetEnemyId: string | null;
   /** 구조 · 보호 행동의 대상 페어 (헌터가 지정) */
   supportTargetPairId: string | null;
+  /**
+   * 기믹 수행 선언.
+   * 장치를 어떻게 다루는지 참가자가 직접 서술해야 하며, 채팅에 공개되고
+   * 관리국이 판정한다. 서술 없는 기믹 수행은 진행으로 인정되지 않는다.
+   */
+  gimmickNote: string | null;
+  /** 기믹 시도 단계 — 파악 전에는 해결을 시도할 수 없다 */
+  gimmickStage: GimmickStage | null;
+  /** 확정 시점에 굴린 판정. 채팅에도 공개된다 */
+  gimmickCheck: GimmickCheck | null;
   hunterSubmitted: boolean;
   constellationSubmitted: boolean;
 }
@@ -288,6 +302,28 @@ export interface GimmickState {
   /** 남은 라운드. null 이면 제한 없음 */
   roundsLeft: number | null;
   status: 'ACTIVE' | 'CLEARED' | 'FAILED';
+  /** 파악 완료 여부 — 파악 전에는 해결을 시도할 수 없다 */
+  identified: boolean;
+  /** 파악에 성공한 페어 */
+  identifiedBy: string[];
+}
+
+/** 기믹 시도 단계 */
+export type GimmickStage = 'INSIGHT' | 'RESOLVE';
+
+/** 기믹 판정 기록 */
+export interface GimmickCheck {
+  stage: GimmickStage;
+  expression: string;
+  rolls: number[];
+  /** 스탯에서 온 보정 */
+  bonus: number;
+  /** 보정 내역 — 화면과 채팅에 그대로 노출한다 */
+  breakdown: string[];
+  total: number;
+  dc: number;
+  success: boolean;
+  critical: boolean;
 }
 
 export type LogChannel = 'SYSTEM' | 'ROLEPLAY';
@@ -417,7 +453,7 @@ export interface EnemyTemplate {
    참가자와 운영자가 함께 보는 대화창. 전투 단위 채널을 쓰고,
    전투 밖에서는 'GLOBAL' 채널을 쓴다. */
 
-export type ChatKind = 'TALK' | 'ACTION' | 'OOC';
+export type ChatKind = 'TALK' | 'ACTION' | 'OOC' | 'ROLL';
 
 export interface ChatMessage {
   id: string;
@@ -431,6 +467,17 @@ export interface ChatMessage {
   side: ActorSide | null;
   kind: ChatKind;
   body: string;
+  /** 다이스 결과 — kind 가 ROLL 일 때 채워진다 */
+  dice: {
+    expression: string;
+    rolls: number[];
+    modifier: number;
+    total: number;
+    /** 기믹 판정처럼 목표치가 있는 굴림 */
+    dc?: number;
+    success?: boolean;
+    label?: string;
+  } | null;
   /** ISO 문자열 */
   at: string;
 }
@@ -493,8 +540,14 @@ export interface PairPreview {
   combo: ComboResultView | null;
   /** 구조 행동 결과 */
   rescue: { targetPairId: string; targetLabel: string; restoredHp: number } | null;
-  /** 기믹 수행 진행량 */
+  /** 기믹 수행 진행량 — 관리국이 판정 단계에서 수정한다 */
   gimmickProgress: number;
+  /** 기믹 수행 선언문 — 판정 근거 */
+  gimmickNote: string | null;
+  /** 기믹 판정 결과 */
+  gimmickCheck: GimmickCheck | null;
+  /** 이 라운드에 파악이 성립하는지 */
+  gimmickIdentified: boolean;
   /** 자동 행동으로 채워진 항목 */
   autoFilled: ActorSide[];
   targetEnemyId: string | null;

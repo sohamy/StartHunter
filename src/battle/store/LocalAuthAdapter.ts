@@ -14,6 +14,7 @@ import {
   type Credentials,
   type PublicProfile,
   type RegisterInput,
+  type SheetRecord,
 } from './AuthAdapter';
 
 const ACCOUNTS_KEY = 'sh.auth.accounts';
@@ -157,6 +158,14 @@ export class LocalAuthAdapter implements AuthAdapter {
         name: account.sheet.name,
         classId: account.sheet.classId,
       }));
+  }
+
+  async listSheets(): Promise<SheetRecord[]> {
+    // 로컬 모드에는 권한 구분이 없다 — 이 브라우저의 시트를 모두 준다.
+    return readAccounts().map((account) => ({
+      accountId: account.id,
+      sheet: account.sheet,
+    }));
   }
 
   async updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account> {

@@ -21,6 +21,15 @@ import {
   viewerPair,
 } from '../engine/battle';
 import { previewCombo } from '../engine/combo';
+import { formatDice } from '../engine/dice';
+import {
+  availableStage,
+  declarationValid,
+  gimmickBrief,
+  planCheck,
+  rollCheck,
+} from '../engine/gimmick';
+import { newUuid } from '../engine/id';
 import {
   actionAvailability,
   applyRound,
@@ -198,6 +207,7 @@ export default function BattleTerminal() {
 
   const [battle, setBattle] = useState<BattleState | null>(null);
   const [preview, setPreview] = useState<RoundPreview | null>(null);
+  const [gimmickDraft, setGimmickDraft] = useState('');
 
   const battleId = account ? `BATTLE-${account.id}` : null;
 
@@ -464,6 +474,15 @@ export default function BattleTerminal() {
   const comboPreview = previewCombo(hunterAction, constellationAction, target?.statuses ?? []);
   const needsSupportTarget =
     hunterAction?.kind === 'RESCUE' || hunterAction?.kind === 'PROTECT';
+
+  // 기믹 — 파악(INSIGHT) → 해결(RESOLVE)
+  const gimmickStage = availableStage(battle.gimmick, pair);
+  const isGimmickAction = hunterAction?.kind === 'GIMMICK';
+  const gimmickPlan =
+    battle.gimmick && gimmickStage
+      ? planCheck(gimmickStage, battle.gimmick, pair.hunter.stats, pair.constellation.stats)
+      : null;
+  const gimmickNoteOk = declarationValid(gimmickDraft || submission.gimmickNote);
   const downPairs = battle.pairs.filter((row) => row.hunter.hp <= 0);
 
   const readiness = battle.pairs.map((candidate) => {
@@ -479,6 +498,81 @@ export default function BattleTerminal() {
     const key = side === 'HUNTER' ? 'hunterActionId' : 'constellationActionId';
     const current = side === 'HUNTER' ? submission.hunterActionId : submission.constellationActionId;
     update(submitPairAction(battle, pair.id, { [key]: current === actionId ? null : actionId }));
+  };
+
+  /**
+   * 내 쪽 행동을 확정한다.
+   * 기믹 수행이면 선언과 판정을 함께 확정하고, 그 내용을 채팅에 공개한다.
+   */
+  const confirmMySide = async () => {
+    if (!mySide) return;
+    let next = battle;
+
+    if (mySide === 'HUNTER' && isGimmickAction && gimmickPlan && battle.gimmick) {
+      const check = rollCheck(gimmickPlan);
+      const note = (gimmickDraft || submission.gimmickNote || '').trim();
+
+      next = submitPairAction(next, pair.id, {
+        gimmickNote: note,
+        gimmickStage: gimmickPlan.stage,
+        gimmickCheck: check,
+      });
+
+      // 선언과 판정은 모두가 보는 채널에 남는다
+      try {
+        await storage.postMessage({
+          id: newUuid(),
+          channel: battle.id,
+          authorId: account.id,
+          authorName: pair.hunter.name,
+          role: 'PARTICIPANT',
+          side: 'HUNTER',
+          kind: 'TALK',
+          body: `[${gimmickPlan.stage === 'INSIGHT' ? '기믹 파악' : '기믹 해결'}] ${note}`,
+          dice: null,
+          at: new Date().toISOString(),
+        });
+
+        if (check) {
+          await storage.postMessage({
+            id: newUuid(),
+            channel: battle.id,
+            authorId: account.id,
+            authorName: pair.hunter.name,
+            role: 'PARTICIPANT',
+            side: 'HUNTER',
+            kind: 'ROLL',
+            body: formatDice({
+              expression: check.expression,
+              count: 1,
+              sides: 20,
+              modifier: check.bonus,
+              rolls: check.rolls,
+              total: check.total,
+            }),
+            dice: {
+              expression: check.expression,
+              rolls: check.rolls,
+              modifier: check.bonus,
+              total: check.total,
+              dc: check.dc,
+              success: check.success,
+              label: `${gimmickPlan.stage === 'INSIGHT' ? '파악' : '해결'} · ${check.breakdown.join(' / ')}`,
+            },
+            at: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // 채팅 전송 실패가 행동 확정을 막지는 않는다
+      }
+    }
+
+    update(
+      submitPairAction(next, pair.id, {
+        [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: true,
+      }),
+    );
+    setGimmickDraft('');
   };
 
   const toggleControl = (side: ActorSide) => {
@@ -498,7 +592,9 @@ export default function BattleTerminal() {
     engaged &&
     !mySubmitted &&
     myActionChosen &&
-    !(mySide === 'HUNTER' && isDown(pair.hunter));
+    !(mySide === 'HUNTER' && isDown(pair.hunter)) &&
+    // 기믹 수행은 선언을 적어야 확정할 수 있다
+    !(mySide === 'HUNTER' && isGimmickAction && !gimmickNoteOk);
 
   const statusLabel: Record<BattleState['status'], string> = {
     PREPARING: 'STANDBY',
@@ -602,6 +698,62 @@ export default function BattleTerminal() {
         </div>
       </section>
 
+      {/* ── 기믹 선언 ── */}
+      {battle.gimmick && isGimmickAction && mySide === 'HUNTER' && !mySubmitted && (
+        <section className="panel gimmick-declare">
+          <div className="process-head">
+            <h2 className="panel-title">
+              기믹 {gimmickStage === 'INSIGHT' ? '파악' : '해결'} 선언
+            </h2>
+            <span className="hint">선언과 판정 결과는 채널에 공개되고, 관리국이 최종 인정합니다.</span>
+          </div>
+
+          <p className="gimmick-brief">{gimmickBrief(battle.gimmick).text}</p>
+
+          {gimmickStage === 'INSIGHT' ? (
+            <p className="hint">
+              아직 장치를 파악하지 못했습니다. 무엇을 어떻게 관찰하는지 적으세요 —
+              <b> 관찰력</b>과 성좌의 <b>관측</b>이 판정에 붙습니다.
+            </p>
+          ) : (
+            <p className="hint">
+              장치는 파악되었습니다. 어떻게 처리할지 적으세요 — <b>운</b>과 <b>관찰력</b>이 판정에
+              붙습니다.
+            </p>
+          )}
+
+          {gimmickPlan && (
+            <div className="check-preview">
+              <span className="field-label">판정</span>
+              <b className="num">1d20 + {gimmickPlan.bonus}</b>
+              <span className="dim">vs 목표 {gimmickPlan.dc}</span>
+              {gimmickPlan.breakdown.map((line) => (
+                <span key={line} className="tag">
+                  {line}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <textarea
+            className="ctl input textarea"
+            rows={3}
+            value={gimmickDraft || submission.gimmickNote || ''}
+            placeholder={
+              gimmickStage === 'INSIGHT'
+                ? '예: 문양의 홈을 따라 손끝으로 훑으며 반복되는 배열을 찾는다'
+                : '예: 파악한 순서대로 고정점을 검으로 끊어낸다'
+            }
+            onChange={(event) => setGimmickDraft(event.target.value)}
+          />
+          <p className={`hint ${gimmickNoteOk ? 'ok-text' : 'warn-text'}`}>
+            {gimmickNoteOk
+              ? '확정하면 판정이 굴러갑니다.'
+              : '최소 8자 이상 서술해야 확정할 수 있습니다.'}
+          </p>
+        </section>
+      )}
+
       {/* ── 기믹 ── */}
       {battle.gimmick && (
         <section className={`panel gimmick status-${battle.gimmick.status.toLowerCase()}`}>
@@ -637,7 +789,15 @@ export default function BattleTerminal() {
                 : `${battle.gimmick.roundsLeft} ROUNDS LEFT`}
             </span>
           </div>
-          <p className="hint">{battle.gimmick.description}</p>
+          <div className="target-status">
+            <span className="field-label">파악</span>
+            {battle.gimmick.identified ? (
+              <span className="tag ok">완료 · {battle.gimmick.identifiedBy.join(', ')}</span>
+            ) : (
+              <span className="tag warn">미파악 — 먼저 장치를 파악해야 합니다</span>
+            )}
+          </div>
+          <p className="hint">{gimmickBrief(battle.gimmick).text}</p>
         </section>
       )}
 
@@ -982,13 +1142,7 @@ export default function BattleTerminal() {
             type="button"
             className="confirm-btn"
             disabled={!canConfirm}
-            onClick={() =>
-              update(
-                submitPairAction(battle, pair.id, {
-                  [mySide === 'HUNTER' ? 'hunterSubmitted' : 'constellationSubmitted']: true,
-                }),
-              )
-            }
+            onClick={() => void confirmMySide()}
           >
             CONFIRM ACTION · {mySide}
             {!canConfirm && (

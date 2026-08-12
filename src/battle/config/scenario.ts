@@ -109,6 +109,9 @@ export function emptySubmission(): RoundSubmission {
     constellationActionId: null,
     targetEnemyId: null,
     supportTargetPairId: null,
+    gimmickNote: null,
+    gimmickStage: null,
+    gimmickCheck: null,
     hunterSubmitted: false,
     constellationSubmitted: false,
   };
