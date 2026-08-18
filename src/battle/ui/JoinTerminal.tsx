@@ -5,7 +5,7 @@
  * 스탯 배분 결과가 전투 수치로 어떻게 환산되는지 화면에서 바로 보여준다.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   POINT_BUY,
@@ -367,6 +367,8 @@ export default function JoinTerminal() {
   const [message, setMessage] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /** 실패 안내는 화면 위쪽에 뜬다 — 폼이 길어서 스스로 보여 주지 않으면 못 본다 */
+  const errorBox = useRef<HTMLUListElement>(null);
 
   const [loginId, setLoginId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -399,6 +401,13 @@ export default function JoinTerminal() {
     };
   }, [auth]);
 
+  // 서버가 거절한 경우(활동명 중복 등)에만 뜬다. 폼이 길어서 스스로 보여 줘야 한다.
+  useEffect(() => {
+    if (errors.length === 0) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    errorBox.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+  }, [errors]);
+
   const setSide = useCallback((side: ActorSide) => {
     setDraft((current) => ({
       ...emptyDraft(side),
@@ -426,15 +435,24 @@ export default function JoinTerminal() {
   const derivedConstellation =
     draft.side === 'CONSTELLATION' ? deriveConstellation(previewSheet) : null;
 
+  /** 서버 모드는 Supabase 정책을 따른다 — 로컬 모드보다 길다 */
+  const minPassword = isServerMode() ? 6 : 4;
+
+  /**
+   * 지금 등록을 막고 있는 것들.
+   * 확정 버튼 바로 옆에 붙여 두어, 화면 위로 올라가지 않아도 알 수 있게 한다.
+   */
+  const blockers: string[] = [
+    registerId.trim().length < 2 ? '활동명을 2자 이상 입력하세요.' : null,
+    registerPassword.length < minPassword ? `비밀번호를 ${minPassword}자 이상 입력하세요.` : null,
+    ...validateSheet(draft).map((issue) => issue.message),
+  ].filter((row): row is string => row !== null);
+
   const submitRegister = async () => {
     setErrors([]);
     setMessage(null);
-
-    const issues = validateSheet(draft);
-    if (issues.length > 0) {
-      setErrors(issues.map((issue) => issue.message));
-      return;
-    }
+    // 막는 사유는 버튼 밑에 이미 떠 있다 — 화면 위로 끌고 올라가지 않는다
+    if (blockers.length > 0) return;
 
     setBusy(true);
     try {
@@ -696,7 +714,7 @@ export default function JoinTerminal() {
       )}
 
       {errors.length > 0 && (
-        <ul className="notice error">
+        <ul className="notice error" ref={errorBox} role="alert">
           {errors.map((error) => (
             <li key={error}>{error}</li>
           ))}
@@ -705,7 +723,14 @@ export default function JoinTerminal() {
       {message && <p className="notice ok">{message}</p>}
 
       {mode === 'LOGIN' ? (
-        <section className="panel form">
+        /* section 이 아니라 form 이다 — Enter 제출과 비밀번호 저장 제안이 여기에 달려 있다 */
+        <form
+          className="panel form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitLogin();
+          }}
+        >
           <h2 className="panel-title">LOG IN</h2>
           <label className="input-row">
             <span className="field-label">활동명</span>
@@ -726,15 +751,10 @@ export default function JoinTerminal() {
               autoComplete="current-password"
             />
           </label>
-          <button
-            type="button"
-            className="confirm-btn"
-            disabled={busy || !loginId || !loginPassword}
-            onClick={submitLogin}
-          >
+          <button type="submit" className="confirm-btn" disabled={busy || !loginId || !loginPassword}>
             CONNECT
           </button>
-        </section>
+        </form>
       ) : (
         <>
           {/* 역할 선택 */}
@@ -761,8 +781,15 @@ export default function JoinTerminal() {
             <p className="hint">역할을 바꾸면 스탯과 클래스 선택이 초기화됩니다.</p>
           </section>
 
-          {/* 계정 */}
-          <section className="panel form">
+          {/* 계정 — 아래 REGISTER 버튼이 form 속성으로 이 폼에 붙는다 */}
+          <form
+            id="register-form"
+            className="panel form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitRegister();
+            }}
+          >
             <h2 className="panel-title">ACCOUNT</h2>
             <label className="input-row">
               <span className="field-label">활동명</span>
@@ -781,11 +808,11 @@ export default function JoinTerminal() {
                 type="password"
                 value={registerPassword}
                 onChange={(event) => setRegisterPassword(event.target.value)}
-                placeholder="4자 이상"
+                placeholder={`${minPassword}자 이상`}
                 autoComplete="new-password"
               />
             </label>
-          </section>
+          </form>
 
           {/* 캐릭터 시트 */}
           <section className="panel form">
@@ -937,14 +964,26 @@ export default function JoinTerminal() {
 
           <section className="panel confirm">
             <button
-              type="button"
+              type="submit"
+              form="register-form"
               className="confirm-btn"
-              disabled={busy || !registerId || !registerPassword}
-              onClick={submitRegister}
+              disabled={busy || blockers.length > 0}
             >
               REGISTER CONTRACT
-              <small>등록 후 전투 단말로 이동할 수 있습니다</small>
+              <small>
+                {blockers.length > 0
+                  ? `남은 항목 ${blockers.length}개 — 아래 목록을 채우면 열립니다`
+                  : '등록 후 전투 단말로 이동할 수 있습니다'}
+              </small>
             </button>
+            {/* 화면 위 알림까지 올라가지 않아도 되도록, 막고 있는 것을 버튼 밑에 둔다 */}
+            {blockers.length > 0 && (
+              <ul className="notice warn" style={{ marginTop: 12 }}>
+                {blockers.map((row) => (
+                  <li key={row}>{row}</li>
+                ))}
+              </ul>
+            )}
           </section>
         </>
       )}

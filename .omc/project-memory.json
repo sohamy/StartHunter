@@ -1,0 +1,133 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1787011889867,
+  "projectRoot": "D:\\PB\\trunk\\StartHunter",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "astro",
+        "version": "5.13.5",
+        "category": "fullstack"
+      },
+      {
+        "name": "react",
+        "version": "19.2.8",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "19.2.8",
+        "category": "frontend"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "astro dev",
+      "build": "astro build",
+      "preview": "astro preview",
+      "typecheck": "tsc --noEmit",
+      "verify:battle": "esbuild src/battle/__verify.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/verify-battle.mjs --log-level=warning && node node_modules/.cache/verify-battle.mjs"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 1,
+      "lastAccessed": 1787011889828,
+      "keyFiles": [
+        "index.html"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1787011889828,
+      "keyFiles": [
+        "BATTLE_SYSTEM_REQUIREMENTS.md",
+        "SUPABASE_SETUP.md"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1787011889828,
+      "keyFiles": []
+    },
+    "supabase": {
+      "path": "supabase",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1787011889828,
+      "keyFiles": []
+    },
+    "src\\pages": {
+      "path": "src\\pages",
+      "purpose": "Page components",
+      "fileCount": 1,
+      "lastAccessed": 1787011889829,
+      "keyFiles": [
+        "index.astro"
+      ]
+    },
+    "supabase\\migrations": {
+      "path": "supabase\\migrations",
+      "purpose": "Database migrations",
+      "fileCount": 5,
+      "lastAccessed": 1787011889829,
+      "keyFiles": [
+        "0001_battle_schema.sql",
+        "0002_roster_and_enemies.sql",
+        "0003_chat.sql"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

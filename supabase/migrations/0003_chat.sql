@@ -18,7 +18,9 @@ create table if not exists public.chat_messages (
                    check (role in ('PARTICIPANT', 'OPERATOR')),
   side           text check (side in ('HUNTER', 'CONSTELLATION')),
   kind           text not null default 'TALK'
-                   check (kind in ('TALK', 'ACTION', 'OOC')),
+                   check (kind in ('TALK', 'ACTION', 'OOC', 'ROLL')),
+  -- 다이스 결과 — kind 가 ROLL 일 때 채워진다
+  dice           jsonb,
   body           text not null check (length(btrim(body)) > 0 and length(body) <= 2000),
   created_at     timestamptz not null default now()
 );

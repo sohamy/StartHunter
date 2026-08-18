@@ -57,11 +57,16 @@ body.console-body::before {
   background-size: 48px 48px, 48px 48px, 260px 260px;
 }
 
+/*
+   flex 열로 둔다 — grid 였을 때는 각 패널이 자기 행에 갇혀서
+   아래에 붙는 확정 버튼(.confirm.dock)의 sticky 가 움직일 여유를 못 가졌다.
+*/
 .console {
   width: min(1360px, calc(100% - 32px));
   margin: 0 auto;
   padding: 24px 0 80px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
 }
 
@@ -436,6 +441,18 @@ select.ctl option:disabled { color: #7a8598; }
 
 /* ── 확정 ────────────────────────────────────────────── */
 .confirm { padding: 14px 20px; }
+/*
+   dock 이 붙은 확정 패널은 화면 아래에 머문다.
+   안내줄은 위, 버튼은 페어 그리드 아래라 매 라운드 오르내리게 되기 때문이다.
+   제자리까지 스크롤하면 자연스럽게 흐름으로 돌아온다.
+*/
+.confirm.dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(8, 11, 18, .92), rgba(8, 11, 18, .98));
+  backdrop-filter: blur(8px);
+}
 .confirm-btn {
   width: 100%;
   display: grid;
@@ -678,8 +695,10 @@ select.ctl option:disabled { color: #7a8598; }
 }
 .notice.ok { border-color: rgba(79, 214, 196, .45); color: var(--c-ok); }
 .notice.warn { border-color: rgba(232, 197, 90, .40); color: var(--c-warn); background: rgba(232, 197, 90, .06); }
-.notice.error { border-color: rgba(239, 95, 107, .5); color: var(--c-critical); background: rgba(239, 95, 107, .07); list-style: none; }
-.notice.error li + li { margin-top: 4px; }
+.notice.error { border-color: rgba(239, 95, 107, .5); color: var(--c-critical); background: rgba(239, 95, 107, .07); }
+/* 알림을 목록으로 쓰는 경우 — 등록 실패 사유처럼 여러 줄이 된다 */
+ul.notice { list-style: none; }
+ul.notice li + li { margin-top: 4px; }
 
 /* ── 입력 폼 ─────────────────────────────────────────── */
 .form { display: grid; gap: 12px; }
@@ -1344,14 +1363,6 @@ a.ctl { text-decoration: none; display: inline-block; }
   select.ctl { min-width: 0; width: 100%; }
   .action { grid-template-columns: 1fr auto; padding: 12px; }
   .log-list li { grid-template-columns: 1fr; gap: 2px; }
-  /* 모바일에서는 행동 확정 버튼을 하단에 고정한다 */
-  .confirm {
-    position: sticky;
-    bottom: 0;
-    z-index: 5;
-    background: linear-gradient(180deg, rgba(8, 11, 18, .92), rgba(8, 11, 18, .98));
-    backdrop-filter: blur(8px);
-  }
 }
 
 /* ── 접근성 ──────────────────────────────────────────── */

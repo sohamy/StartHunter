@@ -464,7 +464,7 @@ export default function BattleTerminal() {
             <span>TOWER RAID CONTROL SYSTEM</span>
           </div>
           <dl className="ops">
-            <Field label="OPERATOR">{account.id}</Field>
+            <Field label="ACCOUNT">{account.id}</Field>
             <Field label="ROLE">
               <span className={`tag ${account.sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
                 {account.sheet.side}
@@ -848,7 +848,7 @@ export default function BattleTerminal() {
       {/* ── 단말 정보 ── */}
       <section className="panel session">
         <div className="session-row">
-          <span className="field-label">OPERATOR</span>
+          <span className="field-label">ACCOUNT</span>
           <span className="field-value">{account.id}</span>
           <span className={`tag ${account.sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
             {account.sheet.side} · {account.sheet.name}
@@ -1311,7 +1311,8 @@ export default function BattleTerminal() {
       </section>
 
       {/* ── 행동 확정 ── */}
-      <section className="panel confirm">
+      {/* dock — 페어 그리드 아래라 매 라운드 오르내리게 된다. 화면 아래에 붙여 둔다. */}
+      <section className="panel confirm dock">
         {!engaged ? (
           <p className="confirm-note">
             {battle.status === 'CLEARED' ? '작전 클리어' : '작전 실패'}
