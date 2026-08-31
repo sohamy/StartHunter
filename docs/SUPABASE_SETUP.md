@@ -21,7 +21,8 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `0006_items_points_records.sql` | 아이템 가방 · 아이템 제출 · 포인트 원장 · 편성 보급품 · 공략 기록(`battle_records`) |
 | `0007_sheet_portrait.sql` | 캐릭터 사진(`sheets.portrait`) · `public_profiles` 뷰에 사진 추가 |
 | `0008_boss_phase_rules.sql` | 보스 페이즈 경계(`enemy_templates.phase_cutoffs`) |
-| `0009_sheet_profile_split.sql` | 컨셉 분할(성격 · 특징 · 계약 경위) · 계약 상대 이름 · `public_profiles` 뷰를 공개 시트 경계로 재정의 |
+| `0009_sheet_profile_split.sql` | 컨셉 분할(성격 · 특징 · 계약 경위) · 계약 상대 이름 · `public_profiles` 뷰 재정의 |
+| `0010_public_sheet_full.sql` | `public_profiles` 에 스탯과 스킬 전문 포함 — 제출한 시트는 전부 공개 |
 
 0001 이 만드는 테이블:
 
@@ -43,6 +44,7 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 > 0008 을 적용하지 않으면 보스 페이즈 경계 저장이 실패한다 (경계를 안 건드리면 지장은 없다).
 > 0009 를 적용하지 않으면 회원가입과 시트 저장이 실패하고, 페어 상대의 공개 시트도 뜨지 않는다.
 > 0009 는 0007(사진) 을 건너뛴 프로젝트에서도 혼자 선다 — `sheets.portrait` 를 스스로 만든다.
+> 0010 을 적용하지 않으면 다른 참가자의 프로필에서 스탯과 스킬 수치가 비어 보인다.
 > 0009 는 기존 `concept` 에 적힌 글을 **성격** 칸으로 옮긴다 (원본 열은 지우지 않는다).
 
 ## 2. 이메일 확인 끄기 (필수)

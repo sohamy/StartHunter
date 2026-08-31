@@ -671,9 +671,7 @@ export default function JoinTerminal() {
             </div>
 
             <div>
-              <h3 className="sub-title">
-                STATS <span className="tag sealed">관리국 전용</span>
-              </h3>
+              <h3 className="sub-title">STATS</h3>
               <ul className="stat-summary">
                 {statsFor(sheet.side).map((stat) => (
                   <li key={stat.key}>
@@ -686,9 +684,7 @@ export default function JoinTerminal() {
             </div>
 
             <div>
-              <h3 className="sub-title">
-                COMBAT VALUE <span className="tag sealed">관리국 전용</span>
-              </h3>
+              <h3 className="sub-title">COMBAT VALUE</h3>
               {hunter && (
                 <ul className="stat-summary">
                   <li>
@@ -726,9 +722,7 @@ export default function JoinTerminal() {
 
           {(sheet.skills ?? []).length > 0 && (
             <>
-              <h3 className="sub-title">
-                CUSTOM SKILL <span className="tag sealed">수치는 관리국 전용</span>
-              </h3>
+              <h3 className="sub-title">CUSTOM SKILL</h3>
               <ul className="skill-summary">
                 {sheet.skills.map((skill) => (
                   <li key={skill.id}>
@@ -771,7 +765,7 @@ export default function JoinTerminal() {
         <section className="panel">
           <h2 className="panel-title">PUBLIC DOSSIER · 공개 시트</h2>
           <p className="hint" style={{ marginBottom: 12 }}>
-            다른 참가자에게는 아래 카드만 보입니다. 스탯과 스킬 수치는 관리국(운영진)만 열람합니다.
+            다른 참가자에게는 아래 카드로 보입니다. 제출한 시트 내용이 그대로 실립니다.
           </p>
           <PublicSheetCard
             profile={toPublicProfile(account.id, sheet)}
@@ -788,7 +782,7 @@ export default function JoinTerminal() {
               </ul>
             </div>
             <div>
-              <h3 className="sub-title">관리국만 보는 것</h3>
+              <h3 className="sub-title">관리국만 보는 것 (시트 밖)</h3>
               <ul className="disclosure-list sealed">
                 {SHEET_DISCLOSURE.operatorOnly.map((row) => (
                   <li key={row}>{row}</li>
@@ -802,7 +796,7 @@ export default function JoinTerminal() {
           <section className="panel">
             <h2 className="panel-title">CONTRACTED PAIR · 계약 상대</h2>
             <p className="hint" style={{ marginBottom: 12 }}>
-              관리국이 맺어 준 상대의 공개 시트입니다. 상대의 스탯과 스킬 수치는 열람할 수 없습니다.
+              관리국이 맺어 준 상대의 시트입니다.
             </p>
             <PublicSheetCard
               profile={partnerProfile}
@@ -1138,7 +1132,7 @@ export default function JoinTerminal() {
 
             <h3 className="sub-title">CONCEPT</h3>
             <p className="hint" style={{ marginBottom: 10 }}>
-              세 칸 모두 선택입니다. 적어 둔 내용은 다른 참가자에게도 공개됩니다.
+              세 칸 모두 선택입니다. 적어 둔 내용은 다른 참가자에게 그대로 공개됩니다.
             </p>
             {PROFILE_FIELDS.map((field) => {
               const value = draft[field.key];

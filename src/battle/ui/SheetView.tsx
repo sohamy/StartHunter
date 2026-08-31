@@ -25,7 +25,6 @@ import type {
   ActorSide,
   Affiliation,
   CharacterSheet,
-  PublicSkill,
   SheetProfile,
   SkillDefinition,
   SkillRuntime,
@@ -138,27 +137,12 @@ export function ProfileBlock({
   );
 }
 
-/** 공개 스킬 — 이름 · 종류 · 설명까지만. 수치는 운영진 화면에서만 보인다. */
-export function PublicSkillList({ skills }: { skills: PublicSkill[] }) {
-  if (skills.length === 0) {
-    return <p className="dim small-text">등록된 스킬 없음 — 기본 행동만 사용합니다.</p>;
-  }
-
-  return (
-    <ul className="skill-summary public">
-      {skills.map((skill) => (
-        <li key={skill.id}>
-          <b>{skill.name || '(이름 없음)'}</b>
-          <span className="tag">{findSkillKind(skill.kind)?.labelKo ?? skill.kind}</span>
-          {skill.description && <small className="dim">{skill.description}</small>}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /** 스탯 → 전투 수치 환산. 시트만 보고 전투 능력을 가늠할 수 있게 한다. */
-function DerivedValues({ sheet }: { sheet: CharacterSheet }) {
+function DerivedValues({
+  sheet,
+}: {
+  sheet: { side: ActorSide; classId: string; stats: StatBlock };
+}) {
   if (sheet.side === 'HUNTER') {
     const derived = deriveHunter(sheet);
     return (
@@ -281,63 +265,71 @@ export function SheetDetail({
   note?: ReactNode;
 }) {
   const classDef = findClass(sheet.side, sheet.classId);
+  const hunter = sheet.side === 'HUNTER';
+  const skills = sheet.skills ?? [];
 
   return (
-    <article className={`sheet-card ${sheet.side === 'HUNTER' ? 'hunter' : 'constellation'}`}>
+    <article className={`sheet-card detail ${hunter ? 'hunter' : 'constellation'}`}>
       <header className="sheet-card-head">
-        <Portrait src={sheet.portrait} name={sheet.name} size="sm" />
-        <span className={`tag ${sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
-          {sideLabel(sheet.side)}
-        </span>
-        <b>{sheet.name}</b>
-        <span className="dim small-text">
-          {classDef ? `${classDef.label} · ${classDef.labelKo}` : `미지정 (${sheet.classId})`}
-        </span>
-        {sheet.side === 'HUNTER' && (
-          <span className={`tag ${sheet.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
-            {sheet.affiliation === 'GOVERNMENT' ? '정부' : '민간 길드'}
+        <Portrait src={sheet.portrait} name={sheet.name} size="md" />
+        <div className="sheet-head-text">
+          <div className="sheet-head-line">
+            <b>{sheet.name || '(이름 없음)'}</b>
+            <span className={`tag ${hunter ? 'blue' : 'gold'}`}>{sideLabel(sheet.side)}</span>
+            {hunter && (
+              <span className={`tag ${sheet.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
+                {affiliationLabel(sheet.affiliation)}
+              </span>
+            )}
+          </div>
+          <span className="dim small-text">
+            {classDef ? `${classDef.label} · ${classDef.labelKo}` : `미지정 (${sheet.classId})`}
           </span>
-        )}
-        {accountId && <span className="field-label">@{accountId}</span>}
-        {note}
+          {accountId && <span className="field-label">@{accountId}</span>}
+        </div>
+        {note && <div className="sheet-head-note">{note}</div>}
       </header>
 
-      <div className="sheet-card-row">
-        <span className="field-label">스탯</span>
-        <StatLine side={sheet.side} stats={sheet.stats} />
-      </div>
-      <div className="sheet-card-row">
-        <span className="field-label">환산</span>
-        <DerivedValues sheet={sheet} />
-      </div>
-
-      <div className="sheet-card-row block">
-        <span className="field-label">스킬 {(sheet.skills ?? []).length}</span>
-        <SkillList skills={sheet.skills ?? []} />
-      </div>
-
-      {sheet.partnerName.trim().length > 0 && (
-        <div className="sheet-card-row">
-          <span className="field-label">계약 상대</span>
-          <span>{sheet.partnerName}</span>
+      <div className="sheet-grid">
+        <div className="sheet-box">
+          <span className="field-label">스탯 배분</span>
+          <StatLine side={sheet.side} stats={sheet.stats} />
         </div>
-      )}
+        <div className="sheet-box">
+          <span className="field-label">전투 환산</span>
+          <DerivedValues sheet={sheet} />
+        </div>
+      </div>
 
-      {hasProfile(sheet) && (
-        <div className="sheet-card-row block">
-          <span className="field-label">컨셉</span>
+      <div className="sheet-block">
+        <span className="field-label">계약 상대</span>
+        <span className={sheet.partnerName.trim() ? '' : 'dim'}>
+          {sheet.partnerName.trim() || '미정 — 공란'}
+        </span>
+      </div>
+
+      <div className="sheet-block">
+        <span className="field-label">스킬 {skills.length}</span>
+        <SkillList skills={skills} />
+      </div>
+
+      <div className="sheet-block">
+        <span className="field-label">컨셉</span>
+        {hasProfile(sheet) ? (
           <ProfileBlock source={sheet} compact />
-        </div>
-      )}
+        ) : (
+          <p className="dim small-text">적어 둔 설정 없음</p>
+        )}
+      </div>
     </article>
   );
 }
 
 /**
- * 공개 시트 한 장 — 다른 참가자에게 보이는 범위만 담는다.
+ * 프로필 한 장 — 참가자가 제출한 시트 내용을 전부 싣는다.
  *
- * 여기에 들어오는 값은 store 의 toPublicProfile 을 이미 거쳤다.
- * 즉 스탯도 스킬 수치도 애초에 없으므로, 실수로 새어 나갈 자리가 없다.
+ * 성격 · 특징 · 계약 경위 · 스킬 · 스탯 · 환산 수치까지 가리는 것 없이 보여 준다.
+ * 비워 둔 칸도 자리를 남긴다 — 무엇을 안 적었는지도 정보다.
  *
  * 헌터와 성좌는 같은 정보를 다른 서식으로 낸다.
  *  · 헌터 — 관리국이 발급한 인사 기록부. 모서리 괄호, 일련번호, 격자 바탕.
@@ -357,7 +349,6 @@ export function PublicSheetCard({
   const hunter = profile.side === 'HUNTER';
   const classDef = findClass(profile.side, profile.classId);
   const partner = (partnerName ?? '').trim() || profile.partnerName.trim();
-  const filled = PROFILE_FIELDS.filter((field) => (profile[field.key] ?? '').trim().length > 0);
 
   return (
     <article className={`dossier ${hunter ? 'hunter' : 'constellation'}`}>
@@ -401,34 +392,56 @@ export function PublicSheetCard({
       </dl>
 
       <div className="dossier-body">
-        {filled.map((field, index) => (
-          <section key={field.key} className="dossier-part">
-            <h4 className="dossier-part-title">
-              <span className="dossier-index">{String(index + 1).padStart(2, '0')}</span>
-              <span>{field.labelKo}</span>
-              <i>{field.label}</i>
-            </h4>
-            <p className="concept-text">{profile[field.key]}</p>
-          </section>
-        ))}
+        {/* 제출한 시트 내용은 빠짐없이 싣는다 — 비워 둔 칸도 자리를 남겨 무엇을 안 적었는지 보이게 한다 */}
+        {PROFILE_FIELDS.map((field, index) => {
+          const value = (profile[field.key] ?? '').trim();
+          return (
+            <section key={field.key} className="dossier-part">
+              <h4 className="dossier-part-title">
+                <span className="dossier-index">{String(index + 1).padStart(2, '0')}</span>
+                <span>{field.labelKo}</span>
+                <i>{field.label}</i>
+              </h4>
+              {value ? (
+                <p className="concept-text">{value}</p>
+              ) : (
+                <p className="concept-text dim">미기입</p>
+              )}
+            </section>
+          );
+        })}
 
         <section className="dossier-part">
           <h4 className="dossier-part-title">
-            <span className="dossier-index">{String(filled.length + 1).padStart(2, '0')}</span>
+            <span className="dossier-index">{String(PROFILE_FIELDS.length + 1).padStart(2, '0')}</span>
             <span>보유 기술</span>
             <i>SKILL</i>
           </h4>
-          <PublicSkillList skills={profile.skills} />
+          <SkillList skills={profile.skills} />
         </section>
 
-        {filled.length === 0 && profile.skills.length === 0 && (
-          <p className="dim small-text">아직 적어 둔 설정이 없습니다.</p>
-        )}
+        <section className="dossier-part">
+          <h4 className="dossier-part-title">
+            <span className="dossier-index">{String(PROFILE_FIELDS.length + 2).padStart(2, '0')}</span>
+            <span>스탯 · 환산</span>
+            <i>STATS</i>
+          </h4>
+          <div className="dossier-stats">
+            <div>
+              <span className="field-label">배분</span>
+              <StatLine side={profile.side} stats={profile.stats} />
+            </div>
+            <div>
+              <span className="field-label">전투 환산</span>
+              <DerivedValues sheet={profile} />
+            </div>
+          </div>
+        </section>
       </div>
 
       <footer className="dossier-foot">
         <span>{hunter ? 'HUNTER MANAGEMENT AGENCY' : 'ASTRAL REGISTRY'}</span>
-        <span>공개 등록 정보 — 스탯 · 스킬 수치는 관리국 열람</span>
+        <span>등록 시트 전문 — 참가자 열람용</span>
       </footer>
     </article>
   );

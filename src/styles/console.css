@@ -25,6 +25,8 @@
 
   --c-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   --c-sans: "Pretendard Variable", Pretendard, Inter, system-ui, "Noto Sans KR", sans-serif;
+  /* 성좌 쪽 표기에만 쓴다 — 라틴은 Cinzel, 한글은 Noto Serif KR 로 떨어진다 */
+  --c-serif: "Cinzel", "Noto Serif KR", Georgia, "Times New Roman", serif;
 
   /* 드롭다운 · 스크롤바 같은 네이티브 위젯도 어두운 쪽으로 그리게 한다 */
   color-scheme: dark;
@@ -1680,32 +1682,39 @@ a.ctl { text-decoration: none; display: inline-block; }
 .actor-head { align-items: center; }
 
 /* ══════════════════════════════════════════════════════
-   공개 프로필 (dossier)
+   프로필 카드 (dossier)
 
-   한 명당 한 장. 다른 참가자에게 보이는 범위만 담기므로 수치가 없고,
-   대신 서술을 끝까지 읽게 만드는 것이 목적이다 — 잘라내지 않는다.
+   한 명당 한 장. 참가자가 제출한 시트 내용을 전부 싣는다.
 
-   헌터와 성좌는 같은 정보를 다른 서식으로 낸다.
-   · 헌터  — 관리국 인사 기록부. 각진 모서리 괄호, 격자 바탕, 일련번호.
-   · 성좌  — 천문대 성록(星錄). 별 바탕, 이중 괘선, 별표 구획선, 금빛 인장.
+   두 쪽의 인상을 갈라 놓는다.
+   · 헌터  — 관리국 단말이 쏘아 올린 홀로그램. 주사선, 청록빛 번짐,
+             비스듬한 빛 쓸림, 모서리 브래킷, 아래로 갈수록 옅어지는 투영.
+   · 성좌  — 성물함에 든 성록(星錄). 위에서 내려오는 후광, 방사형 광선,
+             금박 이중 테두리, 초상을 감싸는 광배, ✦ 구획선.
    ══════════════════════════════════════════════════════ */
 
 .dossier-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr));
   gap: 18px;
+  align-items: stretch;
 }
+/* 카드와 주소 줄을 한 칸으로 묶는다 — 카드가 칸 높이를 채워 헌터·성좌가 나란히 맞는다 */
+.dossier-slot { display: grid; grid-template-rows: 1fr auto; gap: 8px; min-width: 0; }
 
 .dossier {
   position: relative;
   display: grid;
   gap: 16px;
-  padding: 22px 24px 18px;
+  align-content: start;
+  height: 100%;
+  padding: 24px 26px 18px;
   min-width: 0;
+  overflow: hidden;
   isolation: isolate;
 }
-/* 바탕 무늬는 카드 안쪽에만 깔린다 — 글자 뒤로 지나가지 않게 옅게 둔다 */
-.dossier::before {
+.dossier::before,
+.dossier::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -1728,24 +1737,24 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .dossier-serial { color: var(--c-faint); letter-spacing: .12em; }
 
-.dossier-id { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-.dossier-titles { display: grid; gap: 3px; min-width: 0; }
+.dossier-id { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.dossier-titles { display: grid; gap: 4px; min-width: 0; }
 .dossier-eyebrow {
   font-family: var(--c-mono);
   font-size: 0.6875rem;
   letter-spacing: .22em;
   color: var(--c-faint);
 }
-.dossier-name { font-size: 1.5rem; line-height: 1.2; letter-spacing: -.01em; }
+.dossier-name { font-size: 1.625rem; line-height: 1.2; }
 .dossier-sub { color: var(--c-dim); font-size: 0.8125rem; }
-.dossier-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.dossier-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
 
 .dossier-facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 10px 20px;
   margin: 0;
-  padding: 12px 0;
+  padding: 13px 0;
 }
 .dossier-facts > div { display: grid; gap: 3px; min-width: 0; }
 .dossier-facts dt {
@@ -1756,14 +1765,14 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .dossier-facts dd { margin: 0; font-size: 0.875rem; word-break: break-word; }
 
-.dossier-body { display: grid; gap: 18px; }
-.dossier-part { display: grid; gap: 7px; min-width: 0; }
+.dossier-body { display: grid; gap: 20px; }
+.dossier-part { display: grid; gap: 8px; min-width: 0; }
 .dossier-part-title {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 9px;
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: 0.84375rem;
   font-weight: 600;
 }
 .dossier-part-title i {
@@ -1773,19 +1782,29 @@ a.ctl { text-decoration: none; display: inline-block; }
   letter-spacing: .2em;
   color: var(--c-faint);
 }
+/* 제목 오른쪽으로 흐려지는 선 — 구획이 눈에 잡히게 한다 */
+.dossier-part-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  min-width: 20px;
+}
 .dossier-index {
   font-family: var(--c-mono);
   font-size: 0.6875rem;
   letter-spacing: .08em;
 }
-/* 서술은 전문이 실린다 — 줄바꿈을 살리고 읽기 좋은 폭으로 흘린다 */
 .dossier-part .concept-text {
   font-size: 0.875rem;
-  line-height: 1.75;
+  line-height: 1.78;
   color: var(--c-text);
   max-width: 62ch;
 }
-.dossier-part .skill-summary li { background: rgba(255, 255, 255, .02); }
+.dossier-part .concept-text.dim { color: var(--c-faint); font-style: italic; }
+.dossier-part .skill-summary li { border-bottom-color: rgba(255, 255, 255, .08); }
+
+.dossier-stats { display: grid; gap: 12px; }
+.dossier-stats > div { display: grid; gap: 5px; }
 
 .dossier-foot {
   display: flex;
@@ -1793,7 +1812,7 @@ a.ctl { text-decoration: none; display: inline-block; }
   gap: 12px;
   flex-wrap: wrap;
   margin: 0;
-  padding-top: 12px;
+  padding-top: 13px;
   font-family: var(--c-mono);
   font-size: 0.625rem;
   letter-spacing: .14em;
@@ -1801,26 +1820,42 @@ a.ctl { text-decoration: none; display: inline-block; }
   text-transform: uppercase;
 }
 
-/* ── 헌터 — 관리국 인사 기록부 ─────────────────────── */
+/* ══ 헌터 — 홀로그램 투영 ═══════════════════════════ */
 .dossier.hunter {
-  border: 1px solid rgba(127, 176, 255, .32);
-  background: linear-gradient(180deg, rgba(18, 28, 46, .92), rgba(9, 13, 22, .96));
+  border: 1px solid rgba(127, 176, 255, .38);
+  background:
+    linear-gradient(180deg, rgba(22, 40, 66, .92), rgba(8, 13, 24, .96) 70%),
+    radial-gradient(90% 60% at 50% 0%, rgba(95, 224, 205, .16), transparent 70%);
+  box-shadow:
+    inset 0 1px 0 rgba(180, 226, 255, .22),
+    inset 0 0 40px rgba(95, 224, 205, .06),
+    0 0 34px rgba(127, 176, 255, .10);
 }
+/* 주사선 — 홀로그램의 첫인상 */
 .dossier.hunter::before {
-  /* 접힌 방안지 — 아주 옅게 깔아 서식지 느낌만 남긴다 */
-  background-image:
-    linear-gradient(rgba(127, 176, 255, .05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(127, 176, 255, .05) 1px, transparent 1px);
-  background-size: 22px 22px, 22px 22px;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(150, 220, 255, .055) 0px,
+    rgba(150, 220, 255, .055) 1px,
+    transparent 1px,
+    transparent 4px
+  );
 }
-/* 네 모서리 괄호 — 실물 서류의 재단 표시 */
+/* 비스듬히 지나가는 빛 쓸림 + 아래로 사라지는 투영 */
+.dossier.hunter::after {
+  background:
+    linear-gradient(104deg, transparent 28%, rgba(160, 235, 255, .10) 46%, transparent 62%),
+    linear-gradient(180deg, transparent 62%, rgba(6, 10, 18, .55) 100%);
+}
+/* 네 모서리 브래킷 — 투영 범위 표시 */
 .dossier.hunter .dossier-frame::before,
 .dossier.hunter .dossier-frame::after {
   content: '';
   position: absolute;
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--c-blue);
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(95, 224, 205, .75);
+  filter: drop-shadow(0 0 4px rgba(95, 224, 205, .5));
 }
 .dossier.hunter .dossier-frame::before {
   top: 7px;
@@ -1835,96 +1870,193 @@ a.ctl { text-decoration: none; display: inline-block; }
   border-top: 0;
 }
 .dossier.hunter .dossier-stamp {
-  padding: 3px 10px;
-  border: 1px solid rgba(127, 176, 255, .5);
-  color: var(--c-blue);
-  background: rgba(127, 176, 255, .08);
+  position: relative;
+  padding: 3px 10px 3px 20px;
+  border: 1px solid rgba(95, 224, 205, .45);
+  color: var(--c-ok);
+  background: rgba(95, 224, 205, .10);
+  text-shadow: 0 0 10px rgba(95, 224, 205, .55);
 }
-.dossier.hunter .dossier-name { color: #dfe9fb; }
-.dossier.hunter .portrait { border-radius: 2px; border-color: rgba(127, 176, 255, .45); }
+/* 살아 있는 신호 — 송출 중임을 알리는 점 */
+.dossier.hunter .dossier-stamp::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--c-ok);
+  box-shadow: 0 0 8px var(--c-ok);
+  animation: dossier-pulse 2.4s ease-in-out infinite;
+}
+@keyframes dossier-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+.dossier.hunter .dossier-name {
+  color: #e7f4ff;
+  text-shadow: 0 0 18px rgba(127, 200, 255, .55), 0 0 40px rgba(95, 224, 205, .22);
+}
+.dossier.hunter .dossier-eyebrow { color: rgba(127, 200, 255, .78); }
+/* 초상은 투영된 것처럼 — 청록 테두리와 번짐 */
+.dossier.hunter .portrait {
+  border-radius: 2px;
+  border-color: rgba(95, 224, 205, .55);
+  box-shadow: 0 0 0 1px rgba(127, 176, 255, .22), 0 0 22px rgba(95, 224, 205, .28);
+}
 .dossier.hunter .dossier-facts {
-  border-top: 1px solid rgba(127, 176, 255, .2);
-  border-bottom: 1px solid rgba(127, 176, 255, .2);
+  border-top: 1px solid rgba(127, 176, 255, .22);
+  border-bottom: 1px solid rgba(127, 176, 255, .22);
 }
-.dossier.hunter .dossier-part-title { color: var(--c-blue); }
+.dossier.hunter .dossier-part-title { color: #9fd8ff; }
+.dossier.hunter .dossier-part-title::after {
+  background: linear-gradient(90deg, rgba(95, 224, 205, .45), transparent);
+}
 .dossier.hunter .dossier-index {
-  padding: 1px 5px;
-  border: 1px solid rgba(127, 176, 255, .4);
-  color: var(--c-blue);
+  padding: 1px 6px;
+  border: 1px solid rgba(95, 224, 205, .45);
+  color: var(--c-ok);
+  background: rgba(95, 224, 205, .08);
 }
 .dossier.hunter .dossier-part .concept-text {
-  border-left: 2px solid rgba(127, 176, 255, .28);
-  padding-left: 12px;
+  border-left: 2px solid rgba(95, 224, 205, .35);
+  padding-left: 13px;
 }
-.dossier.hunter .dossier-foot { border-top: 1px dashed rgba(127, 176, 255, .28); }
+.dossier.hunter .dossier-foot { border-top: 1px dashed rgba(127, 176, 255, .3); }
 
-/* ── 성좌 — 천문대 성록 ────────────────────────────── */
+/* ══ 성좌 — 성물함의 성록 ═══════════════════════════ */
 .dossier.constellation {
-  border: 1px solid rgba(230, 197, 131, .34);
+  border: 1px solid rgba(230, 197, 131, .42);
   background:
-    radial-gradient(120% 80% at 50% -10%, rgba(164, 140, 255, .16), transparent 60%),
-    linear-gradient(180deg, rgba(26, 22, 38, .92), rgba(10, 9, 16, .96));
+    radial-gradient(115% 70% at 50% -8%, rgba(230, 197, 131, .20), transparent 62%),
+    radial-gradient(90% 55% at 50% 0%, rgba(164, 140, 255, .18), transparent 70%),
+    linear-gradient(180deg, rgba(28, 23, 42, .94), rgba(10, 9, 17, .97));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 235, 190, .28),
+    inset 0 0 50px rgba(230, 197, 131, .05),
+    0 0 34px rgba(164, 140, 255, .12);
   text-align: center;
 }
+/* 위에서 내려오는 방사형 광선 — 성스러운 인상의 뼈대 */
 .dossier.constellation::before {
-  /* 별 바탕 — 크기가 다른 점을 흩어 놓는다 */
-  background-image:
-    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, .5), transparent),
-    radial-gradient(1px 1px at 78% 12%, rgba(255, 255, 255, .4), transparent),
-    radial-gradient(1.5px 1.5px at 32% 62%, rgba(230, 197, 131, .45), transparent),
-    radial-gradient(1px 1px at 62% 78%, rgba(255, 255, 255, .35), transparent),
-    radial-gradient(1px 1px at 88% 52%, rgba(164, 140, 255, .5), transparent);
-  opacity: .8;
+  background: conic-gradient(
+    from 200deg at 50% -12%,
+    transparent 0deg,
+    rgba(255, 236, 190, .10) 8deg,
+    transparent 16deg,
+    transparent 24deg,
+    rgba(255, 236, 190, .07) 32deg,
+    transparent 40deg,
+    transparent 52deg,
+    rgba(255, 236, 190, .10) 60deg,
+    transparent 68deg,
+    transparent 80deg,
+    rgba(255, 236, 190, .06) 88deg,
+    transparent 96deg
+  );
 }
-/* 이중 괘선 — 옮겨 적은 기록장의 테두리 */
+/* 별 바탕 + 아래쪽 어둠 */
+.dossier.constellation::after {
+  background:
+    radial-gradient(1px 1px at 12% 18%, rgba(255, 255, 255, .55), transparent),
+    radial-gradient(1px 1px at 78% 12%, rgba(255, 255, 255, .45), transparent),
+    radial-gradient(1.6px 1.6px at 32% 60%, rgba(230, 197, 131, .5), transparent),
+    radial-gradient(1px 1px at 62% 78%, rgba(255, 255, 255, .38), transparent),
+    radial-gradient(1px 1px at 88% 46%, rgba(164, 140, 255, .55), transparent),
+    radial-gradient(1.4px 1.4px at 20% 88%, rgba(230, 197, 131, .35), transparent),
+    linear-gradient(180deg, transparent 70%, rgba(6, 5, 12, .5) 100%);
+}
+/* 금박 이중 테두리 + 네 귀의 ✦ */
 .dossier.constellation .dossier-frame {
-  inset: 6px;
-  border: 1px solid rgba(230, 197, 131, .22);
+  inset: 7px;
+  border: 1px solid rgba(230, 197, 131, .3);
 }
-.dossier.constellation .dossier-top { justify-content: center; flex-direction: column; gap: 4px; }
+.dossier.constellation .dossier-frame::before,
+.dossier.constellation .dossier-frame::after {
+  content: '✦';
+  position: absolute;
+  color: rgba(230, 197, 131, .65);
+  font-size: 0.625rem;
+  line-height: 1;
+}
+.dossier.constellation .dossier-frame::before { top: -6px; left: -6px; }
+.dossier.constellation .dossier-frame::after { right: -6px; bottom: -6px; }
+
+.dossier.constellation .dossier-top { justify-content: center; flex-direction: column; gap: 5px; }
 .dossier.constellation .dossier-stamp {
   color: var(--c-gold);
-  letter-spacing: .38em;
-  text-indent: .38em;
+  letter-spacing: .42em;
+  text-indent: .42em;
+  text-shadow: 0 0 16px rgba(230, 197, 131, .5);
 }
-.dossier.constellation .dossier-id { flex-direction: column; gap: 12px; }
+.dossier.constellation .dossier-id { flex-direction: column; gap: 14px; }
 .dossier.constellation .dossier-titles { justify-items: center; text-align: center; }
-/* 초상 뒤의 금빛 인장 */
+/* 초상을 감싸는 광배 */
 .dossier.constellation .portrait {
   border-radius: 50%;
-  border-color: rgba(230, 197, 131, .5);
-  box-shadow: 0 0 0 6px rgba(230, 197, 131, .08), 0 0 26px rgba(164, 140, 255, .28);
+  border-color: rgba(230, 197, 131, .6);
+  box-shadow:
+    0 0 0 5px rgba(230, 197, 131, .10),
+    0 0 0 6px rgba(230, 197, 131, .22),
+    0 0 34px rgba(230, 197, 131, .35),
+    0 0 60px rgba(164, 140, 255, .3);
 }
 .dossier.constellation .dossier-name {
-  color: var(--c-gold);
-  font-size: 1.625rem;
-  letter-spacing: .04em;
+  color: #f7e6bd;
+  font-family: var(--c-serif);
+  font-size: 1.75rem;
+  letter-spacing: .05em;
+  text-shadow: 0 0 22px rgba(230, 197, 131, .5);
 }
-.dossier.constellation .dossier-eyebrow { color: rgba(230, 197, 131, .7); }
+.dossier.constellation .dossier-eyebrow { color: rgba(230, 197, 131, .72); }
 .dossier.constellation .dossier-tags { justify-content: center; }
 .dossier.constellation .dossier-facts {
   justify-items: center;
-  border-top: 1px solid rgba(230, 197, 131, .2);
-  border-bottom: 1px solid rgba(230, 197, 131, .2);
+  border-top: 1px solid rgba(230, 197, 131, .24);
+  border-bottom: 1px solid rgba(230, 197, 131, .24);
 }
 .dossier.constellation .dossier-part { justify-items: center; }
-.dossier.constellation .dossier-part-title { color: var(--c-gold); justify-content: center; }
-/* 번호 대신 별표를 쓴다 — 성록에는 일련번호가 어울리지 않는다 */
+.dossier.constellation .dossier-part-title {
+  color: var(--c-gold);
+  justify-content: center;
+  width: 100%;
+}
+/* 제목 양옆으로 뻗는 금선 — 가운데 정렬을 지탱한다 */
+.dossier.constellation .dossier-part-title::before,
+.dossier.constellation .dossier-part-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  min-width: 16px;
+  background: linear-gradient(90deg, transparent, rgba(230, 197, 131, .45));
+}
+.dossier.constellation .dossier-part-title::after {
+  background: linear-gradient(90deg, rgba(230, 197, 131, .45), transparent);
+}
+/* 번호 대신 ✦ — 성록에는 일련번호가 어울리지 않는다 */
 .dossier.constellation .dossier-index { font-size: 0; }
 .dossier.constellation .dossier-index::before {
-  content: "\2726";
+  content: '✦';
   font-size: 0.75rem;
-  color: rgba(230, 197, 131, .8);
+  color: rgba(230, 197, 131, .85);
+  text-shadow: 0 0 10px rgba(230, 197, 131, .6);
 }
 .dossier.constellation .dossier-part .concept-text {
   text-align: left;
-  color: #ece6f6;
+  color: #efe7f7;
 }
-.dossier.constellation .skill-summary { text-align: left; }
+.dossier.constellation .skill-summary,
+.dossier.constellation .dossier-stats { text-align: left; width: 100%; }
 .dossier.constellation .dossier-foot {
   justify-content: center;
-  border-top: 1px solid rgba(230, 197, 131, .2);
-  color: rgba(230, 197, 131, .55);
+  border-top: 1px solid rgba(230, 197, 131, .24);
+  color: rgba(230, 197, 131, .6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dossier.hunter .dossier-stamp::before { animation: none; }
 }
 
 /* ── 공개 범위 안내 ────────────────────────────────── */
@@ -1960,7 +2092,7 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .profile-field .hint { margin: 0; }
 .profile-block { display: grid; gap: 14px; }
-.profile-block.compact { gap: 8px; }
+.profile-block.compact { gap: 10px; }
 .profile-part { display: grid; gap: 5px; min-width: 0; }
 .profile-part-title {
   display: flex;
@@ -1979,6 +2111,65 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .profile-block.compact .profile-part-title { font-size: 0.75rem; }
 .ctl-sep { width: 1px; align-self: stretch; background: var(--c-line); margin: 0 4px; }
+
+/* ══ 시트 전문 (운영진) ════════════════════════════════
+   판정하면서 읽는 화면이라 밀도를 유지하되, 어디부터 어디까지가
+   한 덩어리인지 눈에 잡히게 구획을 세운다. */
+.sheet-card.detail {
+  position: relative;
+  gap: 14px;
+  padding: 16px 18px;
+  border-left-width: 1px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .015) 120px),
+    rgba(255, 255, 255, .02);
+  overflow: hidden;
+}
+/* 위쪽 색 띠 — 헌터와 성좌를 멀리서도 가른다 */
+.sheet-card.detail::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+}
+.sheet-card.detail.hunter::before {
+  background: linear-gradient(90deg, var(--c-ok), var(--c-blue) 40%, transparent);
+}
+.sheet-card.detail.constellation::before {
+  background: linear-gradient(90deg, var(--c-gold), var(--c-violet) 45%, transparent);
+}
+.sheet-card.detail .sheet-card-head {
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-line);
+}
+.sheet-head-text { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.sheet-head-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sheet-head-line b { font-size: 1.0625rem; }
+.sheet-card.detail.hunter .sheet-head-line b { color: #dfeeff; }
+.sheet-card.detail.constellation .sheet-head-line b { color: #f3e3bd; }
+.sheet-head-note { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.sheet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.sheet-box {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .025);
+}
+.sheet-card.detail.hunter .sheet-box { border-color: rgba(127, 176, 255, .22); }
+.sheet-card.detail.constellation .sheet-box { border-color: rgba(230, 197, 131, .22); }
+.sheet-block { display: grid; gap: 7px; min-width: 0; }
+.sheet-block > .field-label { display: flex; align-items: center; gap: 8px; }
+.sheet-block > .field-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--c-line-2), transparent);
+}
 
 /* ── 공개 시트 주소 (운영진) ────────────────────────────
    커뮤니티에 그대로 붙여 넣을 주소다 — 카드 밑에 붙여 두어

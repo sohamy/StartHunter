@@ -44,7 +44,10 @@ function statValue(stats: StatBlock, key: string): number {
   return stats[key] ?? POINT_BUY.baseValue;
 }
 
-export function deriveHunter(sheet: CharacterSheet): DerivedHunter {
+/** 클래스와 스탯만 있으면 환산할 수 있다 — 시트 전문이 아니어도 받는다. */
+type DerivableSheet = { classId: string; stats: StatBlock };
+
+export function deriveHunter(sheet: DerivableSheet): DerivedHunter {
   const scaling = STAT_SCALING.hunter;
   const bonus = findClass('HUNTER', sheet.classId)?.bonus ?? {};
 
@@ -75,7 +78,7 @@ export function deriveHunter(sheet: CharacterSheet): DerivedHunter {
   return { maxHp, attack, defense, maxAp };
 }
 
-export function deriveConstellation(sheet: CharacterSheet): DerivedConstellation {
+export function deriveConstellation(sheet: DerivableSheet): DerivedConstellation {
   const scaling = STAT_SCALING.constellation;
   const bonus = findClass('CONSTELLATION', sheet.classId)?.bonus ?? {};
 

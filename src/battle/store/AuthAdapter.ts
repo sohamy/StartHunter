@@ -12,9 +12,10 @@ import type {
   ActorSide,
   Affiliation,
   CharacterSheet,
-  PublicSkill,
   SheetProfile,
   Session,
+  SkillDefinition,
+  StatBlock,
 } from '../types';
 
 export interface RegisterInput {
@@ -29,10 +30,13 @@ export interface Credentials {
 }
 
 /**
- * 공개 시트 — 다른 참가자에게 보여도 되는 범위.
+ * 공개 프로필 — 참가자가 제출한 시트 내용 전부.
  *
- * 무엇을 열고 무엇을 닫는지는 config/characters.ts 의 SHEET_DISCLOSURE 한 곳에 적혀 있다.
- * 서버에서는 public_profiles 뷰가 같은 경계를 한 번 더 긋는다 — 화면을 고쳐도 수치는 새지 않는다.
+ * 스탯도 스킬 수치도 그대로 실린다. 참가자끼리 서로의 캐릭터를 읽는 것이 목적이므로
+ * 시트에 적어 낸 것 중 가리는 항목은 없다 (config/characters.ts 의 SHEET_DISCLOSURE).
+ *
+ * 시트 전문(CharacterSheet)과 다른 점은 계정 소유 정보뿐이다 —
+ * 내부 id · 등록 시각은 담지 않고, 활동명만 들고 다닌다.
  */
 export interface PublicProfile extends SheetProfile {
   accountId: string;
@@ -44,14 +48,14 @@ export interface PublicProfile extends SheetProfile {
   affiliation: Affiliation;
   /** 캐릭터 사진 — 시트 전문 없이도 얼굴은 서로 볼 수 있게 한다 */
   portrait?: string | null;
-  /** 이름 · 종류 · 설명까지만. 수치(AP · 위력 · 쿨)는 운영진 전용이다. */
-  skills: PublicSkill[];
+  stats: StatBlock;
+  skills: SkillDefinition[];
 }
 
 /**
- * 시트 전문에서 공개분만 떼어 낸다.
+ * 시트 전문 → 공개 프로필.
  *
- * 로컬 모드에는 서버 뷰가 없으므로, 두 어댑터가 모두 이 함수를 거쳐 같은 경계를 지킨다.
+ * 로컬 모드에는 서버 뷰가 없으므로, 두 어댑터가 모두 이 함수를 거쳐 같은 모양을 만든다.
  */
 export function toPublicProfile(accountId: string, sheet: CharacterSheet): PublicProfile {
   return {
@@ -62,13 +66,9 @@ export function toPublicProfile(accountId: string, sheet: CharacterSheet): Publi
     classId: sheet.classId,
     affiliation: sheet.affiliation,
     portrait: sheet.portrait ?? null,
+    stats: sheet.stats ?? {},
+    skills: sheet.skills ?? [],
     ...toProfile(sheet),
-    skills: (sheet.skills ?? []).map((skill) => ({
-      id: skill.id,
-      name: skill.name,
-      kind: skill.kind,
-      description: skill.description,
-    })),
   };
 }
 

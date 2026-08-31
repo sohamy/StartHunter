@@ -109,7 +109,7 @@ function toSheet(row: SheetRow): CharacterSheet {
 /**
  * public_profiles 뷰의 한 행 → 공개 프로필.
  *
- * 뷰가 이미 공개분만 담고 있다 — 스탯도, 스킬 수치도 애초에 내려오지 않는다.
+ * 뷰는 참가자가 제출한 시트 내용을 그대로 담는다 (계정 소유 정보만 뺀다).
  */
 function toPublicRow(row: Record<string, unknown>): PublicProfile {
   return {
@@ -120,12 +120,13 @@ function toPublicRow(row: Record<string, unknown>): PublicProfile {
     classId: row.class_id as string,
     affiliation: (row.affiliation as PublicProfile['affiliation']) ?? 'GOVERNMENT',
     portrait: (row.portrait as string | null) ?? null,
+    stats: (row.stats as PublicProfile['stats']) ?? {},
+    skills: (row.skills as PublicProfile['skills']) ?? [],
     ...toProfile({
       personality: (row.personality as string | null) ?? undefined,
       traits: (row.traits as string | null) ?? undefined,
       contractStory: (row.contract_story as string | null) ?? undefined,
     }),
-    skills: (row.public_skills as PublicProfile['skills']) ?? [],
   };
 }
 
@@ -241,7 +242,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
 
   async listProfiles(side?: ActorSide): Promise<PublicProfile[]> {
     const supabase = requireSupabase();
-    // 뷰가 공개분만 담는다 — 스탯과 스킬 수치는 애초에 내려오지 않는다.
+    // 뷰가 시트 내용을 담고 계정 소유 정보만 걸러 낸다.
     let query = supabase.from('public_profiles').select('*');
     if (side) query = query.eq('side', side);
 

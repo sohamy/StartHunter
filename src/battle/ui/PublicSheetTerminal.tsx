@@ -4,8 +4,8 @@
  * `/battle/sheet/?id=활동명` 으로 연다. 운영진이 이 주소를 커뮤니티에 남기면
  * 참가자들이 서로의 설정을 읽을 수 있다.
  *
- * 여기에 뜨는 값은 store 의 공개 경계(toPublicProfile · public_profiles 뷰)를
- * 이미 거친 것이다 — 스탯도 스킬 수치도 애초에 내려오지 않는다.
+ * 제출한 시트 내용이 전부 실린다 — 성격 · 특징 · 계약 경위 · 스킬 · 스탯 · 환산 수치.
+ * 계정 정보(로그인 · 포인트 · 전투 기록)는 담기지 않는다.
  */
 
 import { useEffect, useState } from 'react';
@@ -114,7 +114,7 @@ export default function PublicSheetTerminal() {
             {squad && <span className="tag ok" style={{ marginLeft: 10 }}>{squad}</span>}
           </h2>
           <p className="hint" style={{ marginBottom: 14 }}>
-            공개 등록 정보입니다. 스탯과 스킬 수치는 관리국(운영진)만 열람합니다.
+            참가자가 제출한 시트 전문입니다.
           </p>
           <PublicSheetCard profile={profile} partnerName={bondedName} />
         </section>

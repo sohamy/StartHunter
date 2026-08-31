@@ -534,16 +534,7 @@ export interface SheetProfile {
 
 export type ProfileFieldKey = keyof SheetProfile;
 
-/**
- * 공개 스킬 — 이름 · 종류 · 설명까지만.
- * 수치(AP · 위력 · 쿨 · 부여 상태)는 운영진 전용이라 여기에 담지 않는다.
- */
-export interface PublicSkill {
-  id: string;
-  name: string;
-  kind: SkillKind;
-  description: string;
-}
+
 
 export interface CharacterSheet extends SheetProfile {
   id: string;
