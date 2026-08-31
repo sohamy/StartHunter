@@ -2,7 +2,7 @@
  * 공개 시트 단말 — 주소 하나로 캐릭터 한 명을 보여준다.
  *
  * `/battle/sheet/?id=활동명` 으로 연다. 운영진이 이 주소를 커뮤니티에 남기면
- * 참가자들이 서로의 설정을 읽을 수 있다.
+ * **로그인하지 않아도** 누구나 읽는다 — 링크 하나로 캐릭터를 보여주는 것이 목적이다.
  *
  * 제출한 시트 내용이 전부 실린다 — 성격 · 특징 · 계약 경위 · 스킬 · 스탯 · 환산 수치.
  * 계정 정보(로그인 · 포인트 · 전투 기록)는 담기지 않는다.
@@ -10,10 +10,10 @@
 
 import { useEffect, useState } from 'react';
 
-import { getAuth, getStorage, isServerMode, loadShopCatalog, type PublicProfile } from '../store';
+import { getAuth, getStorage, loadShopCatalog, type PublicProfile } from '../store';
 import { PublicSheetCard } from './SheetView';
 
-type Phase = 'LOADING' | 'READY' | 'NO_ID' | 'NOT_FOUND' | 'NEED_LOGIN';
+type Phase = 'LOADING' | 'READY' | 'NO_ID' | 'NOT_FOUND';
 
 function joinUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -53,12 +53,8 @@ export default function PublicSheetTerminal() {
       await loadShopCatalog();
       const auth = getAuth();
 
-      // 공개 시트도 로그인한 참가자에게만 연다 — 외부에 그대로 노출하지 않는다.
-      if (isServerMode() && !(await auth.currentSession())) {
-        if (!cancelled) setPhase('NEED_LOGIN');
-        return;
-      }
-
+      // 로그인하지 않아도 읽는다 — 이 주소는 커뮤니티에 그대로 붙이는 용도다.
+      // 서버 쪽도 public_profiles 를 anon 에게 열어 두었다 (0014).
       const found = await auth.getPublicProfile(target);
       if (cancelled) return;
       if (!found) {
@@ -68,7 +64,7 @@ export default function PublicSheetTerminal() {
       setProfile(found);
       setPhase('READY');
 
-      // 편성은 있으면 좋고 없어도 그만이다 — 실패해도 시트는 그대로 보여준다
+      // 편성은 로그인한 사람만 읽을 수 있다. 없으면 시트에 적힌 값으로 채운다.
       try {
         const bonds = await getStorage().listBonds();
         const mine = bonds.find(
@@ -104,8 +100,12 @@ export default function PublicSheetTerminal() {
           <span>PUBLIC SHEET · 공개 시트</span>
         </div>
         <div className="btn-row">
+          {/* 처음 온 사람도 있다 — 등록 입구를 함께 둔다 */}
+          <a className="ctl" href={homeUrl()}>
+            세계관 소개
+          </a>
           <a className="ctl" href={joinUrl()}>
-            내 시트 보기
+            내 시트 · 참가 신청
           </a>
         </div>
       </header>
@@ -143,20 +143,6 @@ export default function PublicSheetTerminal() {
           <p className="hint">
             <b>{handle}</b> 으로 등록된 캐릭터가 없습니다. 활동명을 다시 확인해 주세요.
           </p>
-        </section>
-      )}
-
-      {phase === 'NEED_LOGIN' && (
-        <section className="panel">
-          <h2 className="panel-title">로그인이 필요합니다</h2>
-          <p className="hint" style={{ marginBottom: 12 }}>
-            공개 시트는 등록을 마친 참가자끼리만 볼 수 있습니다. 접속한 뒤 이 주소를 다시 열어
-            주세요.
-          </p>
-          <a className="confirm-btn" href={joinUrl()}>
-            로그인하러 가기
-            <small>계약 등록 단말로 이동</small>
-          </a>
         </section>
       )}
 

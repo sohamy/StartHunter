@@ -26,6 +26,7 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `0011_shop_items.sql` | 상점 진열(`shop_items`) — 운영진이 품목 · 가격 · 한도를 직접 넣는다 |
 | `0012_personal_points_inventory.sql` | 소지금 · 가방을 개인 소유로 (`sheets.points` · `sheets.inventory`) |
 | `0013_pair_name.sql` | 페어명(`sheets.pair_name`) — 같은 이름끼리 관리국이 짝을 짓는다 |
+| `0014_public_sheet_anonymous.sql` | 공개 시트를 비로그인(anon)에게도 연다 — 링크만 있으면 읽힌다 |
 
 0001 이 만드는 테이블:
 
@@ -52,6 +53,9 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 > 0012 를 적용하지 않으면 소지금 · 가방 저장이 실패한다.
 > 0012 는 편성이 들고 있던 포인트 · 보급품을 두 사람에게 옮긴다 (나누지 않고 각자에게 그대로).
 > 0013 을 적용하지 않으면 페어명 저장이 실패하고, 작전실의 페어명 묶음이 비어 보인다.
+> 0014 를 적용하지 않으면 로그인하지 않은 사람이 공개 시트 주소를 열었을 때 빈 화면이 뜬다.
+> 0014 는 시트 내용 전부(스탯 · 스킬 수치 · 소지금 · 가방)를 링크를 아는 누구에게나 연다.
+> 되돌리려면 `revoke select on public.public_profiles from anon;` 한 줄이면 된다.
 > 0009 는 기존 `concept` 에 적힌 글을 **성격** 칸으로 옮긴다 (원본 열은 지우지 않는다).
 
 ## 2. 이메일 확인 끄기 (필수)
