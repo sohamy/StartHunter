@@ -87,7 +87,10 @@ export default function SheetEditor({
 
       <div className="attack-row">
         <label className="num-field">
-          <span className="field-label">{draft.side === 'HUNTER' ? '이름' : '성호'}</span>
+          <span className="field-label">
+            {draft.side === 'HUNTER' ? '이름' : '성호'}
+            <small className="dim"> 겹칠 수 없습니다</small>
+          </span>
           <input
             className="ctl input"
             value={draft.name}

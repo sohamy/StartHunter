@@ -105,10 +105,10 @@ export interface TradeResult {
   inventory: ItemStack[];
 }
 
-/** 선물 한 건 — 활동명으로 상대를 지목한다 */
+/** 선물 한 건 — 이름으로 상대를 지목한다 */
 export interface GiftInput {
-  /** 받는 사람의 활동명 */
-  toHandle: string;
+  /** 받는 사람의 이름. 이름은 겹치지 않으므로 한 사람만 걸린다. */
+  toName: string;
   kind: 'POINTS' | 'ITEM';
   /** kind 가 ITEM 일 때의 품목 */
   itemId?: string | null;
@@ -120,6 +120,12 @@ export interface GiftInput {
 export interface GiftResult extends TradeResult {
   /** 받은 사람의 이름 — 활동명이 아니라 캐릭터 이름을 돌려준다 */
   toName: string;
+}
+
+/** 선물 받을 사람 미리보기 — 보내기 전에 누구인지 눈으로 확인시킨다 */
+export interface GiftTarget {
+  name: string;
+  side: ActorSide;
 }
 
 /** 강화 아이템을 쓴 뒤의 시트 */
@@ -176,10 +182,15 @@ export interface AuthAdapter {
    */
   tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult>;
   /**
-   * 선물하기 — 활동명으로 상대를 찾아 소지금이나 보급품을 넘긴다.
+   * 선물하기 — 이름으로 상대를 찾아 소지금이나 보급품을 넘긴다.
    * 판정은 서버(`shop_gift`)가 한다. 전투에 배치된 동안에는 창구가 닫힌다.
    */
   giftTo(input: GiftInput): Promise<GiftResult>;
+  /**
+   * 이름으로 사람을 찾는다 — 선물을 보내기 전에 누구인지 보여 주기 위한 것이다.
+   * 없으면 null. 통과 여부는 보낼 때 서버가 다시 정한다.
+   */
+  findGiftTarget(name: string): Promise<GiftTarget | null>;
   /**
    * 강화 아이템 사용 — 전투 밖에서만 쓴다.
    * 가방에서 하나 빠지고 시트의 statBonus 가 오른다. 판정은 서버(`use_supply`)가 한다.

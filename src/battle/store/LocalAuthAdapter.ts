@@ -21,6 +21,7 @@ import {
   type SheetRecord,
   type GiftInput,
   type GiftResult,
+  type GiftTarget,
   type TradeKind,
   type TradeResult,
   type UseSupplyOutcome,
@@ -95,6 +96,11 @@ function normalizeId(id: string): string {
   return id.trim().toLowerCase();
 }
 
+/** 이름은 겹칠 수 없다 — 서버의 유니크 색인(lower(name))과 같은 규칙으로 본다 */
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 function newSheetId(side: ActorSide): string {
   const stamp = Date.now().toString(36);
   const salt = Math.floor(Math.random() * 1e6).toString(36);
@@ -116,6 +122,11 @@ export class LocalAuthAdapter implements AuthAdapter {
       throw new AuthError('ID_TAKEN', '이미 등록된 활동명입니다.');
     }
 
+    const name = input.sheet.name.trim();
+    if (accounts.some((account) => normalizeName(account.sheet.name) === normalizeName(name))) {
+      throw new AuthError('INVALID_INPUT', '이미 쓰이는 이름입니다. 다른 이름을 지어 주세요.');
+    }
+
     const now = new Date().toISOString();
     const account: Account = {
       id,
@@ -123,6 +134,7 @@ export class LocalAuthAdapter implements AuthAdapter {
       createdAt: now,
       sheet: {
         ...input.sheet,
+        name,
         id: newSheetId(input.sheet.side),
         createdAt: now,
       },
@@ -218,10 +230,10 @@ export class LocalAuthAdapter implements AuthAdapter {
     const accounts = readAccounts();
     const from = accounts.findIndex((account) => account.id === session.accountId);
     const to = accounts.findIndex(
-      (account) => account.id.toLowerCase() === input.toHandle.trim().toLowerCase(),
+      (account) => normalizeName(account.sheet.name) === normalizeName(input.toName),
     );
     if (from < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
-    if (to < 0) throw new AuthError('NOT_FOUND', '그런 활동명을 찾을 수 없습니다.');
+    if (to < 0) throw new AuthError('NOT_FOUND', '그런 이름의 참가자를 찾을 수 없습니다.');
     if (from === to) throw new AuthError('INVALID_INPUT', '자기 자신에게는 보낼 수 없습니다.');
 
     const amount = Math.floor(input.amount);
@@ -257,6 +269,13 @@ export class LocalAuthAdapter implements AuthAdapter {
       inventory: sender.inventory ?? [],
       toName: receiver.name,
     };
+  }
+
+  async findGiftTarget(name: string): Promise<GiftTarget | null> {
+    const found = readAccounts().find(
+      (account) => normalizeName(account.sheet.name) === normalizeName(name),
+    );
+    return found ? { name: found.sheet.name, side: found.sheet.side } : null;
   }
 
   /** 강화 아이템 사용 — 가방에서 하나 빠지고 시트의 능력치가 영구히 오른다 */
@@ -295,7 +314,15 @@ export class LocalAuthAdapter implements AuthAdapter {
       throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
     }
 
-    const updated: Account = { ...accounts[index], sheet };
+    const name = sheet.name.trim();
+    const taken = accounts.some(
+      (account, row) => row !== index && normalizeName(account.sheet.name) === normalizeName(name),
+    );
+    if (taken) {
+      throw new AuthError('INVALID_INPUT', '이미 쓰이는 이름입니다. 다른 이름을 지어 주세요.');
+    }
+
+    const updated: Account = { ...accounts[index], sheet: { ...sheet, name } };
     accounts[index] = updated;
     writeAccounts(accounts);
     return updated;

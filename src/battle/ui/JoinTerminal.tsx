@@ -995,7 +995,10 @@ export default function JoinTerminal() {
           <section className="panel form">
             <h2 className="panel-title">CHARACTER SHEET</h2>
             <label className="input-row">
-              <span className="field-label">{draft.side === 'HUNTER' ? '이름' : '성호'}</span>
+              <span className="field-label">
+                {draft.side === 'HUNTER' ? '이름' : '성호'}
+                <small className="dim"> 참가자마다 하나뿐입니다 — 이미 쓰이는 이름은 받지 않습니다</small>
+              </span>
               <input
                 className="ctl input"
                 value={draft.name}

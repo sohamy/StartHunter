@@ -17,6 +17,7 @@ import {
   type SheetRecord,
   type GiftInput,
   type GiftResult,
+  type GiftTarget,
   type TradeKind,
   type TradeResult,
   type UseSupplyOutcome,
@@ -60,6 +61,17 @@ function describeSignUpError(message: string): [AuthErrorCode, string] {
     return ['INVALID_INPUT', '활동명에 사용할 수 없는 문자가 있습니다. 영문·숫자 위주로 지어 주세요.'];
   }
   return ['INVALID_INPUT', `가입에 실패했습니다: ${message}`];
+}
+
+/**
+ * 이름 유니크 위반을 사람이 읽는 문장으로.
+ * 서버가 돌려주는 것은 색인 이름(sheets_name_unique)뿐이라 그대로 보여줄 수 없다.
+ */
+function describeSheetError(message: string): string {
+  if (/sheets_name_unique/i.test(message)) {
+    return '이미 쓰이는 이름입니다. 이름은 참가자마다 하나뿐이라 다른 이름을 지어 주세요.';
+  }
+  return message;
 }
 
 /**
@@ -177,7 +189,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       .insert({
         owner: data.user.id,
         side: input.sheet.side,
-        name: input.sheet.name,
+        name: input.sheet.name.trim(),
         pair_name: input.sheet.pairName,
         partner_name: input.sheet.partnerName,
         class_id: input.sheet.classId,
@@ -195,7 +207,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       .single();
 
     if (sheetError) {
-      throw new AuthError('INVALID_INPUT', `시트 저장 실패: ${sheetError.message}`);
+      throw new AuthError('INVALID_INPUT', `시트 저장 실패: ${describeSheetError(sheetError.message)}`);
     }
 
     return {
@@ -314,7 +326,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       .from('sheets')
       .update({
         side: sheet.side,
-        name: sheet.name,
+        name: sheet.name.trim(),
         pair_name: sheet.pairName,
         partner_name: sheet.partnerName,
         class_id: sheet.classId,
@@ -331,7 +343,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       })
       .eq('id', sheet.id);
 
-    if (error) throw new AuthError('INVALID_INPUT', error.message);
+    if (error) throw new AuthError('INVALID_INPUT', describeSheetError(error.message));
 
     const account = await this.getAccount(accountId);
     if (!account) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
@@ -367,12 +379,12 @@ export class SupabaseAuthAdapter implements AuthAdapter {
   /**
    * 선물하기 — 서버 함수에 맡긴다.
    *
-   * 활동명으로 상대를 찾고, 잔액 · 보유 개수 · 받는 쪽 한도까지 서버가 본다.
+   * 이름으로 상대를 찾고, 잔액 · 보유 개수 · 받는 쪽 한도까지 서버가 본다.
    * 전투에 배치된 동안에는 상점과 같은 이유로 창구가 닫힌다.
    */
   async giftTo(input: GiftInput): Promise<GiftResult> {
     const { data, error } = await requireSupabase().rpc('shop_gift', {
-      p_handle: input.toHandle.trim(),
+      p_name: input.toName.trim(),
       p_kind: input.kind,
       p_item_id: input.itemId ?? null,
       p_amount: Math.floor(input.amount),
@@ -386,8 +398,21 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     return {
       points: (row.points as number) ?? 0,
       inventory: (row.inventory as GiftResult['inventory']) ?? [],
-      toName: (row.to_name as string) ?? input.toHandle,
+      toName: (row.to_name as string) ?? input.toName,
     };
+  }
+
+  /** 이름으로 한 사람을 찾는다 — 이름은 유니크하므로 한 사람만 걸린다 */
+  async findGiftTarget(name: string): Promise<GiftTarget | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+
+    const { data, error } = await requireSupabase().rpc('find_by_name', { p_name: trimmed });
+    if (error) return null;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return { name: row.name as string, side: row.side as GiftTarget['side'] };
   }
 
   /**

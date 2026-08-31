@@ -65,11 +65,11 @@ export default function ShopTerminal() {
   const [error, setError] = useState<string | null>(null);
 
   /* ── 선물하기 ─────────────────────────────────────── */
-  const [giftHandle, setGiftHandle] = useState('');
+  const [giftName, setGiftName] = useState('');
   const [giftKind, setGiftKind] = useState<GiftKind>('POINTS');
   const [giftItemId, setGiftItemId] = useState('');
   const [giftAmount, setGiftAmount] = useState(1);
-  /** 활동명을 확인한 결과 — 누구에게 보내는지 눈으로 보고 누르게 한다 */
+  /** 이름을 확인한 결과 — 누구에게 보내는지 눈으로 보고 누르게 한다 */
   const [giftTarget, setGiftTarget] = useState<string | null>(null);
 
   useEffect(() => {
@@ -135,31 +135,31 @@ export default function ShopTerminal() {
     [account, auth],
   );
 
-  /** 활동명이 실제로 있는지 미리 확인한다 — 눌러 보고 알게 하지 않는다 */
+  /** 이름이 실제로 있는지 미리 확인한다 — 눌러 보고 알게 하지 않는다 */
   const lookupGiftTarget = useCallback(async () => {
-    const handle = giftHandle.trim();
+    const name = giftName.trim();
     setGiftTarget(null);
-    if (!handle) return;
+    if (!name) return;
     try {
-      const found = await auth.getPublicProfile(handle);
+      const found = await auth.findGiftTarget(name);
       if (found) {
         setGiftTarget(`${found.name} · ${found.side === 'HUNTER' ? '헌터' : '성좌'}`);
       } else {
-        setError('그런 활동명을 찾을 수 없습니다.');
+        setError('그런 이름의 참가자를 찾을 수 없습니다.');
       }
     } catch {
       // 조회에 실패해도 보내기는 서버가 다시 판정한다 — 여기서 막지 않는다
     }
-  }, [auth, giftHandle]);
+  }, [auth, giftName]);
 
   const sendGift = useCallback(async () => {
     if (!account) return;
     setMessage(null);
     setError(null);
 
-    const handle = giftHandle.trim();
-    if (!handle) {
-      setError('받는 사람의 활동명을 입력하세요.');
+    const name = giftName.trim();
+    if (!name) {
+      setError('받는 사람의 이름을 입력하세요.');
       return;
     }
     if (giftKind === 'ITEM' && !giftItemId) {
@@ -175,7 +175,7 @@ export default function ShopTerminal() {
     setBusy(true);
     try {
       const result = await auth.giftTo({
-        toHandle: handle,
+        toName: name,
         kind: giftKind,
         itemId: giftKind === 'ITEM' ? giftItemId : null,
         amount,
@@ -195,7 +195,7 @@ export default function ShopTerminal() {
     } finally {
       setBusy(false);
     }
-  }, [account, auth, giftAmount, giftHandle, giftItemId, giftKind]);
+  }, [account, auth, giftAmount, giftItemId, giftKind, giftName]);
 
   /** 강화 아이템 사용 — 전투 밖에서만, 능력치가 영구히 오른다 */
   const useItem = useCallback(
@@ -345,19 +345,20 @@ export default function ShopTerminal() {
         <section className="panel">
           <h2 className="panel-title">선물하기</h2>
           <p className="hint" style={{ marginBottom: 10 }}>
-            받는 사람의 <b>활동명</b>을 적으면 소지금이나 보급품을 넘길 수 있습니다. 되돌릴 수
-            없으니 이름을 확인하고 보내세요. 전투에 배치된 동안에는 창구가 닫힙니다.
+            받는 사람의 <b>이름</b>(헌터 이름 · 성좌의 성호)을 적으면 소지금이나 보급품을 넘길
+            수 있습니다. 이름은 참가자마다 하나뿐입니다. 되돌릴 수 없으니 누구인지 확인하고
+            보내세요. 전투에 배치된 동안에는 창구가 닫힙니다.
           </p>
 
           <div className="admin-grid">
             <label className="input-row">
-              <span className="field-label">받는 사람 활동명</span>
+              <span className="field-label">받는 사람 이름</span>
               <input
                 className="ctl input"
-                value={giftHandle}
-                placeholder="예: nightfall"
+                value={giftName}
+                placeholder="예: 서리매듭"
                 onChange={(event) => {
-                  setGiftHandle(event.target.value);
+                  setGiftName(event.target.value);
                   setGiftTarget(null);
                 }}
                 onBlur={() => void lookupGiftTarget()}
@@ -421,7 +422,7 @@ export default function ShopTerminal() {
             <button
               type="button"
               className="ctl primary"
-              disabled={busy || deployed !== null || giftHandle.trim().length === 0}
+              disabled={busy || deployed !== null || giftName.trim().length === 0}
               title={deployed ? '전투에 배치된 동안에는 보낼 수 없습니다' : undefined}
               onClick={() => void sendGift()}
             >
