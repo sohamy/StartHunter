@@ -22,6 +22,7 @@ import {
 import { describeItem } from '../config/items';
 import { CURRENT_PHASE } from '../config/rules';
 import { shopRows } from '../config/shop';
+import { REFUND_RATIO } from '../engine/shop';
 import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
 import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
@@ -816,6 +817,9 @@ export default function JoinTerminal() {
                     </small>
                   </span>
                   <b className="num gold">{row.price} P</b>
+                  <span className="tag" title="반납하면 돌려받는 금액">
+                    반납 +{Math.floor(row.price * REFUND_RATIO)} P
+                  </span>
                   <span className="tag">
                     보유 {owned}
                     {row.limit !== null ? ` / ${row.limit}` : ''}

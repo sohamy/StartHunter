@@ -39,7 +39,7 @@ import { availableStage, gimmickBrief } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
 import { buildRecord, settle, type SettlementTarget } from '../engine/record';
 import { actionAvailability, applyRound, previewRound } from '../engine/round';
-import { purchase, refund, withPurchase } from '../engine/shop';
+import { REFUND_RATIO, purchase, refund, withPurchase } from '../engine/shop';
 import { actionsFor } from '../engine/skills';
 import { injuryOf, statusViews } from '../engine/status';
 import {
@@ -1704,10 +1704,10 @@ export default function ControlTerminal() {
                                     type="button"
                                     className="ctl small"
                                     disabled={busy || owned <= 0}
-                                    title="구매가의 절반을 환급합니다"
+                                    title={`반납하면 ${Math.floor(row.price * REFUND_RATIO)} P 를 돌려줍니다`}
                                     onClick={() => void sellForSheet(owner, row.itemId)}
                                   >
-                                    반납
+                                    반납 +{Math.floor(row.price * REFUND_RATIO)} P
                                   </button>
                                 </li>
                               );

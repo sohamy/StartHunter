@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ITEM_CATEGORY_LABELS, describeItem } from '../config/items';
 import { shopRows } from '../config/shop';
+import { REFUND_RATIO } from '../engine/shop';
 import { getAuth, getStorage, loadShopCatalog } from '../store';
 import { SupplyBlock } from './SheetView';
 import type { Account, BattleState } from '../types';
@@ -184,63 +185,108 @@ export default function ShopTerminal() {
         </section>
       )}
 
-      <section className="panel">
-        <h2 className="panel-title">CATALOG · 진열 {rows.length}</h2>
+      <section className="panel depot">
+        <div className="process-head">
+          <h2 className="panel-title">CATALOG · 진열 {rows.length}</h2>
+          {sheet && (
+            <span className={`tag ${deployed ? 'critical' : 'ok'}`}>
+              {deployed ? '창구 닫힘 — 전투 배치 중' : '창구 열림'}
+            </span>
+          )}
+        </div>
+
+        {/* 반납 값은 규칙이라 진열 위에 못 박아 둔다 — 눌러 보고 알게 하지 않는다 */}
+        <p className="notice depot-notice">
+          <b>보급 규칙</b> — 관리국은 반납품을 <b>구매가의 절반</b>에 다시 사들입니다 (원 단위
+          내림). 품목마다 보유 한도가 있으며, 전투에 배치된 동안에는 사고팔 수 없습니다.
+        </p>
+
         {rows.length === 0 ? (
           <p className="dim">진열된 품목이 없습니다.</p>
         ) : (
-          <ul className="shop-list">
+          <ul className="depot-grid">
             {rows.map((row) => {
               const owned =
                 (sheet?.inventory ?? []).find((stack) => stack.itemId === row.itemId)?.quantity ?? 0;
               const affordable = (sheet?.points ?? 0) >= row.price;
+              const full = row.limit !== null && owned >= row.limit;
+              const back = Math.floor(row.price * REFUND_RATIO);
+              const effects = describeItem(row.item);
+
               return (
-                <li key={row.itemId}>
-                  <span className="shop-name">
-                    {row.item.nameKo}
-                    <small className="dim">
-                      {describeItem(row.item).join(' / ') || row.item.description}
-                    </small>
-                  </span>
-                  <span className="tag">{ITEM_CATEGORY_LABELS[row.item.category].labelKo}</span>
-                  <b className={`num ${sheet && !affordable ? 'dim' : 'gold'}`}>{row.price} P</b>
-                  <span className="tag">
-                    보유 {owned}
-                    {row.limit !== null ? ` / ${row.limit}` : ''}
-                  </span>
-                  {!row.item.combatUsable && <span className="tag warn">전투 중 사용 불가</span>}
-                  {sheet && (
-                    <>
+                <li
+                  key={row.itemId}
+                  className={`depot-card cat-${row.item.category.toLowerCase()} ${
+                    owned > 0 ? 'owned' : ''
+                  }`}
+                >
+                  <div className="depot-card-head">
+                    <span className="depot-code">{row.item.name || row.itemId}</span>
+                    <span className="tag">{ITEM_CATEGORY_LABELS[row.item.category].labelKo}</span>
+                  </div>
+
+                  <b className="depot-name">{row.item.nameKo}</b>
+                  <p className="depot-desc">{row.item.description}</p>
+
+                  {effects.length > 0 && (
+                    <ul className="depot-effects">
+                      {effects.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="depot-meta">
+                    <span className="num">AP {row.item.apCost}</span>
+                    {!row.item.combatUsable && <span className="tag warn">전투 중 사용 불가</span>}
+                    {owned > 0 && <span className="tag ok">보유 {owned}</span>}
+                    <span className="depot-limit num">
+                      한도 {row.limit === null ? '없음' : `${owned} / ${row.limit}`}
+                    </span>
+                  </div>
+
+                  <div className="depot-price">
+                    <b className={`num ${sheet && !affordable ? 'danger-text' : 'gold'}`}>
+                      {row.price} P
+                    </b>
+                    <span className="depot-back num">반납 +{back} P</span>
+                  </div>
+
+                  {sheet ? (
+                    <div className="depot-actions">
                       <button
                         type="button"
-                        className="ctl small"
-                        disabled={
-                          busy ||
-                          deployed !== null ||
-                          !affordable ||
-                          (row.limit !== null && owned >= row.limit)
-                        }
+                        className="ctl primary"
+                        disabled={busy || deployed !== null || !affordable || full}
                         title={
                           deployed
                             ? '전투에 배치된 동안에는 살 수 없습니다'
-                            : !affordable
-                              ? '소지금이 부족합니다'
-                              : undefined
+                            : full
+                              ? '보유 한도를 채웠습니다'
+                              : !affordable
+                                ? '소지금이 부족합니다'
+                                : undefined
                         }
                         onClick={() => void trade(row.itemId, 'BUY')}
                       >
-                        구매
+                        구매 −{row.price} P
                       </button>
                       <button
                         type="button"
-                        className="ctl small"
+                        className="ctl"
                         disabled={busy || deployed !== null || owned <= 0}
-                        title="구매가의 절반을 돌려받습니다"
+                        title={`반납하면 ${back} P 를 돌려받습니다`}
                         onClick={() => void trade(row.itemId, 'SELL')}
                       >
-                        반납
+                        반납 +{back} P
                       </button>
-                    </>
+                    </div>
+                  ) : (
+                    <div className="depot-actions">
+                      <a className="ctl" href={joinUrl()}>
+                        접속하고 구매하기
+                      </a>
+                    </div>
                   )}
                 </li>
               );

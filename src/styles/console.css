@@ -2418,6 +2418,120 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .bond-name:hover, .bond-name:focus { border-color: var(--c-line-2); background: rgba(255, 255, 255, .03); }
 
+
+/* ══ 보급 상점 진열대 ═════════════════════════════════
+   관리국 창구다. 물건이 놓인 선반처럼 보이되, 무엇을 얼마에
+   살 수 있고 얼마에 되팔 수 있는지가 한 카드 안에서 끝나야 한다. */
+.panel.depot::before { background: var(--c-gold); }
+
+.depot-notice {
+  margin-bottom: 16px;
+  border-color: rgba(230, 197, 131, .4);
+  background: rgba(230, 197, 131, .06);
+  color: var(--c-dim);
+}
+.depot-notice b { color: var(--c-gold); }
+
+.depot-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(268px, 100%), 1fr));
+  gap: 14px;
+}
+
+.depot-card {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  padding: 16px 16px 14px 18px;
+  border: 1px solid var(--c-line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .015) 90px),
+    rgba(255, 255, 255, .02);
+  overflow: hidden;
+}
+/* 왼쪽 색 띠 — 분류를 멀리서도 가른다 */
+.depot-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--c-line-2);
+}
+.depot-card.cat-hunter_only::before { background: var(--c-blue); }
+.depot-card.cat-constellation_only::before { background: var(--c-gold); }
+.depot-card.cat-shared::before { background: var(--c-ok); }
+.depot-card.cat-affiliation::before { background: var(--c-violet); }
+.depot-card.cat-key::before { background: var(--c-warn); }
+/* 이미 들고 있는 물건은 선반에서 살짝 빛난다 */
+.depot-card.owned {
+  border-color: rgba(95, 224, 205, .32);
+  box-shadow: inset 0 0 24px rgba(95, 224, 205, .06);
+}
+
+.depot-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.depot-code {
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .16em;
+  color: var(--c-faint);
+}
+.depot-name { font-size: 1.0625rem; line-height: 1.3; }
+.depot-desc { margin: 0; font-size: 0.8125rem; color: var(--c-dim); line-height: 1.6; }
+
+.depot-effects { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 3px; }
+.depot-effects li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 0.8125rem;
+  color: var(--c-text);
+}
+.depot-effects li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: var(--c-ok);
+  font-size: 0.6875rem;
+}
+
+.depot-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--c-faint);
+}
+.depot-limit { margin-left: auto; }
+
+/* 가격표 — 값을 크게, 반납가를 그 옆에 작게 */
+.depot-price {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-gold);
+  background: rgba(230, 197, 131, .05);
+}
+.depot-price b { font-size: 1.375rem; line-height: 1; }
+.depot-back { margin-left: auto; font-size: 0.75rem; color: var(--c-dim); }
+
+.depot-actions { display: flex; gap: 8px; margin-top: 4px; }
+.depot-actions .ctl { flex: 1; text-align: center; font-size: 0.8125rem; }
+.depot-actions a.ctl { text-decoration: none; }
+
 /* ── 상점 편집 (운영진) ────────────────────────────── */
 .shop-editor { display: grid; gap: 10px; }
 .shop-form {

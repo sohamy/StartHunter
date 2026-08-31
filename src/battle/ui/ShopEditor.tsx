@@ -19,6 +19,7 @@ import {
   findItem,
 } from '../config/items';
 import { SHOP_ENTRIES } from '../config/shop';
+import { REFUND_RATIO } from '../engine/shop';
 import { STATUS_DEFINITIONS } from '../config/status';
 import type {
   Affiliation,
@@ -211,6 +212,7 @@ export default function ShopEditor({
                   </small>
                 </span>
                 <b className="num gold">{row.price} P</b>
+                <span className="tag">반납 +{Math.floor(row.price * REFUND_RATIO)} P</span>
                 <span className="tag">한도 {row.limit === null ? '없음' : row.limit}</span>
                 <span className={`tag ${row.active ? 'ok' : 'offline'}`}>
                   {row.active ? '진열 중' : '숨김'}
@@ -247,7 +249,10 @@ export default function ShopEditor({
 
           <div className="admin-grid">
             <label className="input-row">
-              <span className="field-label">가격 (P)</span>
+              <span className="field-label">
+                가격 (P)
+                <small className="dim"> 반납 +{Math.floor(draft.price * REFUND_RATIO)} P</small>
+              </span>
               <input
                 className="ctl input"
                 type="number"
