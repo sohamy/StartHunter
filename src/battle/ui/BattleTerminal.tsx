@@ -286,7 +286,7 @@ function ItemPicker({
   );
 }
 
-/** 페어 공용 가방 — 전투 화면에서는 보유량만 확인한다 */
+/** 이 판 동안 함께 쓰는 가방 — 전투 화면에서는 보유량만 확인한다 */
 function InventoryList({ pair }: { pair: PairState }) {
   if (pair.inventory.length === 0) {
     return <p className="hint">보급품이 없습니다.</p>;

@@ -4,17 +4,18 @@
  * `/battle/shop/` 으로 연다. 소지금과 가방은 **개인 소유**라
  * 로그인한 계정의 시트에서 그대로 읽는다.
  *
- * 여기서는 사지 않는다. 관리국이 창구에서 처리한다 —
- * 이 화면은 무엇을 얼마에 받을 수 있는지 보여 주고, 내 가방을 확인하는 곳이다.
+ * 참가자가 직접 산다. 다만 **전투에 배치된 동안에는 살 수 없다** —
+ * 보급은 전투 밖에서만 갖춘다는 규칙이 화면 하나에서 지켜져야 한다.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ITEM_CATEGORY_LABELS, describeItem } from '../config/items';
 import { shopRows } from '../config/shop';
-import { getAuth, loadShopCatalog } from '../store';
+import { purchase, refund, withPurchase } from '../engine/shop';
+import { getAuth, getStorage, loadShopCatalog } from '../store';
 import { SupplyBlock } from './SheetView';
-import type { Account } from '../types';
+import type { Account, BattleState } from '../types';
 
 type Phase = 'LOADING' | 'READY' | 'GUEST';
 
@@ -28,12 +29,35 @@ function battleUrl(): string {
   return `${base}/battle/`;
 }
 
+/**
+ * 이 계정이 지금 어느 전투에 배치돼 있는지.
+ * 끝난 전투는 세지 않는다 — 정산이 끝나면 다시 살 수 있어야 한다.
+ */
+async function findDeployment(accountId: string): Promise<BattleState | null> {
+  const storage = getStorage();
+  for (const summary of await storage.listBattles()) {
+    if (summary.status === 'CLEARED' || summary.status === 'FAILED') continue;
+    const candidate = await storage.loadBattle(summary.id);
+    if (!candidate) continue;
+    const mine = candidate.pairs.some(
+      (pair) => pair.hunterAccountId === accountId || pair.constellationAccountId === accountId,
+    );
+    if (mine) return candidate;
+  }
+  return null;
+}
+
 export default function ShopTerminal() {
   const auth = useMemo(() => getAuth(), []);
   const [phase, setPhase] = useState<Phase>('LOADING');
   const [account, setAccount] = useState<Account | null>(null);
   /** 진열을 실은 뒤에 그려야 운영진이 넣은 품목이 함께 뜬다 */
   const [catalogReady, setCatalogReady] = useState(false);
+  /** 배치된 전투 — 있으면 창구를 닫는다 */
+  const [deployed, setDeployed] = useState<BattleState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,11 +74,51 @@ export default function ShopTerminal() {
       if (cancelled) return;
       setAccount(found);
       setPhase(found ? 'READY' : 'GUEST');
+
+      if (found) {
+        const joined = await findDeployment(found.id);
+        if (!cancelled) setDeployed(joined);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [auth]);
+
+  /** 구매 · 반납은 같은 길을 탄다 — 결과를 내 시트에 그대로 쓴다 */
+  const trade = useCallback(
+    async (itemId: string, kind: 'BUY' | 'SELL') => {
+      if (!account) return;
+      setMessage(null);
+      setError(null);
+
+      // 화면을 열어 둔 채 배치되었을 수 있다 — 누를 때 한 번 더 확인한다
+      const joined = await findDeployment(account.id);
+      setDeployed(joined);
+      if (joined) {
+        setError('전투에 배치된 동안에는 보급을 살 수 없습니다. 전투가 끝난 뒤에 오세요.');
+        return;
+      }
+
+      const result = kind === 'BUY' ? purchase(account.sheet, itemId, 1) : refund(account.sheet, itemId);
+      if (!result.ok) {
+        setError(result.reason ?? '처리하지 못했습니다.');
+        return;
+      }
+
+      setBusy(true);
+      try {
+        const next = await auth.updateSheet(account.id, withPurchase(account.sheet, result));
+        setAccount(next);
+        setMessage(result.message);
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : '저장에 실패했습니다.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [account, auth],
+  );
 
   if (phase === 'LOADING' || !catalogReady) {
     return <div className="console-loading">OPENING SUPPLY DEPOT…</div>;
@@ -89,10 +153,19 @@ export default function ShopTerminal() {
             </span>
           </h2>
           <SupplyBlock supply={{ points: sheet.points ?? 0, inventory: sheet.inventory ?? [] }} />
-          <p className="hint" style={{ marginTop: 12 }}>
-            소지금과 가방은 개인 것입니다. 구매 · 반납은 관리국 보급 창구에서 처리합니다 —
-            필요한 품목을 관리국에 요청하세요. 전투 중에는 살 수 없습니다.
-          </p>
+          {deployed ? (
+            <p className="notice warn" style={{ marginTop: 12 }}>
+              <b>{deployed.operation.name}</b> 에 배치되어 있습니다 — 전투가 끝날 때까지 보급을 살
+              수 없습니다. 가방에 있는 것은 전투 화면에서 그대로 씁니다.
+            </p>
+          ) : (
+            <p className="hint" style={{ marginTop: 12 }}>
+              소지금과 가방은 <b>개인 소유</b>입니다 — 페어와 나누지 않습니다. 여기서 직접 사고
+              반납할 수 있고, 반납은 구매가의 절반을 돌려줍니다. 전투에 배치되면 창구가 닫힙니다.
+            </p>
+          )}
+          {message && <p className="notice ok" style={{ marginTop: 10 }}>{message}</p>}
+          {error && <p className="notice warn" style={{ marginTop: 10 }}>{error}</p>}
         </section>
       ) : (
         <section className="panel">
@@ -132,6 +205,39 @@ export default function ShopTerminal() {
                     {row.limit !== null ? ` / ${row.limit}` : ''}
                   </span>
                   {!row.item.combatUsable && <span className="tag warn">전투 중 사용 불가</span>}
+                  {sheet && (
+                    <>
+                      <button
+                        type="button"
+                        className="ctl small"
+                        disabled={
+                          busy ||
+                          deployed !== null ||
+                          !affordable ||
+                          (row.limit !== null && owned >= row.limit)
+                        }
+                        title={
+                          deployed
+                            ? '전투에 배치된 동안에는 살 수 없습니다'
+                            : !affordable
+                              ? '소지금이 부족합니다'
+                              : undefined
+                        }
+                        onClick={() => void trade(row.itemId, 'BUY')}
+                      >
+                        구매
+                      </button>
+                      <button
+                        type="button"
+                        className="ctl small"
+                        disabled={busy || deployed !== null || owned <= 0}
+                        title="구매가의 절반을 돌려받습니다"
+                        onClick={() => void trade(row.itemId, 'SELL')}
+                      >
+                        반납
+                      </button>
+                    </>
+                  )}
                 </li>
               );
             })}

@@ -450,7 +450,7 @@ export function SheetDetail({
   sheet: CharacterSheet;
   accountId?: string;
   note?: ReactNode;
-  /** 편성이 있으면 페어 공용 가방을 함께 보여 준다 */
+  /** 소지금과 가방 */
   supply?: Supply | null;
 }) {
   const classDef = findClass(sheet.side, sheet.classId);
@@ -543,7 +543,7 @@ export function PublicSheetCard({
   badge?: ReactNode;
   /** 편성이 확정된 경우의 상대 이름 — 참가자가 적어 둔 값보다 우선한다 */
   partnerName?: string | null;
-  /** 페어 공용 가방 — 편성이 없으면 생략한다 */
+  /** 소지금과 가방 — 없으면 생략한다 */
   supply?: Supply | null;
 }) {
   const hunter = profile.side === 'HUNTER';

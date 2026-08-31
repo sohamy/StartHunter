@@ -87,6 +87,11 @@ function battleUrl(): string {
   return `${base}/battle/`;
 }
 
+function shopUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/shop/`;
+}
+
 function controlUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return `${base}/battle/control/`;
@@ -785,21 +790,19 @@ export default function JoinTerminal() {
         {/* 포인트 · 가방 · 가격표 — 무엇을 얼마에 받을 수 있는지 한 화면에서 본다 */}
         <section className="panel">
           <h2 className="panel-title">SUPPLY · 보급과 포인트</h2>
-          {supply ? (
-            <>
-              <SupplyBlock supply={supply} />
-              <p className="hint" style={{ marginTop: 12 }}>
-                포인트와 보급품은 <b>페어 공용</b>입니다. 구매와 반납은 관리국 보급 창구에서
-                처리합니다 — 필요한 품목을 관리국에 요청하세요. 전투 중에는 살 수 없습니다.
-              </p>
-            </>
-          ) : (
-            <p className="hint">
-              편성이 확정되면 페어 공용 포인트와 가방이 생깁니다. 지금은 가격표만 볼 수 있습니다.
-            </p>
-          )}
+          <SupplyBlock supply={supply} />
+          <p className="hint" style={{ marginTop: 12 }}>
+            소지금과 보급품은 <b>개인 소유</b>입니다 — 페어와 나누지 않습니다. 구매와 반납은{' '}
+            <a href={shopUrl()}>보급 상점</a>에서 직접 합니다. 다만 전투에 배치된 동안에는 살 수
+            없습니다.
+          </p>
 
-          <h3 className="sub-title">SHOP · 보급 가격표</h3>
+          <h3 className="sub-title">
+            SHOP · 보급 가격표
+            <a className="ctl small" href={shopUrl()} style={{ marginLeft: 10 }}>
+              상점 열기
+            </a>
+          </h3>
           <ul className="shop-list">
             {shopRows().map((row) => {
               const owned =

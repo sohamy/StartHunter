@@ -100,7 +100,7 @@ export interface ShopItemRecord {
   item: ItemDefinition | null;
 }
 
-/** 보유 아이템 — 페어 공용 가방에 담긴다 */
+/** 보유 아이템 — 개인 가방과 전투 중 공용 가방이 같은 모양을 쓴다 */
 export interface ItemStack {
   itemId: string;
   quantity: number;
@@ -343,9 +343,9 @@ export interface PairState {
   hunter: HunterState;
   constellation: ConstellationState;
   contract: ContractState;
-  /** 페어 공용 상점 화폐. 전투 중에는 조회만 한다. */
+  /** 전투 중 두 사람의 소지금을 합쳐 보여 주는 값. 실제 지갑은 개인 시트에 있다. */
   points: number;
-  /** 페어 공용 가방. 사용하면 개수가 줄어든다. */
+  /** 전투 한 판 동안 함께 쓰는 가방. 두 사람의 개인 가방을 합쳐 만든다. */
   inventory: ItemStack[];
   submission: RoundSubmission;
   /** 계시로 다음 패턴을 확인한 상태인지 (페어 단위 정보) */
