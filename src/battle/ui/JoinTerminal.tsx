@@ -779,10 +779,10 @@ export default function JoinTerminal() {
             <p className="hint" style={{ marginBottom: 12 }}>
               관리국이 맺어 준 상대의 시트입니다.
             </p>
+            {/* 상대의 지갑은 상대의 것이다 — 카드가 주인의 값을 그린다 */}
             <PublicSheetCard
               profile={partnerProfile}
               partnerName={sheet.name}
-              supply={supply}
               badge={bond ? <span className="tag ok">{bond.label}</span> : undefined}
             />
           </section>

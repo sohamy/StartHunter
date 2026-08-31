@@ -469,12 +469,16 @@ export function SheetDetail({
   sheet: CharacterSheet;
   accountId?: string;
   note?: ReactNode;
-  /** 소지금과 가방 */
+  /** 소지금과 가방. 생략하면 이 시트 주인의 것을 쓴다 — 남의 지갑이 실리지 않게 한다. */
   supply?: Supply | null;
 }) {
   const classDef = findClass(sheet.side, sheet.classId);
   const hunter = sheet.side === 'HUNTER';
   const skills = sheet.skills ?? [];
+  const purse: Supply = supply ?? {
+    points: sheet.points ?? 0,
+    inventory: sheet.inventory ?? [],
+  };
 
   return (
     <article className={`sheet-card detail ${hunter ? 'hunter' : 'constellation'}`}>
@@ -531,12 +535,10 @@ export function SheetDetail({
         )}
       </div>
 
-      {supply && (
-        <div className="sheet-block">
-          <span className="field-label">보급 · 포인트</span>
-          <SupplyBlock supply={supply} />
-        </div>
-      )}
+      <div className="sheet-block">
+        <span className="field-label">보급 · 포인트</span>
+        <SupplyBlock supply={purse} />
+      </div>
     </article>
   );
 }
@@ -562,12 +564,21 @@ export function PublicSheetCard({
   badge?: ReactNode;
   /** 편성이 확정된 경우의 상대 이름 — 참가자가 적어 둔 값보다 우선한다 */
   partnerName?: string | null;
-  /** 소지금과 가방 — 없으면 생략한다 */
+  /**
+   * 소지금과 가방. 생략하면 **이 카드 주인의 것**을 쓴다.
+   *
+   * 카드는 한 사람의 서류다 — 남의 지갑이 실리면 공용처럼 보인다.
+   * 그래서 기본값을 주인 것으로 두고, 넘겨받은 값은 덮어쓰기로만 쓴다.
+   */
   supply?: Supply | null;
 }) {
   const hunter = profile.side === 'HUNTER';
   const classDef = findClass(profile.side, profile.classId);
   const partner = (partnerName ?? '').trim() || profile.partnerName.trim();
+  const purse: Supply = supply ?? {
+    points: profile.points ?? 0,
+    inventory: profile.inventory ?? [],
+  };
 
   return (
     <article className={`dossier ${hunter ? 'hunter' : 'constellation'}`}>
@@ -654,18 +665,16 @@ export function PublicSheetCard({
           <StatPanel sheet={profile} />
         </section>
 
-        {supply && (
-          <section className="dossier-part">
-            <h4 className="dossier-part-title">
-              <span className="dossier-index">
-                {String(PROFILE_FIELDS.length + 3).padStart(2, '0')}
-              </span>
-              <span>보급 · 포인트</span>
-              <i>SUPPLY</i>
-            </h4>
-            <SupplyBlock supply={supply} />
-          </section>
-        )}
+        <section className="dossier-part">
+          <h4 className="dossier-part-title">
+            <span className="dossier-index">
+              {String(PROFILE_FIELDS.length + 3).padStart(2, '0')}
+            </span>
+            <span>보급 · 포인트</span>
+            <i>SUPPLY</i>
+          </h4>
+          <SupplyBlock supply={purse} />
+        </section>
       </div>
 
       <footer className="dossier-foot">
