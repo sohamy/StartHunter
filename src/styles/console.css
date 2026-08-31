@@ -839,6 +839,8 @@ input[type='range']::-moz-range-thumb {
 
 /* ── 시트 조회 ───────────────────────────────────────── */
 .sheet-view { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+/* 스탯 창은 한 줄을 다 쓴다 — 좁게 접히면 레이더가 뭉갠다 */
+.sheet-view-wide { grid-column: 1 / -1; }
 .stat-summary { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .stat-summary li { display: flex; align-items: baseline; gap: 8px; }
 .stat-summary li .num { font-size: 0.9375rem; }
@@ -1805,11 +1807,7 @@ a.ctl { text-decoration: none; display: inline-block; }
 .dossier-part .concept-text.dim { color: var(--c-faint); font-style: italic; }
 .dossier-part .skill-summary li { border-bottom-color: rgba(255, 255, 255, .08); }
 
-.dossier-stats { display: grid; gap: 14px; }
-.dossier-stats > div { display: grid; gap: 6px; }
-.dossier-stats .stat-line { gap: 4px 20px; }
-.dossier-stats .stat-line i { font-size: 0.875rem; }
-.dossier-stats .stat-line b { font-size: 1.1875rem; }
+.dossier .stat-panel { width: 100%; }
 
 .dossier-foot {
   display: flex;
@@ -2052,8 +2050,21 @@ a.ctl { text-decoration: none; display: inline-block; }
   text-align: left;
   color: #efe7f7;
 }
-.dossier.constellation .skill-summary,
-.dossier.constellation .dossier-stats { text-align: left; width: 100%; }
+.dossier.constellation .skill-summary { text-align: left; width: 100%; }
+
+/* 카드마다 레이더 색을 갈아 끼운다 */
+.dossier.hunter .stat-panel { --radar: var(--c-blue); --radar-2: var(--c-ok); }
+.dossier.constellation .stat-panel { --radar: var(--c-violet); --radar-2: var(--c-gold); }
+
+/* 성좌 카드는 전부 가운데 정렬이다 — 스탯 창도 도형을 위, 수치를 아래로 세운다 */
+.dossier.constellation .stat-panel {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  width: 100%;
+}
+.dossier.constellation .stat-panel-detail { width: 100%; max-width: 420px; }
+.dossier.constellation .stat-bars i,
+.dossier.constellation .stat-bar-ko { text-align: left; }
 .dossier.constellation .dossier-foot {
   justify-content: center;
   border-top: 1px solid rgba(230, 197, 131, .24);
@@ -2167,6 +2178,10 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .sheet-card.detail.hunter .sheet-box { border-color: rgba(127, 176, 255, .22); }
 .sheet-card.detail.constellation .sheet-box { border-color: rgba(230, 197, 131, .22); }
+.sheet-card.detail.hunter .stat-panel { --radar: var(--c-blue); --radar-2: var(--c-ok); }
+.sheet-card.detail.constellation .stat-panel { --radar: var(--c-violet); --radar-2: var(--c-gold); }
+/* 운영진 화면은 좁은 카드가 나란히 서므로 도형을 조금 줄인다 */
+.sheet-card.detail .stat-radar { width: 158px; height: 158px; }
 .sheet-block { display: grid; gap: 7px; min-width: 0; }
 .sheet-block > .field-label { display: flex; align-items: center; gap: 8px; }
 .sheet-block > .field-label::after {
@@ -2176,13 +2191,193 @@ a.ctl { text-decoration: none; display: inline-block; }
   background: linear-gradient(90deg, var(--c-line-2), transparent);
 }
 
+
+/* ══ 게임 스탯 창 ═════════════════════════════════════
+   숫자만 늘어놓으면 어느 쪽이 센지 안 보인다.
+   도형(레이더) · 게이지 · 환산 타일 세 겹으로 읽는다.
+
+   색은 카드 쪽이 정한다 — 헌터는 청록, 성좌는 금빛이 흐른다. */
+.stat-panel {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  width: 100%;
+  --radar: var(--c-blue);
+  --radar-2: var(--c-ok);
+}
+.stat-panel-chart { display: grid; justify-items: center; gap: 6px; }
+.stat-panel-cap {
+  font-family: var(--c-mono);
+  font-size: 0.625rem;
+  letter-spacing: .1em;
+  color: var(--c-faint);
+}
+.stat-panel-detail { display: grid; gap: 14px; min-width: 0; }
+
+/* ── 레이더 ─────────────────────────────────────────── */
+.stat-radar { width: 190px; height: 190px; overflow: visible; }
+.radar-ring {
+  fill: none;
+  stroke: var(--c-line);
+  stroke-width: 1;
+}
+.radar-ring:last-of-type { stroke: var(--c-line-2); }
+.radar-spoke { stroke: var(--c-line); stroke-width: 1; }
+.radar-shape {
+  fill: color-mix(in srgb, var(--radar) 22%, transparent);
+  stroke: var(--radar);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--radar-2) 55%, transparent));
+}
+.radar-dot {
+  fill: var(--radar-2);
+  filter: drop-shadow(0 0 5px var(--radar-2));
+}
+.radar-label {
+  fill: var(--c-faint);
+  font-family: var(--c-mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+}
+
+/* ── 게이지 ─────────────────────────────────────────── */
+.stat-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.stat-bars li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 44px) 1fr 26px;
+  align-items: center;
+  gap: 10px;
+}
+.stat-bars i {
+  font-style: normal;
+  font-family: var(--c-mono);
+  font-size: 0.75rem;
+  letter-spacing: .12em;
+  color: var(--radar);
+}
+.stat-bar-ko { font-size: 0.8125rem; color: var(--c-dim); }
+.stat-bar-track {
+  position: relative;
+  height: 8px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .04);
+  overflow: hidden;
+}
+.stat-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--radar), var(--radar-2));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--radar-2) 60%, transparent);
+}
+.stat-bars b { font-size: 1rem; text-align: right; }
+
+/* ── 환산 타일 ──────────────────────────────────────── */
+.derived-tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+}
+.derived-tiles li {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 9px 6px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .03);
+}
+.derived-tiles i {
+  font-style: normal;
+  font-family: var(--c-mono);
+  font-size: 0.625rem;
+  letter-spacing: .16em;
+  color: var(--c-faint);
+}
+.derived-tiles b { font-size: 1.375rem; line-height: 1.1; color: var(--radar-2); }
+.derived-tiles small { font-size: 0.6875rem; color: var(--c-dim); }
+
+/* 좁은 카드에서는 도형을 위로 올린다 */
+@media (max-width: 720px) {
+  .stat-panel { grid-template-columns: 1fr; justify-items: center; }
+  .stat-panel-detail { width: 100%; }
+}
+
+/* ── 인벤토리 격자 ──────────────────────────────────── */
+.inventory-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 8px;
+  text-align: left;
+}
+.inventory-grid .slot {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  padding: 10px 11px 9px;
+  border: 1px solid var(--c-line);
+  border-top: 2px solid var(--c-line-2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .015));
+  min-height: 92px;
+}
+.inventory-grid .slot-count {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  font-size: 0.8125rem;
+  color: var(--c-gold);
+}
+.inventory-grid .slot-name { font-size: 0.875rem; font-weight: 600; padding-right: 30px; }
+.inventory-grid .slot-cat {
+  font-family: var(--c-mono);
+  font-size: 0.625rem;
+  letter-spacing: .1em;
+  color: var(--c-faint);
+}
+.inventory-grid .slot-effect {
+  margin-top: 3px;
+  font-size: 0.75rem;
+  color: var(--c-dim);
+  line-height: 1.45;
+}
+.inventory-grid .slot-ap {
+  margin-top: auto;
+  padding-top: 5px;
+  font-size: 0.6875rem;
+  color: var(--c-faint);
+}
+/* 분류마다 위 테두리 색을 달리해 가방을 훑기 쉽게 한다 */
+.inventory-grid .cat-hunter_only { border-top-color: var(--c-blue); }
+.inventory-grid .cat-constellation_only { border-top-color: var(--c-gold); }
+.inventory-grid .cat-shared { border-top-color: var(--c-ok); }
+.inventory-grid .cat-affiliation { border-top-color: var(--c-violet); }
+.inventory-grid .cat-key { border-top-color: var(--c-warn); }
+
+/* ── 지갑 ───────────────────────────────────────────── */
+.purse-coin {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--c-gold);
+  text-shadow: 0 0 14px rgba(230, 197, 131, .5);
+}
+.purse-body { display: grid; gap: 1px; }
+.purse-body b { font-size: 1.375rem; line-height: 1.1; }
+.purse-slots { margin-left: auto; font-size: 0.75rem; }
+
 /* ── 보급 · 포인트 ──────────────────────────────────────
    포인트는 페어에 붙는 값이라, 누구와 함께 쓰는 가방인지 함께 밝힌다. */
 .supply-block { display: grid; gap: 10px; }
 .supply-points {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   padding: 10px 12px;
   border: 1px solid var(--c-line);

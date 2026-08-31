@@ -159,26 +159,36 @@ export function SupplyBlock({ supply }: { supply: Supply }) {
   return (
     <div className="supply-block">
       <div className="supply-points">
-        <span className="field-label">소지금</span>
-        <b className="num gold">{supply.points ?? 0} P</b>
+        <span className="purse-coin" aria-hidden="true">
+          ◈
+        </span>
+        <span className="purse-body">
+          <span className="field-label">소지금 · CREDIT</span>
+          <b className="num gold">{(supply.points ?? 0).toLocaleString()} P</b>
+        </span>
         <span className="tag">개인 소유</span>
+        <span className="purse-slots num dim">가방 {stacks.length} / 종</span>
       </div>
 
       {stacks.length === 0 ? (
         <p className="dim small-text">가방이 비어 있습니다 — 보급은 관리국 창구에서 받습니다.</p>
       ) : (
-        <ul className="inventory-list">
+        <ul className="inventory-grid">
           {stacks.map((stack) => {
             const item = findItem(stack.itemId);
             if (!item) return null;
+            const effects = describeItem(item);
             return (
-              <li key={stack.itemId}>
-                <span>
-                  {item.nameKo}
-                  <small className="dim">{describeItem(item).join(' / ') || item.description}</small>
-                </span>
-                <span className="tag">{ITEM_CATEGORY_LABELS[item.category].labelKo}</span>
-                <b className="num gold">{stack.quantity}</b>
+              <li
+                key={stack.itemId}
+                className={`slot cat-${item.category.toLowerCase()}`}
+                title={`${item.nameKo} — ${effects.join(' / ') || item.description}`}
+              >
+                <span className="slot-count num">×{stack.quantity}</span>
+                <span className="slot-name">{item.nameKo}</span>
+                <span className="slot-cat">{ITEM_CATEGORY_LABELS[item.category].labelKo}</span>
+                <span className="slot-effect">{effects[0] ?? item.description}</span>
+                <span className="slot-ap num">AP {item.apCost}</span>
               </li>
             );
           })}
@@ -188,48 +198,173 @@ export function SupplyBlock({ supply }: { supply: Supply }) {
   );
 }
 
-/** 스탯 → 전투 수치 환산. 시트만 보고 전투 능력을 가늠할 수 있게 한다. */
-function DerivedValues({
+/* ── 게임 스탯 창 ───────────────────────────────────────
+   숫자만 늘어놓으면 어느 쪽이 센지 한눈에 안 들어온다.
+   도형 하나 · 게이지 · 환산 타일 세 겹으로 보여 준다.
+
+   오각형은 두 쪽 모두에게 맞는다 —
+   헌터는 단말이 훑고 지나간 스캔 도형, 성좌는 별자리 그 자체다. */
+
+/** 오각(또는 N각) 레이더. 라이브러리 없이 그린다 — 축 개수는 스탯 정의를 따른다. */
+export function StatRadar({
+  side,
+  stats,
+  size = 190,
+}: {
+  side: ActorSide;
+  stats: StatBlock;
+  size?: number;
+}) {
+  const axes = statsFor(side);
+  if (axes.length < 3) return null;
+
+  const center = size / 2;
+  const radius = center - 30;
+  const max = POINT_BUY.maxValue;
+  const rings = [0.25, 0.5, 0.75, 1];
+
+  /** 12시에서 시작해 시계 방향 */
+  const point = (index: number, ratio: number) => {
+    const angle = (Math.PI * 2 * index) / axes.length - Math.PI / 2;
+    return [center + Math.cos(angle) * radius * ratio, center + Math.sin(angle) * radius * ratio];
+  };
+
+  const polygon = (ratio: number) =>
+    axes.map((_, index) => point(index, ratio).join(',')).join(' ');
+
+  const shape = axes
+    .map((axis, index) => {
+      const value = stats[axis.key] ?? POINT_BUY.baseValue;
+      return point(index, Math.max(0.08, value / max)).join(',');
+    })
+    .join(' ');
+
+  return (
+    <svg
+      className="stat-radar"
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label={axes
+        .map((axis) => `${axis.labelKo} ${stats[axis.key] ?? POINT_BUY.baseValue}`)
+        .join(', ')}
+    >
+      {/* 거미줄 */}
+      {rings.map((ratio) => (
+        <polygon key={ratio} className="radar-ring" points={polygon(ratio)} />
+      ))}
+      {axes.map((axis, index) => {
+        const [x, y] = point(index, 1);
+        return <line key={axis.key} className="radar-spoke" x1={center} y1={center} x2={x} y2={y} />;
+      })}
+
+      {/* 값 */}
+      <polygon className="radar-shape" points={shape} />
+      {axes.map((axis, index) => {
+        const value = stats[axis.key] ?? POINT_BUY.baseValue;
+        const [x, y] = point(index, Math.max(0.08, value / max));
+        return <circle key={axis.key} className="radar-dot" cx={x} cy={y} r={3} />;
+      })}
+
+      {/* 축 이름 */}
+      {axes.map((axis, index) => {
+        const [x, y] = point(index, 1.22);
+        return (
+          <text
+            key={axis.key}
+            className="radar-label"
+            x={x}
+            y={y}
+            textAnchor="middle"
+            dominantBaseline="middle"
+          >
+            {axis.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** 게이지 목록 — 정확한 값은 여기서 읽는다 */
+export function StatBars({ side, stats }: { side: ActorSide; stats: StatBlock }) {
+  const max = POINT_BUY.maxValue;
+
+  return (
+    <ul className="stat-bars">
+      {statsFor(side).map((stat) => {
+        const value = stats[stat.key] ?? POINT_BUY.baseValue;
+        return (
+          <li key={stat.key} title={`${stat.labelKo} — ${stat.effect}`}>
+            <i>{stat.label}</i>
+            <span className="stat-bar-ko">{stat.labelKo}</span>
+            <span className="stat-bar-track">
+              <span className="stat-bar-fill" style={{ width: `${(value / max) * 100}%` }} />
+            </span>
+            <b className="num">{value}</b>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** 환산 수치 타일 — 게임 상태창처럼 큰 숫자로 */
+export function DerivedTiles({
   sheet,
 }: {
   sheet: { side: ActorSide; classId: string; stats: StatBlock };
 }) {
-  if (sheet.side === 'HUNTER') {
-    const derived = deriveHunter(sheet);
-    return (
-      <ul className="stat-line">
-        <li>
-          <i>HP</i>
-          <b className="num">{derived.maxHp}</b>
-        </li>
-        <li>
-          <i>ATK</i>
-          <b className="num">{derived.attack}</b>
-        </li>
-        <li>
-          <i>DEF</i>
-          <b className="num">{derived.defense}</b>
-        </li>
-        <li>
-          <i>AP</i>
-          <b className="num">{derived.maxAp}</b>
-        </li>
-      </ul>
-    );
-  }
+  const tiles =
+    sheet.side === 'HUNTER'
+      ? (() => {
+          const derived = deriveHunter(sheet);
+          return [
+            { key: 'HP', label: '최대 HP', value: String(derived.maxHp) },
+            { key: 'ATK', label: '공격', value: String(derived.attack) },
+            { key: 'DEF', label: '방어', value: String(derived.defense) },
+            { key: 'AP', label: '행동력', value: String(derived.maxAp) },
+          ];
+        })()
+      : (() => {
+          const derived = deriveConstellation(sheet);
+          return [
+            { key: 'POWER', label: '권능 배율', value: `×${derived.power}` },
+            { key: 'AP', label: '행동력', value: String(derived.maxAp) },
+          ];
+        })();
 
-  const derived = deriveConstellation(sheet);
   return (
-    <ul className="stat-line">
-      <li>
-        <i>권능</i>
-        <b className="num gold">×{derived.power}</b>
-      </li>
-      <li>
-        <i>AP</i>
-        <b className="num">{derived.maxAp}</b>
-      </li>
+    <ul className="derived-tiles">
+      {tiles.map((tile) => (
+        <li key={tile.key}>
+          <i>{tile.key}</i>
+          <b className="num">{tile.value}</b>
+          <small>{tile.label}</small>
+        </li>
+      ))}
     </ul>
+  );
+}
+
+/** 스탯 창 한 벌 — 도형 · 게이지 · 환산 */
+export function StatPanel({
+  sheet,
+}: {
+  sheet: { side: ActorSide; classId: string; stats: StatBlock };
+}) {
+  return (
+    <div className="stat-panel">
+      <div className="stat-panel-chart">
+        <StatRadar side={sheet.side} stats={sheet.stats} />
+        <span className="stat-panel-cap">
+          배분 상한 {POINT_BUY.maxValue} · 자유 배분 {POINT_BUY.freePoints}점
+        </span>
+      </div>
+      <div className="stat-panel-detail">
+        <StatBars side={sheet.side} stats={sheet.stats} />
+        <DerivedTiles sheet={sheet} />
+      </div>
+    </div>
   );
 }
 
@@ -344,15 +479,9 @@ export function SheetDetail({
         {note && <div className="sheet-head-note">{note}</div>}
       </header>
 
-      <div className="sheet-grid">
-        <div className="sheet-box">
-          <span className="field-label">스탯 배분</span>
-          <StatLine side={sheet.side} stats={sheet.stats} />
-        </div>
-        <div className="sheet-box">
-          <span className="field-label">전투 환산</span>
-          <DerivedValues sheet={sheet} />
-        </div>
+      <div className="sheet-block">
+        <span className="field-label">스탯 · 환산</span>
+        <StatPanel sheet={sheet} />
       </div>
 
       <div className="sheet-block">
@@ -503,16 +632,7 @@ export function PublicSheetCard({
             <span>스탯 · 환산</span>
             <i>STATS</i>
           </h4>
-          <div className="dossier-stats">
-            <div>
-              <span className="field-label">배분</span>
-              <StatLine side={profile.side} stats={profile.stats} />
-            </div>
-            <div>
-              <span className="field-label">전투 환산</span>
-              <DerivedValues sheet={profile} />
-            </div>
-          </div>
+          <StatPanel sheet={profile} />
         </section>
 
         {supply && (

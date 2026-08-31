@@ -36,7 +36,7 @@ import {
   type PublicProfile,
 } from '../store';
 import PortraitField, { Portrait } from './PortraitField';
-import { ProfileBlock, PublicSheetCard, SupplyBlock, type Supply } from './SheetView';
+import { ProfileBlock, PublicSheetCard, StatPanel, SupplyBlock, type Supply } from './SheetView';
 import type {
   Account,
   ActorSide,
@@ -606,9 +606,6 @@ export default function JoinTerminal() {
   if (account) {
     const sheet = account.sheet;
     const sheetClass = findClass(sheet.side, sheet.classId);
-    const hunter = sheet.side === 'HUNTER' ? deriveHunter(sheet) : null;
-    const constellation = sheet.side === 'CONSTELLATION' ? deriveConstellation(sheet) : null;
-
     // 편성이 확정됐으면 관리국이 맺어 준 상대가 우선, 아니면 시트에 적어 둔 이름
     const bondedName =
       sheet.side === 'HUNTER' ? bond?.constellationName : bond?.hunterName;
@@ -691,53 +688,9 @@ export default function JoinTerminal() {
               )}
             </div>
 
-            <div>
-              <h3 className="sub-title">STATS</h3>
-              <ul className="stat-summary">
-                {statsFor(sheet.side).map((stat) => (
-                  <li key={stat.key}>
-                    <span className="field-label">{stat.label}</span>
-                    <span className="num">{sheet.stats[stat.key] ?? POINT_BUY.baseValue}</span>
-                    <small className="dim">{stat.labelKo}</small>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="sub-title">COMBAT VALUE</h3>
-              {hunter && (
-                <ul className="stat-summary">
-                  <li>
-                    <span className="field-label">MAX HP</span>
-                    <span className="num">{hunter.maxHp}</span>
-                  </li>
-                  <li>
-                    <span className="field-label">ATTACK</span>
-                    <span className="num">{hunter.attack}</span>
-                  </li>
-                  <li>
-                    <span className="field-label">DEFENSE</span>
-                    <span className="num">{hunter.defense}</span>
-                  </li>
-                  <li>
-                    <span className="field-label">MAX AP</span>
-                    <span className="num">{hunter.maxAp}</span>
-                  </li>
-                </ul>
-              )}
-              {constellation && (
-                <ul className="stat-summary">
-                  <li>
-                    <span className="field-label">POWER</span>
-                    <span className="num">×{constellation.power}</span>
-                  </li>
-                  <li>
-                    <span className="field-label">MAX AP</span>
-                    <span className="num">{constellation.maxAp}</span>
-                  </li>
-                </ul>
-              )}
+            <div className="sheet-view-wide">
+              <h3 className="sub-title">STATUS · 스탯과 환산</h3>
+              <StatPanel sheet={sheet} />
             </div>
           </div>
 
