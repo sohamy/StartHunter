@@ -57,7 +57,7 @@ import AttackEditor from './AttackEditor';
 import ChatPanel from './ChatPanel';
 import Collapsible from './Collapsible';
 import SheetEditor from './SheetEditor';
-import { ActorSheet, PublicSheetCard, SheetDetail, sideLabel } from './SheetView';
+import { ActorSheet, PublicSheetCard, SheetDetail, sideLabel, type Supply } from './SheetView';
 import type {
   ActorSide,
   BattleRecord,
@@ -996,6 +996,13 @@ export default function ControlTerminal() {
         bond.hunterAccountId === accountId || bond.constellationAccountId === accountId,
     ) ?? null;
 
+  /** 페어 공용 가방 — 편성이 없으면 보여줄 것도 없다 */
+  const supplyOf = (accountId: string): Supply | null => {
+    const bond = bondOf(accountId);
+    if (!bond) return null;
+    return { points: bond.points ?? 0, inventory: bond.inventory ?? [], label: bond.label };
+  };
+
   /** 컨셉 세 칸과 계약 상대를 한 덩어리로 묶어 검색에 태운다 */
   const profileText = (sheet: CharacterSheet) =>
     [sheet.partnerName, ...PROFILE_FIELDS.map((field) => sheet[field.key] ?? '')]
@@ -1552,6 +1559,11 @@ export default function ControlTerminal() {
                               key={side}
                               sheet={sheet}
                               accountId={accountId ?? undefined}
+                              supply={{
+                                points: bond.points ?? 0,
+                                inventory: bond.inventory ?? [],
+                                label: bond.label,
+                              }}
                             />
                           );
                         })}
@@ -1729,6 +1741,7 @@ export default function ControlTerminal() {
                     <PublicSheetCard
                       profile={toPublicProfile(row.accountId, row.sheet)}
                       partnerName={partner}
+                      supply={supplyOf(row.accountId)}
                       badge={
                         bond ? (
                           <span className="tag ok">{bond.label}</span>
@@ -1766,6 +1779,7 @@ export default function ControlTerminal() {
                     key={`${row.accountId}-${row.sheet.id}`}
                     sheet={row.sheet}
                     accountId={row.accountId}
+                    supply={supplyOf(row.accountId)}
                     note={
                       <>
                         {bond ? (

@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 
 import { getAuth, getStorage, isServerMode, type PublicProfile } from '../store';
-import { PublicSheetCard } from './SheetView';
+import { PublicSheetCard, type Supply } from './SheetView';
 
 type Phase = 'LOADING' | 'READY' | 'NO_ID' | 'NOT_FOUND' | 'NEED_LOGIN';
 
@@ -38,6 +38,8 @@ export default function PublicSheetTerminal() {
   /** 관리국이 맺어 준 상대 — 시트에 적어 둔 이름보다 우선한다 */
   const [bondedName, setBondedName] = useState<string | null>(null);
   const [squad, setSquad] = useState<string | null>(null);
+  /** 페어 공용 가방 — 편성이 있을 때만 */
+  const [supply, setSupply] = useState<Supply | null>(null);
 
   useEffect(() => {
     const target = readHandle();
@@ -79,6 +81,11 @@ export default function PublicSheetTerminal() {
         setBondedName(
           mine.hunterAccountId === target ? mine.constellationName : mine.hunterName,
         );
+        setSupply({
+          points: mine.points ?? 0,
+          inventory: mine.inventory ?? [],
+          label: mine.label,
+        });
       } catch {
         /* 편성 조회 실패는 무시한다 */
       }
@@ -116,7 +123,7 @@ export default function PublicSheetTerminal() {
           <p className="hint" style={{ marginBottom: 14 }}>
             참가자가 제출한 시트 전문입니다.
           </p>
-          <PublicSheetCard profile={profile} partnerName={bondedName} />
+          <PublicSheetCard profile={profile} partnerName={bondedName} supply={supply} />
         </section>
       )}
 

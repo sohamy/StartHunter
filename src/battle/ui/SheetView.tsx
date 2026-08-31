@@ -16,6 +16,7 @@ import {
   statsFor,
   toProfile,
 } from '../config/characters';
+import { ITEM_CATEGORY_LABELS, describeItem, findItem } from '../config/items';
 import { findSkillKind } from '../config/skills';
 import { STATUS_DEFINITIONS } from '../config/status';
 import { deriveConstellation, deriveHunter } from '../engine/character';
@@ -25,11 +26,23 @@ import type {
   ActorSide,
   Affiliation,
   CharacterSheet,
+  ItemStack,
   SheetProfile,
   SkillDefinition,
   SkillRuntime,
   StatBlock,
 } from '../types';
+
+/**
+ * 포인트와 보급품은 캐릭터가 아니라 **페어**에 붙는다 (PairBond).
+ * 시트 화면에서는 편성에서 받아 온 값을 그대로 얹어 보여 준다.
+ */
+export interface Supply {
+  points: number;
+  inventory: ItemStack[];
+  /** 편성 라벨 — 누구와 함께 쓰는 가방인지 밝힌다 */
+  label?: string | null;
+}
 
 type AnySkill = SkillDefinition | SkillRuntime;
 
@@ -133,6 +146,47 @@ export function ProfileBlock({
           <p className="concept-text">{profile[field.key]}</p>
         </section>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 보급 · 포인트 — 페어가 함께 쓰는 가방.
+ *
+ * 전투 화면의 가방과 같은 값이다. 여기서는 사고 팔 수 없다 —
+ * 구매와 반납은 관리국 보급 창구(작전실)에서만 처리한다.
+ */
+export function SupplyBlock({ supply }: { supply: Supply }) {
+  const stacks = (supply.inventory ?? []).filter((stack) => stack.quantity > 0);
+
+  return (
+    <div className="supply-block">
+      <div className="supply-points">
+        <span className="field-label">보유 포인트</span>
+        <b className="num gold">{supply.points ?? 0} P</b>
+        {supply.label && <span className="tag">{supply.label} 공용</span>}
+      </div>
+
+      {stacks.length === 0 ? (
+        <p className="dim small-text">가방이 비어 있습니다 — 보급은 관리국 창구에서 받습니다.</p>
+      ) : (
+        <ul className="inventory-list">
+          {stacks.map((stack) => {
+            const item = findItem(stack.itemId);
+            if (!item) return null;
+            return (
+              <li key={stack.itemId}>
+                <span>
+                  {item.nameKo}
+                  <small className="dim">{describeItem(item).join(' / ') || item.description}</small>
+                </span>
+                <span className="tag">{ITEM_CATEGORY_LABELS[item.category].labelKo}</span>
+                <b className="num gold">{stack.quantity}</b>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -259,10 +313,13 @@ export function SheetDetail({
   sheet,
   accountId,
   note,
+  supply,
 }: {
   sheet: CharacterSheet;
   accountId?: string;
   note?: ReactNode;
+  /** 편성이 있으면 페어 공용 가방을 함께 보여 준다 */
+  supply?: Supply | null;
 }) {
   const classDef = findClass(sheet.side, sheet.classId);
   const hunter = sheet.side === 'HUNTER';
@@ -321,6 +378,13 @@ export function SheetDetail({
           <p className="dim small-text">적어 둔 설정 없음</p>
         )}
       </div>
+
+      {supply && (
+        <div className="sheet-block">
+          <span className="field-label">보급 · 포인트</span>
+          <SupplyBlock supply={supply} />
+        </div>
+      )}
     </article>
   );
 }
@@ -340,11 +404,14 @@ export function PublicSheetCard({
   profile,
   badge,
   partnerName,
+  supply,
 }: {
   profile: PublicProfile;
   badge?: ReactNode;
   /** 편성이 확정된 경우의 상대 이름 — 참가자가 적어 둔 값보다 우선한다 */
   partnerName?: string | null;
+  /** 페어 공용 가방 — 편성이 없으면 생략한다 */
+  supply?: Supply | null;
 }) {
   const hunter = profile.side === 'HUNTER';
   const classDef = findClass(profile.side, profile.classId);
@@ -437,6 +504,19 @@ export function PublicSheetCard({
             </div>
           </div>
         </section>
+
+        {supply && (
+          <section className="dossier-part">
+            <h4 className="dossier-part-title">
+              <span className="dossier-index">
+                {String(PROFILE_FIELDS.length + 3).padStart(2, '0')}
+              </span>
+              <span>보급 · 포인트</span>
+              <i>SUPPLY</i>
+            </h4>
+            <SupplyBlock supply={supply} />
+          </section>
+        )}
       </div>
 
       <footer className="dossier-foot">

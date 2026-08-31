@@ -19,7 +19,9 @@ import {
   remainingPoints,
   statsFor,
 } from '../config/characters';
+import { describeItem } from '../config/items';
 import { CURRENT_PHASE } from '../config/rules';
+import { shopRows } from '../config/shop';
 import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
 import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
@@ -33,7 +35,7 @@ import {
   type PublicProfile,
 } from '../store';
 import PortraitField, { Portrait } from './PortraitField';
-import { ProfileBlock, PublicSheetCard } from './SheetView';
+import { ProfileBlock, PublicSheetCard, SupplyBlock, type Supply } from './SheetView';
 import type {
   Account,
   ActorSide,
@@ -604,6 +606,11 @@ export default function JoinTerminal() {
       sheet.side === 'HUNTER' ? bond?.constellationAccountId : bond?.hunterAccountId;
     const partnerName = (bondedName ?? '').trim() || sheet.partnerName.trim();
 
+    // 포인트와 보급품은 페어에 붙는다 — 편성이 없으면 아직 가방도 없다
+    const supply: Supply | null = bond
+      ? { points: bond.points ?? 0, inventory: bond.inventory ?? [], label: bond.label }
+      : null;
+
     return (
       <div className="console">
         <header className="console-head">
@@ -770,6 +777,7 @@ export default function JoinTerminal() {
           <PublicSheetCard
             profile={toPublicProfile(account.id, sheet)}
             partnerName={bondedName}
+            supply={supply}
             badge={<span className="tag ok">내 시트</span>}
           />
           <div className="disclosure">
@@ -801,10 +809,52 @@ export default function JoinTerminal() {
             <PublicSheetCard
               profile={partnerProfile}
               partnerName={sheet.name}
+              supply={supply}
               badge={bond ? <span className="tag ok">{bond.label}</span> : undefined}
             />
           </section>
         )}
+
+        {/* 포인트 · 가방 · 가격표 — 무엇을 얼마에 받을 수 있는지 한 화면에서 본다 */}
+        <section className="panel">
+          <h2 className="panel-title">SUPPLY · 보급과 포인트</h2>
+          {supply ? (
+            <>
+              <SupplyBlock supply={supply} />
+              <p className="hint" style={{ marginTop: 12 }}>
+                포인트와 보급품은 <b>페어 공용</b>입니다. 구매와 반납은 관리국 보급 창구에서
+                처리합니다 — 필요한 품목을 관리국에 요청하세요. 전투 중에는 살 수 없습니다.
+              </p>
+            </>
+          ) : (
+            <p className="hint">
+              편성이 확정되면 페어 공용 포인트와 가방이 생깁니다. 지금은 가격표만 볼 수 있습니다.
+            </p>
+          )}
+
+          <h3 className="sub-title">SHOP · 보급 가격표</h3>
+          <ul className="shop-list">
+            {shopRows().map((row) => {
+              const owned =
+                supply?.inventory.find((stack) => stack.itemId === row.itemId)?.quantity ?? 0;
+              return (
+                <li key={row.itemId}>
+                  <span className="shop-name">
+                    {row.item.nameKo}
+                    <small className="dim">
+                      {describeItem(row.item).join(' / ') || row.item.description}
+                    </small>
+                  </span>
+                  <b className="num gold">{row.price} P</b>
+                  <span className="tag">
+                    보유 {owned}
+                    {row.limit !== null ? ` / ${row.limit}` : ''}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
 
         <section className="panel">
           <h2 className="panel-title">DEPLOY</h2>

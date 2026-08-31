@@ -2171,6 +2171,23 @@ a.ctl { text-decoration: none; display: inline-block; }
   background: linear-gradient(90deg, var(--c-line-2), transparent);
 }
 
+/* ── 보급 · 포인트 ──────────────────────────────────────
+   포인트는 페어에 붙는 값이라, 누구와 함께 쓰는 가방인지 함께 밝힌다. */
+.supply-block { display: grid; gap: 10px; }
+.supply-points {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  background: rgba(230, 197, 131, .06);
+}
+.supply-points b { font-size: 1.125rem; }
+.inventory-list li > span:first-child small { display: block; color: var(--c-faint); font-size: 0.6875rem; }
+.dossier .supply-points { border-color: rgba(230, 197, 131, .28); }
+.dossier.constellation .supply-block { text-align: left; width: 100%; }
+
 /* ── 공개 시트 주소 (운영진) ────────────────────────────
    커뮤니티에 그대로 붙여 넣을 주소다 — 카드 밑에 붙여 두어
    어느 카드의 주소인지 헷갈리지 않게 한다. */
