@@ -1979,3 +1979,23 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .profile-block.compact .profile-part-title { font-size: 0.75rem; }
 .ctl-sep { width: 1px; align-self: stretch; background: var(--c-line); margin: 0 4px; }
+
+/* ── 공개 시트 주소 (운영진) ────────────────────────────
+   커뮤니티에 그대로 붙여 넣을 주소다 — 카드 밑에 붙여 두어
+   어느 카드의 주소인지 헷갈리지 않게 한다. */
+.dossier-slot { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.share-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.share-url {
+  flex: 1;
+  min-width: 200px;
+  font-family: var(--c-mono);
+  font-size: 0.75rem;
+}

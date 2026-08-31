@@ -77,6 +77,48 @@ import type {
 type Tab = 'ROSTER' | 'SHEET' | 'ENCOUNTER' | 'OPERATION' | 'LOG' | 'ARCHIVE';
 type PairFilter = 'ALL' | 'GOVERNMENT' | 'GUILD' | 'INJURED' | 'DOWN' | 'NOT_SUBMITTED';
 type SheetFilter = 'ALL' | 'HUNTER' | 'CONSTELLATION' | 'UNPAIRED';
+
+/**
+ * 참가자에게 남길 공개 시트 주소.
+ *
+ * 이 주소로 열리는 화면에는 공개분만 뜬다 — 스탯도 스킬 수치도 담기지 않는다.
+ * 커뮤니티에 그대로 붙여 넣을 수 있도록 절대 주소로 만든다.
+ */
+function publicSheetUrl(accountId: string): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const path = `${base}/battle/sheet/?id=${encodeURIComponent(accountId)}`;
+  return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
+}
+
+/** 공개 시트 주소 한 줄 — 눈으로 확인하고, 눌러서 복사하고, 열어 볼 수 있게 한다. */
+function PublicSheetLink({ accountId }: { accountId: string }) {
+  const url = publicSheetUrl(accountId);
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // 클립보드가 막힌 환경에서는 주소를 직접 긁어 갈 수 있게 그대로 둔다
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="share-row">
+      <span className="field-label">공개 주소</span>
+      <input className="ctl input share-url" value={url} readOnly onFocus={(e) => e.target.select()} />
+      <button type="button" className="ctl small" onClick={() => void copy()}>
+        {copied ? '복사됨' : '주소 복사'}
+      </button>
+      <a className="ctl small" href={url} target="_blank" rel="noreferrer">
+        열기
+      </a>
+    </div>
+  );
+}
 /** 시트 전문(수치까지) 과 참가자에게 보이는 프로필 카드를 오간다 */
 type SheetLayout = 'DETAIL' | 'PROFILE';
 type LogTab = 'SYSTEM' | 'ROLEPLAY';
@@ -1683,18 +1725,20 @@ export default function ControlTerminal() {
                   : null;
 
                 return (
-                  <PublicSheetCard
-                    key={`${row.accountId}-${row.sheet.id}`}
-                    profile={toPublicProfile(row.accountId, row.sheet)}
-                    partnerName={partner}
-                    badge={
-                      bond ? (
-                        <span className="tag ok">{bond.label}</span>
-                      ) : (
-                        <span className="tag offline">미편성</span>
-                      )
-                    }
-                  />
+                  <div className="dossier-slot" key={`${row.accountId}-${row.sheet.id}`}>
+                    <PublicSheetCard
+                      profile={toPublicProfile(row.accountId, row.sheet)}
+                      partnerName={partner}
+                      badge={
+                        bond ? (
+                          <span className="tag ok">{bond.label}</span>
+                        ) : (
+                          <span className="tag offline">미편성</span>
+                        )
+                      }
+                    />
+                    <PublicSheetLink accountId={row.accountId} />
+                  </div>
                 );
               })}
             </div>
