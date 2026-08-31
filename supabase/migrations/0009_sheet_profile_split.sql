@@ -2,6 +2,7 @@
 --  컨셉 분할 · 계약 상대 · 공개 시트 경계
 --
 --  0001~0008 을 적용한 뒤 SQL Editor 에 붙여 실행한다.
+--  0007(사진)을 건너뛴 프로젝트에서도 이 파일 하나로 선다 — 필요한 열을 스스로 만든다.
 --
 --  1) 한 칸짜리 concept 을 성격 / 특징 / 계약 경위 세 칸으로 나눈다.
 --     기존에 적힌 글은 성격 칸으로 옮긴다 (지우지 않는다).
@@ -11,11 +12,17 @@
 -- ============================================================
 
 -- ── 1 · 컨셉 세 칸과 계약 상대 ──────────────────────────
+--  portrait 는 0007 이 만드는 열이다. 0007 을 건너뛴 프로젝트에서도
+--  이 파일 하나로 서도록 여기서 한 번 더 보장한다 (0007 을 이미 돌렸다면 아무 일도 없다).
 alter table public.sheets
+  add column if not exists portrait       text,
   add column if not exists partner_name   text not null default '',
   add column if not exists personality    text not null default '',
   add column if not exists traits         text not null default '',
   add column if not exists contract_story text not null default '';
+
+comment on column public.sheets.portrait is
+  '캐릭터 사진. data:image/jpeg;base64,... 형태의 정사각 축소본. 없으면 null.';
 
 comment on column public.sheets.partner_name is
   '참가자가 적어 둔 계약 상대(페어) 이름. 공란 가능 — 편성이 확정되면 pair_bonds 쪽이 우선한다.';
@@ -24,6 +31,9 @@ comment on column public.sheets.traits is '특징 — 좋아하는 것 · 싫어
 comment on column public.sheets.contract_story is '성좌와 계약을 맺은 경위. 공란 가능.';
 
 -- 예전에 한 칸에 적어 둔 글은 성격 칸으로 옮긴다. 여러 번 실행해도 안전하다.
+alter table public.sheets
+  add column if not exists concept text not null default '';
+
 update public.sheets
    set personality = concept
  where personality = ''
