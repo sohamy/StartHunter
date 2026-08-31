@@ -34,6 +34,7 @@ import type {
 } from '../types';
 import { constellationStateFromSheet, hunterStateFromSheet } from './character';
 import { newUuid } from './id';
+import { addItem } from './items';
 import { contractFromValue, constellationMaxAp } from './status';
 
 export interface PairInput {
@@ -234,6 +235,21 @@ export interface AssembleOptions {
 }
 
 /**
+ * 두 사람의 개인 가방을 한 판짜리 공용 가방으로 합친다.
+ * 비어 있으면 기본 보급을 받도록 undefined 를 돌려준다.
+ */
+export function mergeBags(
+  left: ItemStack[] | undefined,
+  right: ItemStack[] | undefined,
+): ItemStack[] | undefined {
+  let merged: ItemStack[] = [];
+  for (const stack of [...(left ?? []), ...(right ?? [])]) {
+    merged = addItem(merged, stack.itemId, stack.quantity);
+  }
+  return merged.length > 0 ? merged : undefined;
+}
+
+/**
  * 등록된 페어와 세팅된 적으로 전투를 만든다.
  * 페어는 이미 맺어져 있으므로 여기서 짝을 짓지 않는다 — 참가 여부만 정한다.
  */
@@ -245,9 +261,10 @@ export function assembleBattle(options: AssembleOptions): BattleState {
       hunterAccountId: entry.bond.hunterAccountId,
       constellationAccountId: entry.bond.constellationAccountId,
       affiliation: entry.bond.affiliation,
-      // 편성이 공략 사이에 들고 다니는 포인트와 보급품을 그대로 가져온다
-      points: entry.bond.points,
-      inventory: entry.bond.inventory?.length ? entry.bond.inventory : undefined,
+      // 소지금과 가방은 개인 것이다 — 전투 화면의 보유 포인트는 두 사람 것을 합쳐 보여주고,
+      // 가방은 두 개인 가방을 합쳐 한 판 동안 함께 쓴다. 정산에서 각자에게 되돌린다.
+      points: (entry.hunterSheet.points ?? 0) + (entry.constellationSheet.points ?? 0),
+      inventory: mergeBags(entry.hunterSheet.inventory, entry.constellationSheet.inventory),
     });
     return { ...pair, label: entry.bond.label };
   });

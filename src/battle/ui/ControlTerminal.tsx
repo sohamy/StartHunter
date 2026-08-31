@@ -20,7 +20,7 @@ import { manualRewards } from '../config/rewards';
 import { PROFILE_FIELDS } from '../config/characters';
 import { CONSTELLATION_STAGES, CONTRACT_STAGES } from '../config/rules';
 import { DEFAULT_OPERATION, DEFAULT_POINTS } from '../config/scenario';
-import { shopRows } from '../config/shop';
+import { applyShopCatalog, shopRows } from '../config/shop';
 import { STATUS_DEFINITIONS } from '../config/status';
 import * as admin from '../engine/admin';
 import {
@@ -37,7 +37,7 @@ import {
 } from '../engine/enemy';
 import { availableStage, gimmickBrief } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
-import { buildRecord, settle } from '../engine/record';
+import { buildRecord, settle, type SettlementTarget } from '../engine/record';
 import { actionAvailability, applyRound, previewRound } from '../engine/round';
 import { purchase, refund, withPurchase } from '../engine/shop';
 import { actionsFor } from '../engine/skills';
@@ -54,6 +54,7 @@ import {
   type SheetRecord,
 } from '../store';
 import AttackEditor from './AttackEditor';
+import ShopEditor from './ShopEditor';
 import ChatPanel from './ChatPanel';
 import Collapsible from './Collapsible';
 import SheetEditor from './SheetEditor';
@@ -64,6 +65,7 @@ import type {
   BattleState,
   BattleSummary,
   CharacterSheet,
+  ShopItemRecord,
   ConstellationStage,
   ContractStage,
   EnemyState,
@@ -74,7 +76,7 @@ import type {
   StatusHolder,
 } from '../types';
 
-type Tab = 'ROSTER' | 'SHEET' | 'ENCOUNTER' | 'OPERATION' | 'LOG' | 'ARCHIVE';
+type Tab = 'ROSTER' | 'SHEET' | 'SHOP' | 'ENCOUNTER' | 'OPERATION' | 'LOG' | 'ARCHIVE';
 type PairFilter = 'ALL' | 'GOVERNMENT' | 'GUILD' | 'INJURED' | 'DOWN' | 'NOT_SUBMITTED';
 type SheetFilter = 'ALL' | 'HUNTER' | 'CONSTELLATION' | 'UNPAIRED';
 
@@ -371,6 +373,7 @@ export default function ControlTerminal() {
   const [filter, setFilter] = useState<PairFilter>('ALL');
   const [sheetFilter, setSheetFilter] = useState<SheetFilter>('ALL');
   const [sheetLayout, setSheetLayout] = useState<SheetLayout>('DETAIL');
+  const [shopItems, setShopItems] = useState<ShopItemRecord[]>([]);
   const [sheetQuery, setSheetQuery] = useState('');
   const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
   const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
@@ -398,7 +401,7 @@ export default function ControlTerminal() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [profileRows, sheetRows, bondRows, templateRows, battleRows, recordRows] =
+      const [profileRows, sheetRows, bondRows, templateRows, battleRows, recordRows, shopRecords] =
         await Promise.all([
           auth.listProfiles(),
           auth.listSheets(),
@@ -406,6 +409,7 @@ export default function ControlTerminal() {
           storage.listEnemyTemplates(),
           storage.listBattles(),
           storage.listRecords(),
+          storage.listShopItems(),
         ]);
       setProfiles(profileRows);
       setSheets(sheetRows);
@@ -413,6 +417,9 @@ export default function ControlTerminal() {
       setTemplates(templateRows);
       setBattles(battleRows);
       setRecords(recordRows);
+      // 진열을 config 에 실어야 상점 · 창구 · 전투 판정이 같은 목록을 본다
+      applyShopCatalog(shopRecords);
+      setShopItems(shopRecords);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -898,18 +905,28 @@ export default function ControlTerminal() {
     });
   };
 
-  /** 기록의 포인트와 남은 보급품을 영구 편성에 반영한다 */
+  /**
+   * 기록의 포인트와 소모된 보급품을 **개인 시트**에 반영한다.
+   * 소지금과 가방은 개인 소유라 페어가 아니라 사람마다 반영한다.
+   */
   const settleRecord = async (record: BattleRecord) => {
-    const result = settle(record, bonds);
+    const targets: SettlementTarget[] = sheets.map((row) => ({
+      accountId: row.accountId,
+      side: row.sheet.side,
+      points: row.sheet.points ?? 0,
+      inventory: row.sheet.inventory ?? [],
+    }));
+
+    const result = settle(record, bonds, targets);
     if (result.rows.length === 0) {
-      setMessage('정산할 항목이 없습니다 — 이 기록에서 얻은 포인트가 없습니다.');
+      setMessage('정산할 항목이 없습니다 — 얻은 포인트가 없거나 시트를 불러오지 못했습니다.');
       return;
     }
     if (
       !confirmed(
-        `${result.rows.length}개 편성에 포인트를 반영합니다.\n` +
+        `${result.rows.length}명에게 포인트를 반영합니다.\n` +
           result.rows
-            .map((row) => `${row.label} ${row.pointsBefore} → ${row.pointsAfter}`)
+            .map((row) => `${row.name} (${row.label}) ${row.pointsBefore} → ${row.pointsAfter}`)
             .join('\n'),
       )
     ) {
@@ -917,15 +934,23 @@ export default function ControlTerminal() {
     }
 
     await guard(async () => {
-      for (const bond of result.bonds) {
-        if (result.rows.some((row) => row.bondId === bond.id)) await storage.saveBond(bond);
+      const changed = new Set(result.rows.map((row) => row.accountId));
+      for (const target of result.targets) {
+        if (!changed.has(target.accountId)) continue;
+        const owner = sheets.find((row) => row.accountId === target.accountId);
+        if (!owner) continue;
+        await auth.updateSheet(target.accountId, {
+          ...owner.sheet,
+          points: target.points,
+          inventory: target.inventory,
+        });
       }
       await storage.saveRecord({
         ...record,
         note: `${record.note}\n[정산 완료]`.trim(),
       });
       await refresh();
-      setMessage(`정산 완료 — ${result.rows.map((row) => `${row.label} +${row.earned}P`).join(' · ')}`);
+      setMessage(`정산 완료 — ${result.rows.map((row) => `${row.name} +${row.earned}P`).join(' · ')}`);
     });
   };
 
@@ -940,31 +965,51 @@ export default function ControlTerminal() {
     });
   };
 
+  /* ── 상점 진열 ───────────────────────────────────── */
+
+  const saveShopRow = async (record: ShopItemRecord) => {
+    await guard(async () => {
+      await storage.saveShopItem(record);
+      await refresh();
+      setMessage(`상점에 반영했습니다 — ${record.item?.nameKo ?? record.itemId}`);
+    });
+  };
+
+  const removeShopRow = async (itemId: string) => {
+    if (!confirmed(`${itemId} 을(를) 진열에서 지웁니다.`)) return;
+    await guard(async () => {
+      await storage.deleteShopItem(itemId);
+      await refresh();
+      setMessage('진열에서 지웠습니다.');
+    });
+  };
+
   /* ── 보급 창구 ───────────────────────────────────── */
 
-  const buyForBond = async (bond: PairBond, itemId: string) => {
-    const result = purchase(bond, itemId, 1);
+  /** 소지금과 가방은 개인 것이라, 창구도 사람 단위로 연다 */
+  const buyForSheet = async (row: SheetRecord, itemId: string) => {
+    const result = purchase(row.sheet, itemId, 1);
     if (!result.ok) {
       setError(result.reason ?? '구매에 실패했습니다.');
       return;
     }
     await guard(async () => {
-      await storage.saveBond(withPurchase(bond, result));
+      await auth.updateSheet(row.accountId, withPurchase(row.sheet, result));
       await refresh();
-      setMessage(`${bond.label} — ${result.message}`);
+      setMessage(`${row.sheet.name} — ${result.message}`);
     });
   };
 
-  const sellForBond = async (bond: PairBond, itemId: string) => {
-    const result = refund(bond, itemId);
+  const sellForSheet = async (row: SheetRecord, itemId: string) => {
+    const result = refund(row.sheet, itemId);
     if (!result.ok) {
       setError(result.reason ?? '반납에 실패했습니다.');
       return;
     }
     await guard(async () => {
-      await storage.saveBond(withPurchase(bond, result));
+      await auth.updateSheet(row.accountId, withPurchase(row.sheet, result));
       await refresh();
-      setMessage(`${bond.label} — ${result.message}`);
+      setMessage(`${row.sheet.name} — ${result.message}`);
     });
   };
 
@@ -996,11 +1041,11 @@ export default function ControlTerminal() {
         bond.hunterAccountId === accountId || bond.constellationAccountId === accountId,
     ) ?? null;
 
-  /** 페어 공용 가방 — 편성이 없으면 보여줄 것도 없다 */
+  /** 개인 지갑과 가방 — 시트에 붙어 있다 */
   const supplyOf = (accountId: string): Supply | null => {
-    const bond = bondOf(accountId);
-    if (!bond) return null;
-    return { points: bond.points ?? 0, inventory: bond.inventory ?? [], label: bond.label };
+    const sheet = sheetOf(accountId);
+    if (!sheet) return null;
+    return { points: sheet.points ?? 0, inventory: sheet.inventory ?? [] };
   };
 
   /** 컨셉 세 칸과 계약 상대를 한 덩어리로 묶어 검색에 태운다 */
@@ -1313,6 +1358,7 @@ export default function ControlTerminal() {
           [
             ['ROSTER', `편성 · ${activeBonds.length}`],
             ['SHEET', `참가자 시트 · ${sheets.length}`],
+            ['SHOP', `상점 · ${shopRows().length}`],
             ['ENCOUNTER', `적 세팅 · ${templates.length}`],
             ['OPERATION', battle ? `전투 · ROUND ${battle.round}` : '전투'],
             ['LOG', '로그'],
@@ -1477,65 +1523,86 @@ export default function ControlTerminal() {
                         <small className="dim">{bond.constellationAccountId}</small>
                       </div>
                     </div>
-                    <div className="bond-resource">
-                      <span className="field-label">POINT</span>
-                      <b className="num gold">{bond.points ?? 0} P</b>
-                      <NumberField
-                        label="포인트 조정"
-                        value={bond.points ?? 0}
-                        step={10}
-                        onCommit={(value) =>
-                          void patchBond(bond, { points: Math.max(0, value) })
-                        }
-                      />
-                    </div>
+                    {/* 소지금과 가방은 개인 것이다 — 창구도 사람마다 연다 */}
+                    {(
+                      [
+                        ['HUNTER', bond.hunterAccountId],
+                        ['CONSTELLATION', bond.constellationAccountId],
+                      ] as Array<[ActorSide, string | null]>
+                    ).map(([side, accountId]) => {
+                      const owner = accountId
+                        ? sheets.find((row) => row.accountId === accountId)
+                        : undefined;
+                      if (!owner) return null;
 
-                    <Collapsible label={`보급 창구 — 포인트로 아이템을 산다`}>
-                      <p className="hint">
-                        전투 중에는 포인트로 아무것도 살 수 없습니다. 보급은 전투 밖에서만
-                        처리합니다.
-                      </p>
-                      <ul className="shop-list">
-                        {shopRows().map((row) => {
-                          const owned = (bond.inventory ?? []).find(
-                            (stack) => stack.itemId === row.itemId,
-                          )?.quantity ?? 0;
-                          const full = row.limit !== null && owned >= row.limit;
-                          return (
-                            <li key={row.itemId}>
-                              <span className="shop-name">
-                                {row.item.nameKo}
-                                <small className="dim">
-                                  {describeItem(row.item).join(' / ') || '효과 없음'}
-                                </small>
-                              </span>
-                              <b className="num gold">{row.price} P</b>
-                              <span className="tag">
-                                보유 {owned}
-                                {row.limit !== null ? ` / ${row.limit}` : ''}
-                              </span>
-                              <button
-                                type="button"
-                                className="ctl small"
-                                disabled={busy || full || (bond.points ?? 0) < row.price}
-                                onClick={() => void buyForBond(bond, row.itemId)}
-                              >
-                                구매
-                              </button>
-                              <button
-                                type="button"
-                                className="ctl small"
-                                disabled={busy || owned <= 0}
-                                title="구매가의 절반을 환급합니다"
-                                onClick={() => void sellForBond(bond, row.itemId)}
-                              >
-                                반납
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </Collapsible>
+                      return (
+                        <Collapsible
+                          key={`shop-${side}`}
+                          label={`보급 창구 · ${owner.sheet.name} — ${owner.sheet.points ?? 0} P`}
+                        >
+                          <div className="bond-resource">
+                            <span className="field-label">소지금</span>
+                            <b className="num gold">{owner.sheet.points ?? 0} P</b>
+                            <NumberField
+                              label="포인트 조정"
+                              value={owner.sheet.points ?? 0}
+                              step={10}
+                              onCommit={(value) =>
+                                void saveSheet(owner.accountId, {
+                                  ...owner.sheet,
+                                  points: Math.max(0, value),
+                                })
+                              }
+                            />
+                          </div>
+                          <p className="hint">
+                            전투 중에는 포인트로 아무것도 살 수 없습니다. 보급은 전투 밖에서만
+                            처리합니다.
+                          </p>
+                          <ul className="shop-list">
+                            {shopRows().map((row) => {
+                              const owned =
+                                (owner.sheet.inventory ?? []).find(
+                                  (stack) => stack.itemId === row.itemId,
+                                )?.quantity ?? 0;
+                              const full = row.limit !== null && owned >= row.limit;
+                              return (
+                                <li key={row.itemId}>
+                                  <span className="shop-name">
+                                    {row.item.nameKo}
+                                    <small className="dim">
+                                      {describeItem(row.item).join(' / ') || '효과 없음'}
+                                    </small>
+                                  </span>
+                                  <b className="num gold">{row.price} P</b>
+                                  <span className="tag">
+                                    보유 {owned}
+                                    {row.limit !== null ? ` / ${row.limit}` : ''}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="ctl small"
+                                    disabled={busy || full || (owner.sheet.points ?? 0) < row.price}
+                                    onClick={() => void buyForSheet(owner, row.itemId)}
+                                  >
+                                    구매
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="ctl small"
+                                    disabled={busy || owned <= 0}
+                                    title="구매가의 절반을 환급합니다"
+                                    onClick={() => void sellForSheet(owner, row.itemId)}
+                                  >
+                                    반납
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </Collapsible>
+                      );
+                    })}
 
                     <Collapsible label="시트 열람 — 스탯 · 스킬 · 컨셉">
                       <div className="sheet-list">
@@ -1560,9 +1627,8 @@ export default function ControlTerminal() {
                               sheet={sheet}
                               accountId={accountId ?? undefined}
                               supply={{
-                                points: bond.points ?? 0,
-                                inventory: bond.inventory ?? [],
-                                label: bond.label,
+                                points: sheet.points ?? 0,
+                                inventory: sheet.inventory ?? [],
                               }}
                             />
                           );
@@ -1805,6 +1871,27 @@ export default function ControlTerminal() {
       )}
 
       {/* ══════════ 적 세팅 ══════════ */}
+      {tab === 'SHOP' && (
+        <section className="panel">
+          <div className="process-head">
+            <h2 className="panel-title">상점 진열 · {shopRows().length}</h2>
+            <button type="button" className="ctl small" onClick={() => void refresh()}>
+              새로 고침
+            </button>
+          </div>
+          <p className="hint" style={{ marginBottom: 14 }}>
+            여기서 넣은 품목은 참가자 상점(<code>/battle/shop/</code>)과 보급 창구에 바로 뜹니다.
+            새로 만든 아이템도 전투에서 그대로 쓰입니다 — 효과는 아래 칸에 적은 값으로 판정합니다.
+          </p>
+          <ShopEditor
+            records={shopItems}
+            busy={busy}
+            onSave={(record) => void saveShopRow(record)}
+            onDelete={(itemId) => void removeShopRow(itemId)}
+          />
+        </section>
+      )}
+
       {tab === 'ENCOUNTER' && (
         <section className="panel">
           <div className="process-head">

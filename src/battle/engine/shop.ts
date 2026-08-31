@@ -2,13 +2,23 @@
  * 보급 상점 처리.
  *
  * 전투 밖에서만 호출된다 — 전투 중 포인트로 무언가를 사는 경로는 만들지 않는다.
- * 포인트와 보급품은 영구 편성(PairBond)에 붙어 공략 사이에도 유지된다.
+ * 소지금과 가방은 **개인 소유**다 (CharacterSheet.points · inventory).
+ * 공략 사이에도 유지되며, 페어와 나누지 않는다.
  */
 
 import { findItem } from '../config/items';
 import { findShopEntry, shopRows, type ShopRow } from '../config/shop';
-import type { ItemStack, PairBond } from '../types';
+import type { ItemStack } from '../types';
 import { addItem, quantityOf } from './items';
+
+/**
+ * 지갑 한 벌. 시트가 그대로 이 모양이라 시트를 그냥 넘겨도 된다 —
+ * 상점 계산은 소지금과 가방만 알면 되고, 누구의 것인지는 알 필요가 없다.
+ */
+export interface Wallet {
+  points?: number;
+  inventory?: ItemStack[];
+}
 
 export interface PurchaseResult {
   ok: boolean;
@@ -19,18 +29,20 @@ export interface PurchaseResult {
   message: string;
 }
 
-/** 이 편성이 지금 살 수 있는 목록 */
-export function availableRows(bond: PairBond): Array<ShopRow & { affordable: boolean; owned: number }> {
+/** 이 사람이 지금 살 수 있는 목록 */
+export function availableRows(
+  wallet: Wallet,
+): Array<ShopRow & { affordable: boolean; owned: number }> {
   return shopRows().map((row) => ({
     ...row,
-    owned: quantityOf(bond.inventory ?? [], row.itemId),
-    affordable: (bond.points ?? 0) >= row.price,
+    owned: quantityOf(wallet.inventory ?? [], row.itemId),
+    affordable: (wallet.points ?? 0) >= row.price,
   }));
 }
 
-export function purchase(bond: PairBond, itemId: string, quantity = 1): PurchaseResult {
-  const inventory = bond.inventory ?? [];
-  const points = bond.points ?? 0;
+export function purchase(wallet: Wallet, itemId: string, quantity = 1): PurchaseResult {
+  const inventory = wallet.inventory ?? [];
+  const points = wallet.points ?? 0;
   const entry = findShopEntry(itemId);
   const item = findItem(itemId);
 
@@ -71,18 +83,18 @@ export function purchase(bond: PairBond, itemId: string, quantity = 1): Purchase
   };
 }
 
-/** 구매 결과를 편성에 반영한다 */
-export function withPurchase(bond: PairBond, result: PurchaseResult): PairBond {
-  if (!result.ok) return bond;
-  return { ...bond, points: result.points, inventory: result.inventory };
+/** 구매 결과를 지갑 주인에게 반영한다 */
+export function withPurchase<T extends Wallet>(owner: T, result: PurchaseResult): T {
+  if (!result.ok) return owner;
+  return { ...owner, points: result.points, inventory: result.inventory };
 }
 
 /** 되팔기 — 구매가의 절반만 돌려준다 */
 export const REFUND_RATIO = 0.5;
 
-export function refund(bond: PairBond, itemId: string): PurchaseResult {
-  const inventory = bond.inventory ?? [];
-  const points = bond.points ?? 0;
+export function refund(wallet: Wallet, itemId: string): PurchaseResult {
+  const inventory = wallet.inventory ?? [];
+  const points = wallet.points ?? 0;
   const entry = findShopEntry(itemId);
   const item = findItem(itemId);
 

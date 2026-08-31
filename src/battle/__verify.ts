@@ -43,7 +43,7 @@ import {
 } from './engine/enemy';
 import { declarationValid, planCheck, rollCheck } from './engine/gimmick';
 import { addItem, inventoryFor, itemAvailability, quantityOf } from './engine/items';
-import { buildRecord, settle, settleable } from './engine/record';
+import { buildRecord, settle, settleable, type SettlementTarget } from './engine/record';
 import { earnedBy } from './engine/rewards';
 import {
   actionAvailability,
@@ -52,7 +52,7 @@ import {
   setControlMode,
   submitPairAction,
 } from './engine/round';
-import { purchase, refund, withPurchase } from './engine/shop';
+import { purchase, refund, withPurchase, type Wallet } from './engine/shop';
 import { skillToAction, toRuntime } from './engine/skills';
 import {
   aggregateModifiers,
@@ -121,6 +121,8 @@ const hunterSheet: CharacterSheet = {
   personality: '',
   traits: '',
   contractStory: '',
+  points: 0,
+  inventory: [],
   affiliation: 'GOVERNMENT',
   createdAt: '1970-01-01T00:00:00.000Z',
 };
@@ -136,6 +138,8 @@ const constellationSheet: CharacterSheet = {
   personality: '',
   traits: '',
   contractStory: '',
+  points: 0,
+  inventory: [],
   affiliation: 'GOVERNMENT',
   createdAt: '1970-01-01T00:00:00.000Z',
 };
@@ -168,6 +172,8 @@ const blank = {
   personality: '',
   traits: '',
   contractStory: '',
+  points: 0,
+  inventory: [],
   skills: [],
 };
 check('빈 시트는 3개 오류', validateSheet(blank).length === 3);
@@ -1545,25 +1551,26 @@ const bond: PairBond = {
   affiliation: 'GOVERNMENT',
   active: true,
   createdAt: '1970-01-01T00:00:00.000Z',
-  points: 300,
-  inventory: [],
 };
 
-const bought = purchase(bond, 'item.medkit', 2);
+/** 소지금과 가방은 개인 소유다 — 상점은 지갑 하나만 알면 된다 */
+const wallet: Wallet = { points: 300, inventory: [] };
+
+const bought = purchase(wallet, 'item.medkit', 2);
 check('구매 성공', bought.ok === true, bought.reason);
 check('가격만큼 차감된다', bought.points === 300 - 160, `points ${bought.points}`);
 check('가방에 들어간다', quantityOf(bought.inventory, 'item.medkit') === 2);
 
-const tooExpensive = purchase(bond, 'item.anchor', 1);
+const tooExpensive = purchase(wallet, 'item.anchor', 1);
 check('포인트가 부족하면 거절', tooExpensive.ok === false, tooExpensive.reason);
-const overLimit = purchase({ ...bond, points: 9999 }, 'item.lifeline', 3);
+const overLimit = purchase({ ...wallet, points: 9999 }, 'item.lifeline', 3);
 check('보유 한도를 넘으면 거절', overLimit.ok === false, overLimit.reason);
-check('취급하지 않는 품목은 거절', purchase(bond, 'item.floorpass', 1).ok === false);
+check('취급하지 않는 품목은 거절', purchase(wallet, 'item.floorpass', 1).ok === false);
 
-const stocked = withPurchase(bond, bought);
+const stocked = withPurchase(wallet, bought);
 const refunded = refund(stocked, 'item.medkit');
 check('반납은 절반을 환급한다', refunded.ok === true && refunded.points === bought.points + 40, `points ${refunded.points}`);
-check('보유하지 않으면 반납 거절', refund(bond, 'item.grenade').ok === false);
+check('보유하지 않으면 반납 거절', refund(wallet, 'item.grenade').ok === false);
 
 /* ── 21. 공략 기록 · 정산 ───────────────────────────── */
 console.log('\n=== 21. 공략 기록 ===');
@@ -1578,17 +1585,29 @@ check('기록에 보유 포인트', record.pairs[0].pointsTotal === cleared.pair
 check('기록에 로그 사본', record.log.length === cleared.log.length);
 check('기록은 정산 대상', settleable(record) === true);
 
-const settlement = settle({ ...record, pairs: [{ ...record.pairs[0], label: 'PAIR 01' }] }, [bond]);
-check('정산이 편성 포인트를 올린다', settlement.bonds[0].points === 300 + 300, `points ${settlement.bonds[0].points}`);
-check('정산 내역이 남는다', settlement.rows[0]?.earned === 300);
+// 헌터는 구급 키트 2개를 들고 들어갔고, 성좌는 빈 손이다
+const settleTargets: SettlementTarget[] = [
+  { accountId: 'h', side: 'HUNTER', points: 100, inventory: [{ itemId: 'item.medkit', quantity: 2 }] },
+  { accountId: 'c', side: 'CONSTELLATION', points: 50, inventory: [] },
+];
+const settled = settle(
+  { ...record, pairs: [{ ...record.pairs[0], label: 'PAIR 01', inventory: [] }] },
+  [bond],
+  settleTargets,
+);
+const settledHunter = settled.targets.find((row) => row.accountId === 'h');
+const settledConstellation = settled.targets.find((row) => row.accountId === 'c');
+
+check('정산은 두 사람 각자에게 포인트를 준다', settledHunter?.points === 400 && settledConstellation?.points === 350, `${settledHunter?.points} / ${settledConstellation?.points}`);
+check('정산 내역이 사람 수만큼 남는다', settled.rows.length === 2 && settled.rows[0]?.earned === 300);
 check(
-  '정산은 남은 보급품으로 가방을 맞춘다',
-  quantityOf(settlement.bonds[0].inventory, 'item.medkit') ===
-    quantityOf(cleared.pairs[0].inventory, 'item.medkit'),
+  '전투에서 쓴 만큼 개인 가방에서 빠진다',
+  quantityOf(settledHunter?.inventory ?? [], 'item.medkit') === 0,
 );
 check(
   '라벨이 다르면 정산하지 않는다',
-  settle({ ...record, pairs: [{ ...record.pairs[0], label: 'PAIR 99' }] }, [bond]).rows.length === 0,
+  settle({ ...record, pairs: [{ ...record.pairs[0], label: 'PAIR 99' }] }, [bond], settleTargets)
+    .rows.length === 0,
 );
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);

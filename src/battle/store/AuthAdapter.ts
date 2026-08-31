@@ -12,6 +12,7 @@ import type {
   ActorSide,
   Affiliation,
   CharacterSheet,
+  ItemStack,
   SheetProfile,
   Session,
   SkillDefinition,
@@ -50,6 +51,10 @@ export interface PublicProfile extends SheetProfile {
   portrait?: string | null;
   stats: StatBlock;
   skills: SkillDefinition[];
+  /** 소지금 — 개인 소유 */
+  points: number;
+  /** 개인 가방 */
+  inventory: ItemStack[];
 }
 
 /**
@@ -68,6 +73,8 @@ export function toPublicProfile(accountId: string, sheet: CharacterSheet): Publi
     portrait: sheet.portrait ?? null,
     stats: sheet.stats ?? {},
     skills: sheet.skills ?? [],
+    points: sheet.points ?? 0,
+    inventory: sheet.inventory ?? [],
     ...toProfile(sheet),
   };
 }

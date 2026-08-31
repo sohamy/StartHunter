@@ -34,14 +34,12 @@ import type {
 } from '../types';
 
 /**
- * 포인트와 보급품은 캐릭터가 아니라 **페어**에 붙는다 (PairBond).
- * 시트 화면에서는 편성에서 받아 온 값을 그대로 얹어 보여 준다.
+ * 소지금과 가방 — **개인 소유**다. 시트에 붙어 다니며 페어와 나누지 않는다.
+ * 전투에 들어갈 때만 두 사람의 가방이 한 판짜리 공용 가방으로 합쳐진다.
  */
 export interface Supply {
   points: number;
   inventory: ItemStack[];
-  /** 편성 라벨 — 누구와 함께 쓰는 가방인지 밝힌다 */
-  label?: string | null;
 }
 
 type AnySkill = SkillDefinition | SkillRuntime;
@@ -151,10 +149,9 @@ export function ProfileBlock({
 }
 
 /**
- * 보급 · 포인트 — 페어가 함께 쓰는 가방.
+ * 소지금과 가방 — 개인 것이다.
  *
- * 전투 화면의 가방과 같은 값이다. 여기서는 사고 팔 수 없다 —
- * 구매와 반납은 관리국 보급 창구(작전실)에서만 처리한다.
+ * 여기서는 사고 팔 수 없다 — 구매와 반납은 관리국 보급 창구(작전실)에서 처리한다.
  */
 export function SupplyBlock({ supply }: { supply: Supply }) {
   const stacks = (supply.inventory ?? []).filter((stack) => stack.quantity > 0);
@@ -162,9 +159,9 @@ export function SupplyBlock({ supply }: { supply: Supply }) {
   return (
     <div className="supply-block">
       <div className="supply-points">
-        <span className="field-label">보유 포인트</span>
+        <span className="field-label">소지금</span>
         <b className="num gold">{supply.points ?? 0} P</b>
-        {supply.label && <span className="tag">{supply.label} 공용</span>}
+        <span className="tag">개인 소유</span>
       </div>
 
       {stacks.length === 0 ? (

@@ -5,6 +5,7 @@
  * UI 는 언제나 `getStorage()` / `getAuth()` 만 호출한다.
  */
 
+import { applyShopCatalog } from '../config/shop';
 import { LocalAuthAdapter } from './LocalAuthAdapter';
 import { LocalStorageAdapter } from './LocalStorageAdapter';
 import { SupabaseAuthAdapter } from './SupabaseAuthAdapter';
@@ -33,6 +34,20 @@ export function getAuth(): AuthAdapter {
     authAdapter = hasSupabase() ? new SupabaseAuthAdapter() : new LocalAuthAdapter();
   }
   return authAdapter;
+}
+
+/**
+ * 상점 진열을 저장소에서 읽어 config 에 싣는다.
+ *
+ * 화면이 열릴 때 한 번 부른다. 실패하면 기본 목록으로 간다 —
+ * 상점 때문에 화면 전체가 멈추지는 않게 한다.
+ */
+export async function loadShopCatalog(): Promise<void> {
+  try {
+    applyShopCatalog(await getStorage().listShopItems());
+  } catch {
+    applyShopCatalog([]);
+  }
 }
 
 /** 서버 모드일 때만 쓸 수 있는 확장 기능 (실시간 구독 · 쪽별 제출) */

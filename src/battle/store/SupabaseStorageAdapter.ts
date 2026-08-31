@@ -22,6 +22,7 @@ import type {
   ChatMessage,
   EnemyTemplate,
   PairBond,
+  ShopItemRecord,
   PairState,
   RoundSubmission,
 } from '../types';
@@ -420,6 +421,38 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throw new Error(`적 삭제 실패: ${error.message}`);
   }
 
+  /* ── 상점 진열 ── */
+
+  async listShopItems(): Promise<ShopItemRecord[]> {
+    const { data } = await requireSupabase().from('shop_items').select('*').order('sort');
+
+    return (data ?? []).map((row) => ({
+      itemId: row.item_id as string,
+      price: row.price as number,
+      limit: (row.buy_limit as number | null) ?? null,
+      active: Boolean(row.active),
+      sort: (row.sort as number) ?? 0,
+      item: (row.item as ShopItemRecord['item']) ?? null,
+    }));
+  }
+
+  async saveShopItem(record: ShopItemRecord): Promise<void> {
+    const { error } = await requireSupabase().from('shop_items').upsert({
+      item_id: record.itemId,
+      price: record.price,
+      buy_limit: record.limit,
+      active: record.active,
+      sort: record.sort,
+      item: record.item,
+    });
+    if (error) throw new Error(`상점 저장 실패: ${error.message}`);
+  }
+
+  async deleteShopItem(itemId: string): Promise<void> {
+    const { error } = await requireSupabase().from('shop_items').delete().eq('item_id', itemId);
+    if (error) throw new Error(`상점 삭제 실패: ${error.message}`);
+  }
+
   /* ── 채팅 ── */
 
   async listMessages(channel: string, limit = 200): Promise<ChatMessage[]> {
@@ -523,6 +556,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       battles,
       bonds: await this.listBonds(),
       enemyTemplates: await this.listEnemyTemplates(),
+      shopItems: await this.listShopItems(),
       records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
@@ -538,6 +572,9 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     }
     for (const template of envelope.enemyTemplates ?? []) {
       await this.saveEnemyTemplate(template);
+    }
+    for (const row of envelope.shopItems ?? []) {
+      await this.saveShopItem(row);
     }
     for (const record of envelope.records ?? []) {
       await this.saveRecord(record);

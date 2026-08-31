@@ -14,6 +14,7 @@ import type {
   BattleSummary,
   ChatMessage,
   EnemyTemplate,
+  ShopItemRecord,
   PairBond,
 } from '../types';
 
@@ -32,6 +33,11 @@ export interface StorageAdapter {
   listEnemyTemplates(): Promise<EnemyTemplate[]>;
   saveEnemyTemplate(template: EnemyTemplate): Promise<void>;
   deleteEnemyTemplate(id: string): Promise<void>;
+
+  /** 상점 진열 — 운영진이 작전실에서 직접 넣고 고친다 */
+  listShopItems(): Promise<ShopItemRecord[]>;
+  saveShopItem(record: ShopItemRecord): Promise<void>;
+  deleteShopItem(itemId: string): Promise<void>;
 
   /* ── 채팅 ── */
   listMessages(channel: string, limit?: number): Promise<ChatMessage[]>;
@@ -61,5 +67,6 @@ export interface ExportEnvelope {
   battles: BattleState[];
   bonds?: PairBond[];
   enemyTemplates?: EnemyTemplate[];
+  shopItems?: ShopItemRecord[];
   records?: BattleRecord[];
 }

@@ -51,7 +51,7 @@ import {
   isDown,
   statusViews,
 } from '../engine/status';
-import { getAuth, getServerStorage, getStorage, type PublicProfile } from '../store';
+import { getAuth, getServerStorage, getStorage, loadShopCatalog, type PublicProfile } from '../store';
 import ChatPanel from './ChatPanel';
 import { Portrait } from './PortraitField';
 import Collapsible from './Collapsible';
@@ -360,6 +360,9 @@ export default function BattleTerminal() {
     let cancelled = false;
 
     (async () => {
+      // 운영진이 만든 아이템도 이름 · 효과가 떠야 한다
+      await loadShopCatalog();
+
       const session = await auth.currentSession();
       if (!session) {
         if (!cancelled) setAuthState('GUEST');

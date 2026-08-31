@@ -81,6 +81,25 @@ export interface ItemDefinition {
   effect: ItemEffect;
 }
 
+/**
+ * 운영진이 작전실에서 정한 상점 진열 한 줄.
+ *
+ * 기본 목록(config/shop.ts 의 SHOP_ENTRIES)에 얹는다 —
+ * 같은 itemId 면 가격 · 한도를 덮어쓰고, active 가 false 면 진열에서 빠지며,
+ * 기본 목록에 없는 itemId 면 새 품목으로 붙는다.
+ */
+export interface ShopItemRecord {
+  itemId: string;
+  price: number;
+  /** 한 페어가 보유할 수 있는 최대 개수. null 이면 제한 없음 */
+  limit: number | null;
+  active: boolean;
+  /** 진열 순서. 작을수록 앞 */
+  sort: number;
+  /** 운영진이 새로 만든 품목이면 정의가 함께 온다. 기본 품목의 값만 고쳤으면 null */
+  item: ItemDefinition | null;
+}
+
 /** 보유 아이템 — 페어 공용 가방에 담긴다 */
 export interface ItemStack {
   itemId: string;
@@ -553,6 +572,13 @@ export interface CharacterSheet extends SheetProfile {
   /** 캐릭터별 커스텀 스킬 */
   skills: SkillDefinition[];
   /**
+   * 소지금. **개인 소유**다 — 페어와 나누지 않는다.
+   * 지급 · 차감은 관리국이 하고, 참가자는 상점에서 쓴다.
+   */
+  points: number;
+  /** 개인 가방. 전투에 들어갈 때 페어의 가방으로 합쳐진다. */
+  inventory: ItemStack[];
+  /**
    * 캐릭터 사진 — 정사각 축소본 data URL.
    * 없을 수 있다. 규칙은 config/rules.ts 의 PORTRAIT_RULES 에 있다.
    */
@@ -595,10 +621,13 @@ export interface PairBond {
   /** 해산된 페어는 false — 기록은 남기고 편성에서만 제외한다 */
   active: boolean;
   createdAt: string;
-  /** 공략 사이에도 유지되는 포인트. 전투 정산에서 갱신된다. */
-  points: number;
-  /** 공략 사이에도 유지되는 보급품 */
-  inventory: ItemStack[];
+  /**
+   * @deprecated 포인트와 보급품은 개인(CharacterSheet) 소유로 옮겼다.
+   * 옛 편성 자료를 읽기 위해 남겨 둔다 — 새 값은 여기에 쓰지 않는다.
+   */
+  points?: number;
+  /** @deprecated 개인 가방(CharacterSheet.inventory)을 쓴다 */
+  inventory?: ItemStack[];
 }
 
 /* ── 공략 기록 ──────────────────────────────────────────

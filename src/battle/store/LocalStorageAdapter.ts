@@ -13,12 +13,14 @@ import type {
   ChatMessage,
   EnemyTemplate,
   PairBond,
+  ShopItemRecord,
 } from '../types';
 import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
 
 const KEY_PREFIX = 'sh.battle.';
 const INDEX_KEY = 'sh.battle.index';
 const BONDS_KEY = 'sh.roster.bonds';
+const SHOP_KEY = 'sh.shop.items';
 const ENEMIES_KEY = 'sh.roster.enemies';
 const CHAT_KEY = 'sh.chat.messages';
 const RECORDS_KEY = 'sh.records.battles';
@@ -129,6 +131,7 @@ export class LocalStorageAdapter implements StorageAdapter {
       battles,
       bonds: await this.listBonds(),
       enemyTemplates: await this.listEnemyTemplates(),
+      shopItems: await this.listShopItems(),
       records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
@@ -190,6 +193,24 @@ export class LocalStorageAdapter implements StorageAdapter {
     );
   }
 
+  /* ── 상점 진열 ── */
+
+  async listShopItems(): Promise<ShopItemRecord[]> {
+    return readJson<ShopItemRecord[]>(SHOP_KEY, []).sort((a, b) => a.sort - b.sort);
+  }
+
+  async saveShopItem(record: ShopItemRecord): Promise<void> {
+    const rows = (await this.listShopItems()).filter((row) => row.itemId !== record.itemId);
+    writeJson(SHOP_KEY, [...rows, record]);
+  }
+
+  async deleteShopItem(itemId: string): Promise<void> {
+    writeJson(
+      SHOP_KEY,
+      (await this.listShopItems()).filter((row) => row.itemId !== itemId),
+    );
+  }
+
   /* ── 채팅 ── */
 
   async listMessages(channel: string, limit = 200): Promise<ChatMessage[]> {
@@ -228,6 +249,9 @@ export class LocalStorageAdapter implements StorageAdapter {
     }
     for (const template of envelope.enemyTemplates ?? []) {
       await this.saveEnemyTemplate(template);
+    }
+    for (const row of envelope.shopItems ?? []) {
+      await this.saveShopItem(row);
     }
     for (const record of envelope.records ?? []) {
       await this.saveRecord(record);

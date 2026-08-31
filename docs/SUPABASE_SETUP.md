@@ -23,6 +23,8 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `0008_boss_phase_rules.sql` | 보스 페이즈 경계(`enemy_templates.phase_cutoffs`) |
 | `0009_sheet_profile_split.sql` | 컨셉 분할(성격 · 특징 · 계약 경위) · 계약 상대 이름 · `public_profiles` 뷰 재정의 |
 | `0010_public_sheet_full.sql` | `public_profiles` 에 스탯과 스킬 전문 포함 — 제출한 시트는 전부 공개 |
+| `0011_shop_items.sql` | 상점 진열(`shop_items`) — 운영진이 품목 · 가격 · 한도를 직접 넣는다 |
+| `0012_personal_points_inventory.sql` | 소지금 · 가방을 개인 소유로 (`sheets.points` · `sheets.inventory`) |
 
 0001 이 만드는 테이블:
 
@@ -45,6 +47,9 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 > 0009 를 적용하지 않으면 회원가입과 시트 저장이 실패하고, 페어 상대의 공개 시트도 뜨지 않는다.
 > 0009 는 0007(사진) 을 건너뛴 프로젝트에서도 혼자 선다 — `sheets.portrait` 를 스스로 만든다.
 > 0010 을 적용하지 않으면 다른 참가자의 프로필에서 스탯과 스킬 수치가 비어 보인다.
+> 0011 을 적용하지 않으면 작전실에서 상점 품목을 넣을 수 없다 (기본 목록만 뜬다).
+> 0012 를 적용하지 않으면 소지금 · 가방 저장이 실패한다.
+> 0012 는 편성이 들고 있던 포인트 · 보급품을 두 사람에게 옮긴다 (나누지 않고 각자에게 그대로).
 > 0009 는 기존 `concept` 에 적힌 글을 **성격** 칸으로 옮긴다 (원본 열은 지우지 않는다).
 
 ## 2. 이메일 확인 끄기 (필수)

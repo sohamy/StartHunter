@@ -138,6 +138,8 @@ export function presetSheet(
     personality: '운영 프리셋 캐릭터',
     traits: '',
     contractStory: '',
+    points: 0,
+    inventory: [],
     affiliation,
     createdAt: '1970-01-01T00:00:00.000Z',
   };

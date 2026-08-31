@@ -74,6 +74,8 @@ interface SheetRow {
   class_id: string;
   stats: Record<string, number>;
   skills: CharacterSheet['skills'];
+  points: number | null;
+  inventory: CharacterSheet['inventory'] | null;
   personality: string | null;
   traits: string | null;
   contract_story: string | null;
@@ -93,6 +95,8 @@ function toSheet(row: SheetRow): CharacterSheet {
     classId: row.class_id,
     stats: row.stats ?? {},
     skills: row.skills ?? [],
+    points: row.points ?? 0,
+    inventory: row.inventory ?? [],
     // 마이그레이션 전에 적힌 시트도 그대로 열린다 — 옛 concept 은 성격 칸으로 읽는다
     ...toProfile({
       personality: row.personality ?? undefined,
@@ -122,6 +126,8 @@ function toPublicRow(row: Record<string, unknown>): PublicProfile {
     portrait: (row.portrait as string | null) ?? null,
     stats: (row.stats as PublicProfile['stats']) ?? {},
     skills: (row.skills as PublicProfile['skills']) ?? [],
+    points: (row.points as number | null) ?? 0,
+    inventory: (row.inventory as PublicProfile['inventory']) ?? [],
     ...toProfile({
       personality: (row.personality as string | null) ?? undefined,
       traits: (row.traits as string | null) ?? undefined,
@@ -165,6 +171,8 @@ export class SupabaseAuthAdapter implements AuthAdapter {
         class_id: input.sheet.classId,
         stats: input.sheet.stats,
         skills: input.sheet.skills,
+        points: input.sheet.points ?? 0,
+        inventory: input.sheet.inventory ?? [],
         personality: input.sheet.personality,
         traits: input.sheet.traits,
         contract_story: input.sheet.contractStory,
@@ -299,6 +307,8 @@ export class SupabaseAuthAdapter implements AuthAdapter {
         class_id: sheet.classId,
         stats: sheet.stats,
         skills: sheet.skills,
+        points: sheet.points ?? 0,
+        inventory: sheet.inventory ?? [],
         personality: sheet.personality,
         traits: sheet.traits,
         contract_story: sheet.contractStory,

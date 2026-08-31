@@ -31,6 +31,7 @@ import {
   getServerAuth,
   getStorage,
   isServerMode,
+  loadShopCatalog,
   toPublicProfile,
   type PublicProfile,
 } from '../store';
@@ -504,6 +505,9 @@ export default function JoinTerminal() {
     ...draft,
     id: 'PREVIEW',
     createdAt: '1970-01-01T00:00:00.000Z',
+    // 소지금과 가방은 등록 뒤 관리국이 채운다
+    points: 0,
+    inventory: [],
   };
   const derivedHunter = draft.side === 'HUNTER' ? deriveHunter(previewSheet) : null;
   const derivedConstellation =
@@ -545,6 +549,8 @@ export default function JoinTerminal() {
           contractStory: draft.contractStory.trim(),
           portrait: draft.portrait,
           affiliation: draft.affiliation,
+          points: 0,
+          inventory: [],
         },
       });
       setAccount(created);
@@ -606,10 +612,8 @@ export default function JoinTerminal() {
       sheet.side === 'HUNTER' ? bond?.constellationAccountId : bond?.hunterAccountId;
     const partnerName = (bondedName ?? '').trim() || sheet.partnerName.trim();
 
-    // 포인트와 보급품은 페어에 붙는다 — 편성이 없으면 아직 가방도 없다
-    const supply: Supply | null = bond
-      ? { points: bond.points ?? 0, inventory: bond.inventory ?? [], label: bond.label }
-      : null;
+    // 소지금과 가방은 개인 것이다 — 편성과 상관없이 시트에 붙어 있다
+    const supply: Supply = { points: sheet.points ?? 0, inventory: sheet.inventory ?? [] };
 
     return (
       <div className="console">

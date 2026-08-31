@@ -151,9 +151,29 @@ export const ITEM_DEFINITIONS: ItemDefinition[] = [
   },
 ];
 
+/* ── 운영진이 직접 넣은 품목 ───────────────────────────
+   기본 품목은 위 배열에 있고, 운영진이 작전실에서 만든 품목은 저장소에서 온다.
+   화면과 엔진은 개별 아이템을 이름으로 알지 않으므로, 목록만 갈아 끼우면 된다.
+
+   여기 담긴 값은 앱이 켜질 때 store 에서 한 번 실어 준다 (applyItemCatalog).
+   전투 판정도 이 목록을 거치므로, 운영진이 만든 아이템도 전투에서 그대로 쓰인다. */
+
+let customItems: ItemDefinition[] = [];
+
+/** 저장소에서 읽어 온 운영진 품목을 싣는다. 화면 진입 때 한 번 부른다. */
+export function applyItemCatalog(items: ItemDefinition[]): void {
+  customItems = items;
+}
+
+/** 기본 품목 + 운영진 품목. 같은 id 면 운영진 쪽이 이긴다. */
+export function allItems(): ItemDefinition[] {
+  const overridden = new Set(customItems.map((row) => row.id));
+  return [...ITEM_DEFINITIONS.filter((row) => !overridden.has(row.id)), ...customItems];
+}
+
 export function findItem(itemId: string | null): ItemDefinition | null {
   if (!itemId) return null;
-  return ITEM_DEFINITIONS.find((row) => row.id === itemId) ?? null;
+  return allItems().find((row) => row.id === itemId) ?? null;
 }
 
 /** 이 주체 · 이 진영이 들 수 있는 아이템 */
@@ -161,7 +181,7 @@ export function itemsFor(
   side: 'HUNTER' | 'CONSTELLATION',
   affiliation: Affiliation,
 ): ItemDefinition[] {
-  return ITEM_DEFINITIONS.filter((item) => allowedFor(item, side, affiliation));
+  return allItems().filter((item) => allowedFor(item, side, affiliation));
 }
 
 export function allowedFor(

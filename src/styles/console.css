@@ -144,10 +144,10 @@ body.console-body::before {
 .num { font-family: var(--c-mono); letter-spacing: .04em; }
 .dim { color: var(--c-dim); }
 .gold { color: var(--c-gold); }
-.small-text { font-size: 0.75rem; }
+.small-text { font-size: 0.8125rem; }
 .danger-text { color: var(--c-critical); }
 .warn-text { color: var(--c-warn); }
-.hint { color: var(--c-dim); font-size: 0.78125rem; }
+.hint { color: var(--c-dim); font-size: 0.84375rem; }
 .ok-text { color: var(--c-ok); }
 
 .tag {
@@ -685,7 +685,9 @@ select.ctl option:disabled { color: #7a8598; }
   padding-bottom: 8px;
   border-bottom: 1px solid var(--c-line);
 }
-.skill-summary b { font-family: var(--c-mono); letter-spacing: .06em; }
+.skill-summary li { font-size: 0.875rem; }
+.skill-summary b { font-family: var(--c-mono); letter-spacing: .06em; font-size: 0.9375rem; }
+.skill-summary small { font-size: 0.8125rem; }
 
 /* ── 알림 ────────────────────────────────────────────── */
 .notice {
@@ -968,7 +970,7 @@ input[type='range']::-moz-range-thumb {
 .sheet-card-head b { font-size: 0.9375rem; }
 .sheet-card-row { display: flex; align-items: baseline; gap: 12px; min-width: 0; flex-wrap: wrap; }
 .sheet-card-row.block { display: grid; gap: 6px; }
-.sheet-card-row .concept-text { font-size: 0.78125rem; }
+.sheet-card-row .concept-text { font-size: 0.875rem; line-height: 1.7; }
 .sheet-search { max-width: 420px; margin-bottom: 14px; }
 
 /* 스탯 압축 표기 — 카드 한 줄에 전부 들어가게 한다 */
@@ -977,11 +979,11 @@ input[type='range']::-moz-range-thumb {
 .stat-line i {
   font-style: normal;
   font-family: var(--c-mono);
-  font-size: 0.6875rem;
-  letter-spacing: .14em;
+  font-size: 0.8125rem;
+  letter-spacing: .12em;
   color: var(--c-faint);
 }
-.stat-line b { font-size: 0.875rem; }
+.stat-line b { font-size: 1.0625rem; }
 
 .actor-stats {
   display: flex;
@@ -1410,10 +1412,10 @@ a.ctl { text-decoration: none; display: inline-block; }
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 5px 8px;
+  padding: 7px 10px;
   border: 1px solid var(--c-line);
   background: rgba(255, 255, 255, .02);
-  font-size: 0.78125rem;
+  font-size: 0.875rem;
 }
 .inventory-list li > span:first-child { flex: 1; min-width: 90px; }
 .inventory-list b { margin-left: auto; }
@@ -1430,8 +1432,8 @@ a.ctl { text-decoration: none; display: inline-block; }
   border: 1px solid var(--c-line);
   background: rgba(255, 255, 255, .02);
 }
-.shop-name { flex: 1; min-width: 160px; font-size: 0.8125rem; }
-.shop-name small { display: block; color: var(--c-dim); font-size: 0.6875rem; }
+.shop-name { flex: 1; min-width: 160px; font-size: 0.9375rem; }
+.shop-name small { display: block; color: var(--c-dim); font-size: 0.8125rem; }
 
 .bond-resource {
   display: flex;
@@ -1803,8 +1805,11 @@ a.ctl { text-decoration: none; display: inline-block; }
 .dossier-part .concept-text.dim { color: var(--c-faint); font-style: italic; }
 .dossier-part .skill-summary li { border-bottom-color: rgba(255, 255, 255, .08); }
 
-.dossier-stats { display: grid; gap: 12px; }
-.dossier-stats > div { display: grid; gap: 5px; }
+.dossier-stats { display: grid; gap: 14px; }
+.dossier-stats > div { display: grid; gap: 6px; }
+.dossier-stats .stat-line { gap: 4px 20px; }
+.dossier-stats .stat-line i { font-size: 0.875rem; }
+.dossier-stats .stat-line b { font-size: 1.1875rem; }
 
 .dossier-foot {
   display: flex;
@@ -2154,7 +2159,7 @@ a.ctl { text-decoration: none; display: inline-block; }
 .sheet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .sheet-box {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   align-content: start;
   padding: 10px 12px;
   border: 1px solid var(--c-line);
@@ -2187,6 +2192,19 @@ a.ctl { text-decoration: none; display: inline-block; }
 .inventory-list li > span:first-child small { display: block; color: var(--c-faint); font-size: 0.6875rem; }
 .dossier .supply-points { border-color: rgba(230, 197, 131, .28); }
 .dossier.constellation .supply-block { text-align: left; width: 100%; }
+
+/* ── 상점 편집 (운영진) ────────────────────────────── */
+.shop-editor { display: grid; gap: 10px; }
+.shop-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-line-2);
+  border-left: 2px solid var(--c-gold);
+  background: rgba(255, 255, 255, .025);
+}
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ── 공개 시트 주소 (운영진) ────────────────────────────
    커뮤니티에 그대로 붙여 넣을 주소다 — 카드 밑에 붙여 두어
