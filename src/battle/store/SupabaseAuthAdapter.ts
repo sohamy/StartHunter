@@ -15,6 +15,8 @@ import {
   type PublicProfile,
   type RegisterInput,
   type SheetRecord,
+  type TradeKind,
+  type TradeResult,
 } from './AuthAdapter';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 
@@ -327,6 +329,32 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     const account = await this.getAccount(accountId);
     if (!account) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
     return account;
+  }
+
+  /**
+   * 보급 구매 · 반납 — 서버 함수에 맡긴다.
+   *
+   * 가격과 한도는 shop_items 를, 배치 여부는 battle_pairs 를 서버가 직접 본다.
+   * 브라우저가 보내는 것은 무엇을 사고팔지뿐이다.
+   */
+  async tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult> {
+    const { data, error } = await requireSupabase().rpc('shop_trade', {
+      p_item_id: itemId,
+      p_kind: kind,
+    });
+
+    if (error) {
+      // 서버가 raise 한 문장을 그대로 보여 준다 — 사유는 거기 다 적혀 있다
+      throw new AuthError('INVALID_INPUT', error.message);
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new AuthError('UNAVAILABLE', '상점이 응답하지 않았습니다.');
+
+    return {
+      points: (row.points as number) ?? 0,
+      inventory: (row.inventory as TradeResult['inventory']) ?? [],
+    };
   }
 
   /**

@@ -94,6 +94,14 @@ export interface SheetRecord {
   sheet: CharacterSheet;
 }
 
+export type TradeKind = 'BUY' | 'SELL';
+
+/** 거래 뒤의 지갑 — 서버가 계산한 값이 그대로 온다 */
+export interface TradeResult {
+  points: number;
+  inventory: ItemStack[];
+}
+
 export type AuthErrorCode =
   | 'ID_TAKEN'
   | 'NOT_FOUND'
@@ -133,6 +141,14 @@ export interface AuthAdapter {
    */
   listSheets(): Promise<SheetRecord[]>;
   updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account>;
+  /**
+   * 보급 구매 · 반납.
+   *
+   * 값 계산과 규칙 판정은 **서버가** 한다 (`shop_trade`).
+   * 브라우저가 소지금을 계산해 저장하면 마음먹은 사람이 숫자를 고칠 수 있기 때문이다.
+   * 거절 사유는 AuthError 로 온다 — 화면은 그대로 보여 주기만 하면 된다.
+   */
+  tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult>;
   /** 운영진용 — 참가자 시트를 지운다. 편성 기록(PairBond)은 남는다. */
   deleteSheet(sheetId: string): Promise<void>;
   deleteAccount(accountId: string): Promise<void>;

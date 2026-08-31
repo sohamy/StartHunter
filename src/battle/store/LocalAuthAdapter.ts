@@ -8,6 +8,7 @@
  */
 
 import { toProfile } from '../config/characters';
+import { purchase, refund } from '../engine/shop';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 import {
   AuthError,
@@ -17,6 +18,8 @@ import {
   type PublicProfile,
   type RegisterInput,
   type SheetRecord,
+  type TradeKind,
+  type TradeResult,
 } from './AuthAdapter';
 
 const ACCOUNTS_KEY = 'sh.auth.accounts';
@@ -177,6 +180,30 @@ export class LocalAuthAdapter implements AuthAdapter {
   async getPublicProfile(accountId: string): Promise<PublicProfile | null> {
     const found = readAccounts().find((account) => account.id === accountId);
     return found ? toPublicProfile(found.id, found.sheet) : null;
+  }
+
+  /**
+   * 로컬 모드에는 서버가 없다 — 같은 규칙을 이 자리에서 계산한다.
+   * 혼자 확인해 보는 경로이므로 배치 여부까지는 보지 않는다 (화면이 먼저 막는다).
+   */
+  async tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult> {
+    const session = await this.currentSession();
+    if (!session) throw new AuthError('NOT_FOUND', '접속 상태가 아닙니다.');
+
+    const accounts = readAccounts();
+    const index = accounts.findIndex((account) => account.id === session.accountId);
+    if (index < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+
+    const sheet = migrateSheet(accounts[index].sheet);
+    const result = kind === 'BUY' ? purchase(sheet, itemId, 1) : refund(sheet, itemId);
+    if (!result.ok) throw new AuthError('INVALID_INPUT', result.reason ?? '처리하지 못했습니다.');
+
+    accounts[index] = {
+      ...accounts[index],
+      sheet: { ...sheet, points: result.points, inventory: result.inventory },
+    };
+    writeAccounts(accounts);
+    return { points: result.points, inventory: result.inventory };
   }
 
   async listSheets(): Promise<SheetRecord[]> {

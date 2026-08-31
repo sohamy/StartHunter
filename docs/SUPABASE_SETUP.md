@@ -27,6 +27,7 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `0012_personal_points_inventory.sql` | 소지금 · 가방을 개인 소유로 (`sheets.points` · `sheets.inventory`) |
 | `0013_pair_name.sql` | 페어명(`sheets.pair_name`) — 같은 이름끼리 관리국이 짝을 짓는다 |
 | `0014_public_sheet_anonymous.sql` | 공개 시트를 비로그인(anon)에게도 연다 — 링크만 있으면 읽힌다 |
+| `0015_shop_server_side.sql` | 구매를 서버 함수(`shop_trade`)로 옮기고, 소지금 · 가방 직접 수정을 트리거로 막는다 |
 
 0001 이 만드는 테이블:
 
@@ -56,6 +57,10 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 > 0014 를 적용하지 않으면 로그인하지 않은 사람이 공개 시트 주소를 열었을 때 빈 화면이 뜬다.
 > 0014 는 시트 내용 전부(스탯 · 스킬 수치 · 소지금 · 가방)를 링크를 아는 누구에게나 연다.
 > 되돌리려면 `revoke select on public.public_profiles from anon;` 한 줄이면 된다.
+> 0015 를 적용하지 않으면 상점에서 구매가 실패한다 (`shop_trade` 가 없다).
+> 0015 부터는 참가자가 자기 소지금 · 가방을 직접 고칠 수 없다 — 트리거가 거절한다.
+> 운영진(`profiles.role = 'OPERATOR'`)은 그대로 창구에서 직접 지급 · 차감한다.
+> 0015 는 코드의 기본 진열 10줄을 `shop_items` 에 심는다 (이미 손댄 줄은 건드리지 않는다).
 > 0009 는 기존 `concept` 에 적힌 글을 **성격** 칸으로 옮긴다 (원본 열은 지우지 않는다).
 
 ## 2. 이메일 확인 끄기 (필수)

@@ -5,14 +5,16 @@
  * 로그인한 계정의 시트에서 그대로 읽는다.
  *
  * 참가자가 직접 산다. 다만 **전투에 배치된 동안에는 살 수 없다** —
- * 보급은 전투 밖에서만 갖춘다는 규칙이 화면 하나에서 지켜져야 한다.
+ * 보급은 전투 밖에서만 갖춘다.
+ *
+ * 값 계산과 최종 판정은 서버(`shop_trade`)가 한다.
+ * 이 화면이 하는 판정은 버튼을 미리 잠그기 위한 것이고, 통과 여부는 서버가 정한다.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ITEM_CATEGORY_LABELS, describeItem } from '../config/items';
 import { shopRows } from '../config/shop';
-import { purchase, refund, withPurchase } from '../engine/shop';
 import { getAuth, getStorage, loadShopCatalog } from '../store';
 import { SupplyBlock } from './SheetView';
 import type { Account, BattleState } from '../types';
@@ -100,19 +102,21 @@ export default function ShopTerminal() {
         return;
       }
 
-      const result = kind === 'BUY' ? purchase(account.sheet, itemId, 1) : refund(account.sheet, itemId);
-      if (!result.ok) {
-        setError(result.reason ?? '처리하지 못했습니다.');
-        return;
-      }
-
       setBusy(true);
       try {
-        const next = await auth.updateSheet(account.id, withPurchase(account.sheet, result));
-        setAccount(next);
-        setMessage(result.message);
+        // 값 계산과 최종 판정은 서버가 한다 — 브라우저는 무엇을 사고팔지만 보낸다
+        const wallet = await auth.tradeItem(itemId, kind);
+        setAccount({
+          ...account,
+          sheet: { ...account.sheet, points: wallet.points, inventory: wallet.inventory },
+        });
+        setMessage(
+          kind === 'BUY'
+            ? `구매 완료 — 남은 소지금 ${wallet.points} P`
+            : `반납 완료 — 남은 소지금 ${wallet.points} P`,
+        );
       } catch (failure) {
-        setError(failure instanceof Error ? failure.message : '저장에 실패했습니다.');
+        setError(failure instanceof Error ? failure.message : '처리하지 못했습니다.');
       } finally {
         setBusy(false);
       }
