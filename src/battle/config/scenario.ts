@@ -134,6 +134,7 @@ export function presetSheet(
     classId: actor.classId,
     stats: actor.stats,
     skills: skillTable[index % skillTable.length] ?? [],
+    pairName: '',
     partnerName: '',
     personality: '운영 프리셋 캐릭터',
     traits: '',

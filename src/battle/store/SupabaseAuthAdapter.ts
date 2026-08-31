@@ -70,6 +70,7 @@ interface SheetRow {
   owner: string;
   side: ActorSide;
   name: string;
+  pair_name: string | null;
   partner_name: string | null;
   class_id: string;
   stats: Record<string, number>;
@@ -91,6 +92,7 @@ function toSheet(row: SheetRow): CharacterSheet {
     id: row.id,
     side: row.side,
     name: row.name,
+    pairName: row.pair_name ?? '',
     partnerName: row.partner_name ?? '',
     classId: row.class_id,
     stats: row.stats ?? {},
@@ -120,6 +122,7 @@ function toPublicRow(row: Record<string, unknown>): PublicProfile {
     accountId: row.handle as string,
     side: row.side as ActorSide,
     name: row.name as string,
+    pairName: (row.pair_name as string | null) ?? '',
     partnerName: (row.partner_name as string | null) ?? '',
     classId: row.class_id as string,
     affiliation: (row.affiliation as PublicProfile['affiliation']) ?? 'GOVERNMENT',
@@ -167,6 +170,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
         owner: data.user.id,
         side: input.sheet.side,
         name: input.sheet.name,
+        pair_name: input.sheet.pairName,
         partner_name: input.sheet.partnerName,
         class_id: input.sheet.classId,
         stats: input.sheet.stats,
@@ -303,6 +307,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       .update({
         side: sheet.side,
         name: sheet.name,
+        pair_name: sheet.pairName,
         partner_name: sheet.partnerName,
         class_id: sheet.classId,
         stats: sheet.stats,

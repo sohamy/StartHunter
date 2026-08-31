@@ -2193,6 +2193,36 @@ a.ctl { text-decoration: none; display: inline-block; }
 .dossier .supply-points { border-color: rgba(230, 197, 131, .28); }
 .dossier.constellation .supply-block { text-align: left; width: 100%; }
 
+/* ── 페어명 묶음 (운영진) ──────────────────────────────
+   참가자가 적어 낸 이름으로 짝을 찾는 화면이다.
+   짝이 맞은 줄은 초록으로, 한 쪽만 있는 줄은 눈에 덜 띄게 둔다. */
+.pair-group-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.pair-group-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-offline);
+  background: rgba(255, 255, 255, .02);
+}
+.pair-group-list li.ready {
+  border-left-color: var(--c-ok);
+  background: rgba(95, 224, 205, .05);
+}
+.pair-group-name { font-size: 1rem; min-width: 140px; }
+.pair-group-members { display: flex; gap: 14px; flex-wrap: wrap; flex: 1; }
+.pair-group-member { display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; }
+.bond-name {
+  font-size: 1rem;
+  font-weight: 600;
+  max-width: 260px;
+  background: transparent;
+  border-color: transparent;
+}
+.bond-name:hover, .bond-name:focus { border-color: var(--c-line-2); background: rgba(255, 255, 255, .03); }
+
 /* ── 상점 편집 (운영진) ────────────────────────────── */
 .shop-editor { display: grid; gap: 10px; }
 .shop-form {

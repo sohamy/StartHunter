@@ -648,41 +648,49 @@ export default function ControlTerminal() {
 
   /* ── 편성 조작 ───────────────────────────────────── */
 
-  const createBond = async () => {
-    if (!pairingHunter || !pairingConstellation) {
+  /**
+   * 페어를 맺는다.
+   * 인자를 주지 않으면 위쪽 선택칸의 값을 쓴다 — 페어명 묶음에서는 곧바로 넘긴다.
+   */
+  const createBond = async (
+    hunterId: string = pairingHunter,
+    constellationId: string = pairingConstellation,
+  ) => {
+    if (!hunterId || !constellationId) {
       setError('헌터와 성좌를 모두 선택하세요.');
       return;
     }
-    if (pairingHunter === pairingConstellation) {
+    if (hunterId === constellationId) {
       setError('한 참가자가 양쪽을 맡을 수 없습니다.');
       return;
     }
 
-    const hunter = profiles.find((row) => row.accountId === pairingHunter);
-    const constellation = profiles.find((row) => row.accountId === pairingConstellation);
+    const hunter = profiles.find((row) => row.accountId === hunterId);
+    const constellation = profiles.find((row) => row.accountId === constellationId);
     const taken = bonds.find(
       (row) =>
         row.active &&
-        (row.hunterAccountId === pairingHunter ||
-          row.constellationAccountId === pairingConstellation),
+        (row.hunterAccountId === hunterId || row.constellationAccountId === constellationId),
     );
     if (taken) {
       setError(`이미 ${taken.label} 에 편성된 참가자가 있습니다. 먼저 해산하세요.`);
       return;
     }
 
+    // 두 사람이 적어 둔 페어명을 그대로 쓴다 — 없으면 일련번호로 붙인다
+    const written = (hunter?.pairName ?? '').trim() || (constellation?.pairName ?? '').trim();
     const bond: PairBond = {
       id: newId(),
-      label: `PAIR ${String(bonds.filter((row) => row.active).length + 1).padStart(2, '0')}`,
-      hunterAccountId: pairingHunter,
-      constellationAccountId: pairingConstellation,
+      label:
+        written ||
+        `PAIR ${String(bonds.filter((row) => row.active).length + 1).padStart(2, '0')}`,
+      hunterAccountId: hunterId,
+      constellationAccountId: constellationId,
       hunterName: hunter?.name ?? pairingHunter,
       constellationName: constellation?.name ?? pairingConstellation,
       affiliation: 'GOVERNMENT',
       active: true,
       createdAt: new Date().toISOString(),
-      points: DEFAULT_POINTS,
-      inventory: DEFAULT_INVENTORY.map((row) => ({ ...row })),
     };
 
     await guard(async () => {
@@ -1033,6 +1041,41 @@ export default function ControlTerminal() {
           bond.constellationAccountId === profile.accountId,
       ),
   );
+
+  /**
+   * 참가자가 적어 낸 페어명으로 묶는다.
+   *
+   * 같은 이름을 적은 사람끼리 짝이 된다 — 띄어쓰기와 대소문자는 무시한다.
+   * 한 쪽씩만 있으면 아직 상대가 등록하지 않았거나 이름이 다르게 적힌 것이다.
+   */
+  const pairNameGroups = (() => {
+    const key = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+    const groups = new Map<
+      string,
+      { label: string; hunters: PublicProfile[]; constellations: PublicProfile[] }
+    >();
+
+    for (const profile of profiles) {
+      const written = (profile.pairName ?? '').trim();
+      if (!written) continue;
+      // 이미 편성된 사람은 묶을 필요가 없다
+      if (activeBonds.some(
+        (bond) =>
+          bond.hunterAccountId === profile.accountId ||
+          bond.constellationAccountId === profile.accountId,
+      )) {
+        continue;
+      }
+
+      const id = key(written);
+      const group = groups.get(id) ?? { label: written, hunters: [], constellations: [] };
+      if (profile.side === 'HUNTER') group.hunters.push(profile);
+      else group.constellations.push(profile);
+      groups.set(id, group);
+    }
+
+    return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  })();
 
   /** 시트 소유자가 속한 활성 페어 */
   const bondOf = (accountId: string) =>
@@ -1424,6 +1467,64 @@ export default function ControlTerminal() {
       {/* ══════════ 편성 ══════════ */}
       {tab === 'ROSTER' && (
         <>
+          {pairNameGroups.length > 0 && (
+            <section className="panel">
+              <div className="process-head">
+                <h2 className="panel-title">페어명 묶음 · {pairNameGroups.length}</h2>
+                <span className="hint">
+                  참가자가 시트에 적어 낸 페어명으로 묶었습니다. 띄어쓰기 · 대소문자는 무시합니다.
+                </span>
+              </div>
+              <ul className="pair-group-list">
+                {pairNameGroups.map((group) => {
+                  const ready = group.hunters.length === 1 && group.constellations.length === 1;
+                  const member = (row: PublicProfile) => (
+                    <span key={row.accountId} className="pair-group-member">
+                      <span className={`tag ${row.side === 'HUNTER' ? 'blue' : 'gold'}`}>
+                        {row.side === 'HUNTER' ? '헌터' : '성좌'}
+                      </span>
+                      {row.name}
+                      <small className="dim">@{row.accountId}</small>
+                    </span>
+                  );
+
+                  return (
+                    <li key={group.label} className={ready ? 'ready' : ''}>
+                      <b className="pair-group-name">{group.label}</b>
+                      <div className="pair-group-members">
+                        {group.hunters.map(member)}
+                        {group.constellations.map(member)}
+                      </div>
+                      {ready ? (
+                        <button
+                          type="button"
+                          className="ctl primary small"
+                          disabled={busy}
+                          onClick={() =>
+                            void createBond(
+                              group.hunters[0].accountId,
+                              group.constellations[0].accountId,
+                            )
+                          }
+                        >
+                          이 이름으로 계약 성립
+                        </button>
+                      ) : (
+                        <span className="tag warn">
+                          {group.hunters.length === 0
+                            ? '헌터 없음'
+                            : group.constellations.length === 0
+                              ? '성좌 없음'
+                              : '한 조에 3명 이상 — 직접 고르세요'}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
           <section className="panel">
             <div className="process-head">
               <h2 className="panel-title">새 편성</h2>
@@ -1447,6 +1548,7 @@ export default function ControlTerminal() {
                       return (
                         <option key={row.accountId} value={row.accountId} disabled={bonded}>
                           {row.name} · {row.accountId}
+                          {row.pairName ? ` — ${row.pairName}` : ''}
                           {bonded ? ' (편성됨)' : ''}
                         </option>
                       );
@@ -1471,6 +1573,7 @@ export default function ControlTerminal() {
                       return (
                         <option key={row.accountId} value={row.accountId} disabled={bonded}>
                           {row.name} · {row.accountId}
+                          {row.pairName ? ` — ${row.pairName}` : ''}
                           {bonded ? ' (편성됨)' : ''}
                         </option>
                       );
@@ -1503,7 +1606,17 @@ export default function ControlTerminal() {
                 {activeBonds.map((bond) => (
                   <article className="bond-card" key={bond.id}>
                     <div className="bond-head">
-                      <b>{bond.label}</b>
+                      {/* 글자마다 저장하지 않는다 — 칸을 벗어날 때 한 번만 반영한다 */}
+                      <input
+                        key={`${bond.id}-${bond.label}`}
+                        className="ctl input bond-name"
+                        defaultValue={bond.label}
+                        title="페어명 — 참가자가 적어 낸 이름으로 고칠 수 있습니다"
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next && next !== bond.label) void patchBond(bond, { label: next });
+                        }}
+                      />
                       <span className={`tag ${bond.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
                         {bond.affiliation === 'GOVERNMENT' ? 'GOVERNMENT' : 'PRIVATE GUILD'}
                       </span>

@@ -43,6 +43,8 @@ export interface PublicProfile extends SheetProfile {
   accountId: string;
   side: ActorSide;
   name: string;
+  /** 참가자가 적어 둔 페어 이름. 공란일 수 있다. */
+  pairName: string;
   /** 참가자가 적어 둔 계약 상대 이름. 공란일 수 있다. */
   partnerName: string;
   classId: string;
@@ -67,6 +69,7 @@ export function toPublicProfile(accountId: string, sheet: CharacterSheet): Publi
     accountId,
     side: sheet.side,
     name: sheet.name,
+    pairName: sheet.pairName ?? '',
     partnerName: sheet.partnerName ?? '',
     classId: sheet.classId,
     affiliation: sheet.affiliation,

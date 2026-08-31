@@ -356,6 +356,13 @@ export function SheetDetail({
       </div>
 
       <div className="sheet-block">
+        <span className="field-label">페어명</span>
+        <span className={sheet.pairName.trim() ? '' : 'dim'}>
+          {sheet.pairName.trim() || '미정 — 공란'}
+        </span>
+      </div>
+
+      <div className="sheet-block">
         <span className="field-label">계약 상대</span>
         <span className={sheet.partnerName.trim() ? '' : 'dim'}>
           {sheet.partnerName.trim() || '미정 — 공란'}
@@ -445,6 +452,12 @@ export function PublicSheetCard({
       </div>
 
       <dl className="dossier-facts">
+        <div>
+          <dt>페어명</dt>
+          <dd className={profile.pairName.trim() ? '' : 'dim'}>
+            {profile.pairName.trim() || '미정'}
+          </dd>
+        </div>
         <div>
           <dt>계약 상대</dt>
           <dd className={partner ? '' : 'dim'}>{partner || '미정 — 공란'}</dd>

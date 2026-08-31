@@ -52,6 +52,7 @@ type Mode = 'LOGIN' | 'REGISTER';
 interface DraftSheet {
   side: ActorSide;
   name: string;
+  pairName: string;
   partnerName: string;
   classId: string;
   stats: StatBlock;
@@ -67,6 +68,7 @@ function emptyDraft(side: ActorSide): DraftSheet {
   return {
     side,
     name: '',
+    pairName: '',
     partnerName: '',
     classId: '',
     stats: initialStats(side),
@@ -483,6 +485,7 @@ export default function JoinTerminal() {
     setDraft((current) => ({
       ...emptyDraft(side),
       name: current.name,
+      pairName: current.pairName,
       partnerName: current.partnerName,
       personality: current.personality,
       traits: current.traits,
@@ -540,6 +543,7 @@ export default function JoinTerminal() {
         sheet: {
           side: draft.side,
           name: draft.name.trim(),
+          pairName: draft.pairName.trim(),
           partnerName: draft.partnerName.trim(),
           classId: draft.classId,
           stats: draft.stats,
@@ -651,7 +655,13 @@ export default function JoinTerminal() {
                 <span className="field-value">{sheet.name}</span>
               </div>
               <div className="field">
-                <span className="field-label">PAIR</span>
+                <span className="field-label">PAIR NAME</span>
+                <span className={`field-value ${sheet.pairName.trim() ? '' : 'dim'}`}>
+                  {sheet.pairName.trim() || '미정 — 공란'}
+                </span>
+              </div>
+              <div className="field">
+                <span className="field-label">PARTNER</span>
                 <span className={`field-value ${partnerName ? '' : 'dim'}`}>
                   {partnerName || '미정 — 공란'}
                   {bondedHandle && <small className="dim"> @{bondedHandle}</small>}
@@ -1032,6 +1042,20 @@ export default function JoinTerminal() {
                 placeholder={draft.side === 'HUNTER' ? '예: 서윤' : '예: 겨울을 삼킨 별'}
               />
             </label>
+
+            {/* 관리국은 이 이름이 같은 사람끼리 짝을 짓는다 — 상대와 같은 이름을 적어야 한다 */}
+            <label className="input-row">
+              <span className="field-label">페어명</span>
+              <input
+                className="ctl input"
+                value={draft.pairName}
+                onChange={(event) => setDraft({ ...draft, pairName: event.target.value })}
+                placeholder="상대와 정한 페어 이름 — 관리국이 이 이름으로 짝을 짓습니다"
+              />
+            </label>
+            <p className="hint" style={{ marginTop: -8, marginBottom: 12 }}>
+              상대와 <b>똑같이</b> 적어 주세요. 아직 정하지 않았다면 비워 두어도 됩니다.
+            </p>
 
             {/* 이미 짝을 정하고 온 참가자를 위한 칸 — 아직 없으면 비워 둔다 */}
             <label className="input-row">

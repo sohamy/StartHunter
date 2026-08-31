@@ -25,6 +25,7 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `0010_public_sheet_full.sql` | `public_profiles` 에 스탯과 스킬 전문 포함 — 제출한 시트는 전부 공개 |
 | `0011_shop_items.sql` | 상점 진열(`shop_items`) — 운영진이 품목 · 가격 · 한도를 직접 넣는다 |
 | `0012_personal_points_inventory.sql` | 소지금 · 가방을 개인 소유로 (`sheets.points` · `sheets.inventory`) |
+| `0013_pair_name.sql` | 페어명(`sheets.pair_name`) — 같은 이름끼리 관리국이 짝을 짓는다 |
 
 0001 이 만드는 테이블:
 
@@ -50,6 +51,7 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 > 0011 을 적용하지 않으면 작전실에서 상점 품목을 넣을 수 없다 (기본 목록만 뜬다).
 > 0012 를 적용하지 않으면 소지금 · 가방 저장이 실패한다.
 > 0012 는 편성이 들고 있던 포인트 · 보급품을 두 사람에게 옮긴다 (나누지 않고 각자에게 그대로).
+> 0013 을 적용하지 않으면 페어명 저장이 실패하고, 작전실의 페어명 묶음이 비어 보인다.
 > 0009 는 기존 `concept` 에 적힌 글을 **성격** 칸으로 옮긴다 (원본 열은 지우지 않는다).
 
 ## 2. 이메일 확인 끄기 (필수)

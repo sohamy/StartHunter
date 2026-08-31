@@ -307,6 +307,16 @@ export default function SheetEditor({
       </div>
 
       <label className="input-row">
+        <span className="field-label">페어명</span>
+        <input
+          className="ctl input"
+          value={draft.pairName}
+          placeholder="공란 가능"
+          onChange={(event) => setDraft({ ...draft, pairName: event.target.value })}
+        />
+      </label>
+
+      <label className="input-row">
         <span className="field-label">계약 상대</span>
         <input
           className="ctl input"

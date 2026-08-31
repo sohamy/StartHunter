@@ -38,6 +38,7 @@ function storage(): Storage {
 function migrateSheet(sheet: CharacterSheet): CharacterSheet {
   return {
     ...sheet,
+    pairName: sheet.pairName ?? '',
     partnerName: sheet.partnerName ?? '',
     ...toProfile(sheet as CharacterSheet & { concept?: string }),
   };
