@@ -6,12 +6,11 @@
  */
 
 import { findGimmick } from '../config/gimmicks';
-import { DEFAULT_INVENTORY } from '../config/items';
+import { DEFAULT_INVENTORY, allowedFor, findItem } from '../config/items';
 import { CONTRACT_RULES, MANIFEST_RULES, SCHEMA_VERSION } from '../config/rules';
 import {
   DEFAULT_GIMMICK_ID,
   DEFAULT_OPERATION,
-  DEFAULT_POINTS,
   DEFAULT_RAID_PAIR_COUNT,
   createBossEnemy,
   createMonsterEnemy,
@@ -22,6 +21,8 @@ import {
   presetSheet,
 } from '../config/scenario';
 import type {
+  ActorSide,
+  Affiliation,
   BattleMode,
   BattleState,
   CharacterSheet,
@@ -34,7 +35,6 @@ import type {
 } from '../types';
 import { constellationStateFromSheet, hunterStateFromSheet } from './character';
 import { newUuid } from './id';
-import { addItem } from './items';
 import { contractFromValue, constellationMaxAp } from './status';
 
 export interface PairInput {
@@ -48,14 +48,51 @@ export interface PairInput {
   affiliation?: PairState['affiliation'];
   hpRatio?: number;
   constellationStage?: PairState['constellation']['stage'];
+  /** 두 사람에게 각각 줄 소지금. 생략하면 시트에 적힌 개인 소지금을 그대로 쓴다 */
   points?: number;
-  /** 들고 들어가는 보급품. 생략하면 기본 보급을 받는다 */
+  /** 두 사람이 각자 들고 들어갈 보급품. 생략하면 개인 가방을 그대로 들고 간다 */
   inventory?: ItemStack[];
 }
 
+/**
+ * 전투에 들고 들어갈 가방을 정한다.
+ *
+ * 가방은 **개인 소유**다 — 두 사람 것을 합치지 않는다.
+ * 빈손으로 들어가지 않도록, 가진 것이 없으면 기본 보급을 준다.
+ * 기본 보급도 이 주체가 쓸 수 있는 것만 골라 준다 (성유물을 헌터에게 주지 않는다).
+ */
+export function startingBag(
+  own: ItemStack[] | undefined,
+  override: ItemStack[] | undefined,
+  side: ActorSide,
+  affiliation: Affiliation,
+): ItemStack[] {
+  const bag = override ?? own ?? [];
+  if (bag.length > 0) return bag.map((row) => ({ ...row }));
+
+  return DEFAULT_INVENTORY.filter((row) => {
+    const item = findItem(row.itemId);
+    return item ? allowedFor(item, side, affiliation) : false;
+  }).map((row) => ({ ...row }));
+}
+
 export function createPair(index: number, input: PairInput): PairState {
+  const affiliation = input.affiliation ?? input.hunterSheet.affiliation;
   const hunter = hunterStateFromSheet(input.hunterSheet);
   const constellation = constellationStateFromSheet(input.constellationSheet);
+
+  // 소지금과 가방은 사람마다 따로다 — 시트에서 그대로 가져오고,
+  // 프리셋 NPC 처럼 시트가 없는 경우에만 지정한 값을 쓴다.
+  hunter.points = input.points ?? hunter.points;
+  constellation.points = input.points ?? constellation.points;
+  hunter.inventory = startingBag(hunter.inventory, input.inventory, 'HUNTER', affiliation);
+  constellation.inventory = startingBag(
+    constellation.inventory,
+    input.inventory,
+    'CONSTELLATION',
+    affiliation,
+  );
+
   constellation.manifestUses = {
     partial: MANIFEST_RULES.partialPerBattle,
     full: MANIFEST_RULES.fullPerCampaign,
@@ -75,14 +112,12 @@ export function createPair(index: number, input: PairInput): PairState {
     // 서버의 battle_pairs.id 가 uuid 이므로 형식을 맞춘다. 표기는 label 을 쓴다.
     id: newUuid(),
     label: pairLabelFor(index),
-    affiliation: input.affiliation ?? input.hunterSheet.affiliation,
+    affiliation,
     hunterAccountId: input.hunterAccountId ?? null,
     constellationAccountId: input.constellationAccountId ?? null,
     hunter,
     constellation,
     contract: contractFromValue(CONTRACT_RULES.initialValue),
-    points: input.points ?? DEFAULT_POINTS,
-    inventory: (input.inventory ?? DEFAULT_INVENTORY).map((row) => ({ ...row })),
     submission: emptySubmission(),
     patternRevealed: false,
   };
@@ -235,21 +270,6 @@ export interface AssembleOptions {
 }
 
 /**
- * 두 사람의 개인 가방을 한 판짜리 공용 가방으로 합친다.
- * 비어 있으면 기본 보급을 받도록 undefined 를 돌려준다.
- */
-export function mergeBags(
-  left: ItemStack[] | undefined,
-  right: ItemStack[] | undefined,
-): ItemStack[] | undefined {
-  let merged: ItemStack[] = [];
-  for (const stack of [...(left ?? []), ...(right ?? [])]) {
-    merged = addItem(merged, stack.itemId, stack.quantity);
-  }
-  return merged.length > 0 ? merged : undefined;
-}
-
-/**
  * 등록된 페어와 세팅된 적으로 전투를 만든다.
  * 페어는 이미 맺어져 있으므로 여기서 짝을 짓지 않는다 — 참가 여부만 정한다.
  */
@@ -261,10 +281,8 @@ export function assembleBattle(options: AssembleOptions): BattleState {
       hunterAccountId: entry.bond.hunterAccountId,
       constellationAccountId: entry.bond.constellationAccountId,
       affiliation: entry.bond.affiliation,
-      // 소지금과 가방은 개인 것이다 — 전투 화면의 보유 포인트는 두 사람 것을 합쳐 보여주고,
-      // 가방은 두 개인 가방을 합쳐 한 판 동안 함께 쓴다. 정산에서 각자에게 되돌린다.
-      points: (entry.hunterSheet.points ?? 0) + (entry.constellationSheet.points ?? 0),
-      inventory: mergeBags(entry.hunterSheet.inventory, entry.constellationSheet.inventory),
+      // 소지금과 가방은 개인 것이다 — 시트에 있는 것을 각자 그대로 들고 들어간다.
+      // 합치지 않으므로 정산에서 나눌 일도 없다.
     });
     return { ...pair, label: entry.bond.label };
   });

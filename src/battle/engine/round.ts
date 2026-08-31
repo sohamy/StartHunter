@@ -1346,22 +1346,23 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
       alert('EMERGENCY', 'FULL MANIFESTATION DETECTED', `${pair.constellation.name} 완전 현신`);
     }
 
-    // 아이템 — 개수 차감, 행동력 회복, 상태이상 해제
-    let inventory = pair.inventory;
+    // 아이템 — 개수 차감, 행동력 회복, 상태이상 해제.
+    // 가방은 사람마다 따로다 — 쓴 사람의 가방에서만 빠진다.
+    let hunterBag = pair.hunter.inventory;
+    let constellationBag = pair.constellation.inventory;
     let hunterStatuses = pair.hunter.statuses;
     let constellationStatuses = pair.constellation.statuses;
     let hunterApBack = 0;
     let constellationApBack = 0;
 
     for (const use of row.itemUses) {
-      inventory = consumeItem(inventory, use.itemId);
+      if (use.side === 'HUNTER') hunterBag = consumeItem(hunterBag, use.itemId);
+      else constellationBag = consumeItem(constellationBag, use.itemId);
+
+      const left = quantityOf(use.side === 'HUNTER' ? hunterBag : constellationBag, use.itemId);
       log(
         `${pair.label} ${use.side} ITEM USED — ${use.itemName}`,
-        [
-          `AP -${use.apCost}`,
-          ...use.effects.slice(1),
-          `남은 개수 ${quantityOf(inventory, use.itemId)}`,
-        ].join(' · '),
+        [`AP -${use.apCost}`, ...use.effects.slice(1), `남은 개수 ${left}`].join(' · '),
         pair.id,
       );
 
@@ -1428,7 +1429,6 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
 
     return {
       ...pair,
-      inventory,
       contract,
       hunter: {
         ...pair.hunter,
@@ -1438,10 +1438,12 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
         ),
         skills: hunterSkills,
         statuses: hunterStatuses,
+        inventory: hunterBag,
       },
       constellation: {
         ...pair.constellation,
         stage,
+        inventory: constellationBag,
         ap: Math.min(
           constellationMaxAp(pair.constellation.maxAp, stage),
           Math.max(0, pair.constellation.ap - row.apSpent.constellation) + constellationApBack,

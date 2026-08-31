@@ -35,7 +35,7 @@ import type {
 
 /**
  * 소지금과 가방 — **개인 소유**다. 시트에 붙어 다니며 페어와 나누지 않는다.
- * 전투에 들어갈 때만 두 사람의 가방이 한 판짜리 공용 가방으로 합쳐진다.
+ * 전투에 들어갈 때도 각자 자기 가방을 들고 들어간다.
  */
 export interface Supply {
   points: number;
@@ -285,22 +285,38 @@ export function StatRadar({
   );
 }
 
-/** 게이지 목록 — 정확한 값은 여기서 읽는다 */
-export function StatBars({ side, stats }: { side: ActorSide; stats: StatBlock }) {
+/** 게이지 목록 — 정확한 값은 여기서 읽는다. 강화분(statBonus)은 따로 표시한다. */
+export function StatBars({
+  side,
+  stats,
+  statBonus,
+}: {
+  side: ActorSide;
+  stats: StatBlock;
+  statBonus?: StatBlock | null;
+}) {
   const max = POINT_BUY.maxValue;
 
   return (
     <ul className="stat-bars">
       {statsFor(side).map((stat) => {
-        const value = stats[stat.key] ?? POINT_BUY.baseValue;
+        const base = stats[stat.key] ?? POINT_BUY.baseValue;
+        const gain = statBonus?.[stat.key] ?? 0;
+        const value = base + gain;
         return (
           <li key={stat.key} title={`${stat.labelKo} — ${stat.effect}`}>
             <i>{stat.label}</i>
             <span className="stat-bar-ko">{stat.labelKo}</span>
             <span className="stat-bar-track">
-              <span className="stat-bar-fill" style={{ width: `${(value / max) * 100}%` }} />
+              <span
+                className="stat-bar-fill"
+                style={{ width: `${Math.min(100, (value / max) * 100)}%` }}
+              />
             </span>
-            <b className="num">{value}</b>
+            <b className="num">
+              {value}
+              {gain > 0 && <small className="gold"> (강화 +{gain})</small>}
+            </b>
           </li>
         );
       })}
@@ -312,7 +328,7 @@ export function StatBars({ side, stats }: { side: ActorSide; stats: StatBlock })
 export function DerivedTiles({
   sheet,
 }: {
-  sheet: { side: ActorSide; classId: string; stats: StatBlock };
+  sheet: { side: ActorSide; classId: string; stats: StatBlock; statBonus?: StatBlock | null };
 }) {
   const tiles =
     sheet.side === 'HUNTER'
@@ -350,18 +366,21 @@ export function DerivedTiles({
 export function StatPanel({
   sheet,
 }: {
-  sheet: { side: ActorSide; classId: string; stats: StatBlock };
+  sheet: { side: ActorSide; classId: string; stats: StatBlock; statBonus?: StatBlock | null };
 }) {
+  const gained = Object.entries(sheet.statBonus ?? {}).filter(([, amount]) => amount > 0);
+
   return (
     <div className="stat-panel">
       <div className="stat-panel-chart">
         <StatRadar side={sheet.side} stats={sheet.stats} />
         <span className="stat-panel-cap">
           배분 상한 {POINT_BUY.maxValue} · 자유 배분 {POINT_BUY.freePoints}점
+          {gained.length > 0 && ' · 강화는 배분 밖에서 오릅니다'}
         </span>
       </div>
       <div className="stat-panel-detail">
-        <StatBars side={sheet.side} stats={sheet.stats} />
+        <StatBars side={sheet.side} stats={sheet.stats} statBonus={sheet.statBonus} />
         <DerivedTiles sheet={sheet} />
       </div>
     </div>

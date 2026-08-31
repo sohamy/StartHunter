@@ -46,15 +46,27 @@ export function consumeItem(inventory: ItemStack[], itemId: string): ItemStack[]
   return addItem(inventory, itemId, -1);
 }
 
+/** 이 주체의 개인 가방. 두 사람의 가방은 섞이지 않는다. */
+export function bagOf(pair: PairState, side: ActorSide): ItemStack[] {
+  return (side === 'HUNTER' ? pair.hunter.inventory : pair.constellation.inventory) ?? [];
+}
+
+/** 이 주체의 가방을 갈아 끼운 새 페어 */
+export function withBag(pair: PairState, side: ActorSide, inventory: ItemStack[]): PairState {
+  return side === 'HUNTER'
+    ? { ...pair, hunter: { ...pair.hunter, inventory } }
+    : { ...pair, constellation: { ...pair.constellation, inventory } };
+}
+
 export interface InventoryRow {
   item: ItemDefinition;
   quantity: number;
   effects: string[];
 }
 
-/** 이 주체가 이 페어의 가방에서 고를 수 있는 목록 */
+/** 이 주체가 자기 가방에서 고를 수 있는 목록 */
 export function inventoryFor(pair: PairState, side: ActorSide): InventoryRow[] {
-  return pair.inventory.flatMap((stack) => {
+  return bagOf(pair, side).flatMap((stack) => {
     const item = findItem(stack.itemId);
     if (!item) return [];
     if (!allowedFor(item, side, pair.affiliation)) return [];
@@ -82,7 +94,9 @@ export function itemAvailability(
   if (!allowedFor(item, side, pair.affiliation)) {
     return { usable: false, reason: '이 주체가 쓸 수 없는 분류' };
   }
-  if (quantityOf(pair.inventory, item.id) <= 0) return { usable: false, reason: '보유 개수 없음' };
+  if (quantityOf(bagOf(pair, side), item.id) <= 0) {
+    return { usable: false, reason: '보유 개수 없음' };
+  }
 
   const actor = side === 'HUNTER' ? pair.hunter : pair.constellation;
   if (item.apCost > actor.ap) {

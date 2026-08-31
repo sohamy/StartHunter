@@ -52,6 +52,8 @@ export interface PublicProfile extends SheetProfile {
   /** 캐릭터 사진 — 시트 전문 없이도 얼굴은 서로 볼 수 있게 한다 */
   portrait?: string | null;
   stats: StatBlock;
+  /** 강화 아이템으로 영구히 올린 능력치 */
+  statBonus: StatBlock;
   skills: SkillDefinition[];
   /** 소지금 — 개인 소유 */
   points: number;
@@ -75,6 +77,7 @@ export function toPublicProfile(accountId: string, sheet: CharacterSheet): Publi
     affiliation: sheet.affiliation,
     portrait: sheet.portrait ?? null,
     stats: sheet.stats ?? {},
+    statBonus: sheet.statBonus ?? {},
     skills: sheet.skills ?? [],
     points: sheet.points ?? 0,
     inventory: sheet.inventory ?? [],
@@ -99,6 +102,29 @@ export type TradeKind = 'BUY' | 'SELL';
 /** 거래 뒤의 지갑 — 서버가 계산한 값이 그대로 온다 */
 export interface TradeResult {
   points: number;
+  inventory: ItemStack[];
+}
+
+/** 선물 한 건 — 활동명으로 상대를 지목한다 */
+export interface GiftInput {
+  /** 받는 사람의 활동명 */
+  toHandle: string;
+  kind: 'POINTS' | 'ITEM';
+  /** kind 가 ITEM 일 때의 품목 */
+  itemId?: string | null;
+  /** 보낼 금액 또는 개수 */
+  amount: number;
+}
+
+/** 선물을 보낸 뒤의 내 지갑과, 받은 사람 표기 */
+export interface GiftResult extends TradeResult {
+  /** 받은 사람의 이름 — 활동명이 아니라 캐릭터 이름을 돌려준다 */
+  toName: string;
+}
+
+/** 강화 아이템을 쓴 뒤의 시트 */
+export interface UseSupplyOutcome {
+  statBonus: StatBlock;
   inventory: ItemStack[];
 }
 
@@ -149,6 +175,16 @@ export interface AuthAdapter {
    * 거절 사유는 AuthError 로 온다 — 화면은 그대로 보여 주기만 하면 된다.
    */
   tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult>;
+  /**
+   * 선물하기 — 활동명으로 상대를 찾아 소지금이나 보급품을 넘긴다.
+   * 판정은 서버(`shop_gift`)가 한다. 전투에 배치된 동안에는 창구가 닫힌다.
+   */
+  giftTo(input: GiftInput): Promise<GiftResult>;
+  /**
+   * 강화 아이템 사용 — 전투 밖에서만 쓴다.
+   * 가방에서 하나 빠지고 시트의 statBonus 가 오른다. 판정은 서버(`use_supply`)가 한다.
+   */
+  useSupply(itemId: string): Promise<UseSupplyOutcome>;
   /** 운영진용 — 참가자 시트를 지운다. 편성 기록(PairBond)은 남는다. */
   deleteSheet(sheetId: string): Promise<void>;
   deleteAccount(accountId: string): Promise<void>;

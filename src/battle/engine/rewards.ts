@@ -8,20 +8,60 @@
  */
 
 import { findReward, type RewardReason } from '../config/rewards';
-import type { BattleState, PairState, RewardEntry } from '../types';
+import type { ActorSide, BattleState, PairState, RewardEntry } from '../types';
 
 export interface RewardGrant {
   pairId: string;
+  /** 받는 사람. null 이면 두 사람 모두 각자 받는다 */
+  side?: ActorSide | null;
   reason: string;
   label: string;
   points: number;
 }
 
+/** 지급 대상 표기 — 로그와 화면이 함께 쓴다 */
+export function rewardSideLabel(side: ActorSide | null | undefined): string {
+  if (side === 'HUNTER') return '헌터';
+  if (side === 'CONSTELLATION') return '성좌';
+  return '두 사람';
+}
+
+/**
+ * 이 사람(들)의 소지금을 옮긴다.
+ *
+ * 소지금은 개인 소유다 — side 가 null 이면 나눠 갖는 것이 아니라
+ * 두 사람이 **각자** 같은 금액을 받는다. 같이 벌었으므로 같이 받는다.
+ */
+export function addPointsTo(
+  pair: PairState,
+  side: ActorSide | null | undefined,
+  amount: number,
+): PairState {
+  if (amount === 0) return pair;
+  const next = { ...pair };
+  if (side !== 'CONSTELLATION') {
+    next.hunter = { ...pair.hunter, points: Math.max(0, (pair.hunter.points ?? 0) + amount) };
+  }
+  if (side !== 'HUNTER') {
+    next.constellation = {
+      ...pair.constellation,
+      points: Math.max(0, (pair.constellation.points ?? 0) + amount),
+    };
+  }
+  return next;
+}
+
 /** 규칙 하나를 이 페어에게 적용할 준비 */
-export function grantFor(pairId: string, reason: RewardReason, override?: number): RewardGrant {
+export function grantFor(
+  pairId: string,
+  reason: RewardReason,
+  override?: number,
+  side: ActorSide | null = null,
+): RewardGrant {
   const rule = findReward(reason);
   return {
     pairId,
+    side,
     reason,
     label: rule.labelKo,
     points: override ?? rule.points,
@@ -46,26 +86,47 @@ export function toEntries(grants: RewardGrant[], round: number, stamp: number): 
     id: `RW-${stamp}-${index}`,
     round,
     pairId: grant.pairId,
+    side: grant.side ?? null,
     reason: grant.reason,
     label: grant.label,
     points: grant.points,
   }));
 }
 
-/** 지급을 페어 상태에 반영한다 */
+/** 지급을 페어 상태에 반영한다 — 받는 사람의 소지금만 오른다 */
 export function applyGrants(pairs: PairState[], grants: RewardGrant[]): PairState[] {
   if (grants.length === 0) return pairs;
   return pairs.map((pair) => {
-    const total = grants
-      .filter((grant) => grant.pairId === pair.id)
-      .reduce((sum, grant) => sum + grant.points, 0);
-    return total === 0 ? pair : { ...pair, points: Math.max(0, pair.points + total) };
+    let next = pair;
+    for (const grant of grants) {
+      if (grant.pairId !== pair.id) continue;
+      next = addPointsTo(next, grant.side ?? null, grant.points);
+    }
+    return next;
   });
 }
 
-/** 이 페어가 이 전투에서 받은 총액 */
-export function earnedBy(state: BattleState, pairId: string): number {
+/**
+ * 이 페어가 이 전투에서 받은 총액.
+ * side 를 주면 그 사람이 받은 것만 센다 — 두 사람 모두를 위한 지급은 양쪽에 다 센다.
+ */
+export function earnedBy(state: BattleState, pairId: string, side?: ActorSide): number {
   return state.rewards
     .filter((entry) => entry.pairId === pairId)
+    .filter((entry) => !side || !entry.side || entry.side === side)
+    .reduce((sum, entry) => sum + entry.points, 0);
+}
+
+/** 두 사람 모두를 위한 지급 — 각자 이 금액을 받는다 */
+export function earnedShared(state: BattleState, pairId: string): number {
+  return state.rewards
+    .filter((entry) => entry.pairId === pairId && !entry.side)
+    .reduce((sum, entry) => sum + entry.points, 0);
+}
+
+/** 이 사람만 지목해 받은 금액 — 기록에 따로 남긴다 */
+export function earnedOnlyBy(state: BattleState, pairId: string, side: ActorSide): number {
+  return state.rewards
+    .filter((entry) => entry.pairId === pairId && entry.side === side)
     .reduce((sum, entry) => sum + entry.points, 0);
 }

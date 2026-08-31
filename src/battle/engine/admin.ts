@@ -14,7 +14,8 @@ import { emptySubmission } from '../config/scenario';
 import { findStatus } from '../config/status';
 import { createPair, createPresetPair, createGimmick } from './battle';
 import { describePhaseBands, normalizeCutoffs } from './enemy';
-import { addItem } from './items';
+import { addItem, bagOf, withBag } from './items';
+import { addPointsTo, rewardSideLabel } from './rewards';
 import { appendLog, createLogEntry } from './log';
 import { applyStatus, contractStageOf } from './status';
 import type {
@@ -183,9 +184,24 @@ export function setContract(
   return note(next, `계약 안정도 변경 — ${pairId}`, JSON.stringify(patch), pairId);
 }
 
-export function setPairPoints(state: BattleState, pairId: string, points: number): BattleState {
-  const next = patchPair(state, pairId, (pair) => ({ ...pair, points: Math.max(0, points) }));
-  return note(next, `포인트 변경 — ${pairId} → ${points}P`, undefined, pairId);
+/**
+ * 한 사람의 소지금을 지정한 값으로 맞춘다.
+ * 소지금은 개인 소유이므로 대상을 반드시 고른다 — 페어 단위로 바꾸는 길은 없다.
+ */
+export function setActorPoints(
+  state: BattleState,
+  pairId: string,
+  side: ActorSide,
+  points: number,
+): BattleState {
+  const value = Math.max(0, points);
+  const next = patchPair(state, pairId, (pair) =>
+    side === 'HUNTER'
+      ? { ...pair, hunter: { ...pair.hunter, points: value } }
+      : { ...pair, constellation: { ...pair.constellation, points: value } },
+  );
+  const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
+  return note(next, `소지금 변경 — ${label} ${rewardSideLabel(side)} → ${value}P`, undefined, pairId);
 }
 
 /* ── 포인트 지급 ───────────────────────────────────────────
@@ -196,15 +212,14 @@ export function grantPoints(
   pairId: string,
   reason: RewardReason,
   points?: number,
+  /** 받는 사람. null 이면 두 사람이 각자 같은 금액을 받는다 */
+  side: ActorSide | null = null,
 ): BattleState {
   const rule = findReward(reason);
   const amount = points ?? rule.points;
   const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
 
-  const next = patchPair(state, pairId, (pair) => ({
-    ...pair,
-    points: Math.max(0, pair.points + amount),
-  }));
+  const next = patchPair(state, pairId, (pair) => addPointsTo(pair, side, amount));
 
   return note(
     {
@@ -215,13 +230,14 @@ export function grantPoints(
           id: `RW-ADMIN-${next.rewards.length}-${pairId}`,
           round: state.round,
           pairId,
+          side,
           reason,
           label: rule.labelKo,
           points: amount,
         },
       ],
     },
-    `포인트 지급 — ${label} +${amount}P`,
+    `소지금 지급 — ${label} ${rewardSideLabel(side)} +${amount}P`,
     rule.labelKo,
     pairId,
   );
@@ -232,14 +248,13 @@ export function revokeReward(state: BattleState, rewardId: string): BattleState 
   const entry = state.rewards.find((row) => row.id === rewardId);
   if (!entry) return state;
 
-  const next = patchPair(state, entry.pairId, (pair) => ({
-    ...pair,
-    points: Math.max(0, pair.points - entry.points),
-  }));
+  const next = patchPair(state, entry.pairId, (pair) =>
+    addPointsTo(pair, entry.side ?? null, -entry.points),
+  );
 
   return note(
     { ...next, rewards: next.rewards.filter((row) => row.id !== rewardId) },
-    `포인트 지급 취소 — ${entry.label} −${entry.points}P`,
+    `소지금 지급 취소 — ${entry.label} ${rewardSideLabel(entry.side)} −${entry.points}P`,
     undefined,
     entry.pairId,
   );
@@ -247,38 +262,49 @@ export function revokeReward(state: BattleState, rewardId: string): BattleState 
 
 /* ── 아이템 ────────────────────────────────────────────── */
 
+/** 가방은 사람마다 따로다 — 누구에게 주는지 반드시 고른다 */
 export function grantItem(
   state: BattleState,
   pairId: string,
+  side: ActorSide,
   itemId: string,
   quantity = 1,
 ): BattleState {
   const item = findItem(itemId);
   if (!item) return state;
 
-  const next = patchPair(state, pairId, (pair) => ({
-    ...pair,
-    inventory: addItem(pair.inventory, itemId, quantity),
-  }));
+  const next = patchPair(state, pairId, (pair) =>
+    withBag(pair, side, addItem(bagOf(pair, side), itemId, quantity)),
+  );
   const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
-  return note(next, `아이템 지급 — ${label} ${item.nameKo} ×${quantity}`, undefined, pairId);
+  return note(
+    next,
+    `아이템 지급 — ${label} ${rewardSideLabel(side)} ${item.nameKo} ×${quantity}`,
+    undefined,
+    pairId,
+  );
 }
 
 export function revokeItem(
   state: BattleState,
   pairId: string,
+  side: ActorSide,
   itemId: string,
   quantity = 1,
 ): BattleState {
   const item = findItem(itemId);
   if (!item) return state;
 
-  const next = patchPair(state, pairId, (pair) => ({
-    ...pair,
-    inventory: addItem(pair.inventory, itemId, -quantity),
-  }));
+  const next = patchPair(state, pairId, (pair) =>
+    withBag(pair, side, addItem(bagOf(pair, side), itemId, -quantity)),
+  );
   const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
-  return note(next, `아이템 회수 — ${label} ${item.nameKo} ×${quantity}`, undefined, pairId);
+  return note(
+    next,
+    `아이템 회수 — ${label} ${rewardSideLabel(side)} ${item.nameKo} ×${quantity}`,
+    undefined,
+    pairId,
+  );
 }
 
 /* ── 상태이상 ──────────────────────────────────────────── */

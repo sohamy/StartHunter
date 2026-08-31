@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 
+import { CONSTELLATION_STATS, HUNTER_STATS } from '../config/characters';
 import {
   ITEM_CATEGORY_LABELS,
   ITEM_DEFINITIONS,
@@ -38,6 +39,12 @@ const TARGETS: Array<{ value: TargetType; label: string }> = [
   { value: 'ENEMY', label: '적' },
 ];
 const CURE_KINDS: StatusKind[] = ['DOT', 'DEBUFF', 'BUFF', 'CONTROL'];
+
+/** 강화 아이템이 올릴 수 있는 능력치 — 헌터와 성좌 것을 모두 늘어놓는다 */
+const STAT_CHOICES = [
+  ...HUNTER_STATS.map((stat) => ({ ...stat, side: '헌터' })),
+  ...CONSTELLATION_STATS.map((stat) => ({ ...stat, side: '성좌' })),
+];
 
 /** 효과 칸 — 0 이면 저장할 때 떨어져 나간다 */
 const EFFECT_FIELDS: Array<{ key: keyof ItemDefinition['effect']; label: string; step: number }> = [
@@ -118,6 +125,28 @@ export default function ShopEditor({
       return { ...current, item: { ...current.item, effect } };
     });
 
+  /**
+   * 영구 강화 — 한 아이템은 능력치 하나만 올린다.
+   * 상한(statCap)은 이 아이템으로 그 능력치에 쌓을 수 있는 최대 보너스다.
+   */
+  const patchStatGain = (key: string, amount: number) =>
+    setDraft((current) => {
+      if (!current?.item) return current;
+      const effect = { ...current.item.effect };
+      if (!key || amount <= 0) delete effect.statGain;
+      else effect.statGain = { [key]: amount };
+      return { ...current, item: { ...current.item, effect } };
+    });
+
+  const patchStatCap = (cap: number | undefined) =>
+    setDraft((current) => {
+      if (!current?.item) return current;
+      const effect = { ...current.item.effect };
+      if (cap === undefined || cap <= 0 || Number.isNaN(cap)) delete effect.statCap;
+      else effect.statCap = cap;
+      return { ...current, item: { ...current.item, effect } };
+    });
+
   const toggleStatus = (defId: string) =>
     setDraft((current) => {
       if (!current?.item) return current;
@@ -147,6 +176,11 @@ export default function ShopEditor({
         },
       };
     });
+
+  /** 지금 고른 강화 능력치와 상승치 — 정의는 한 칸만 쓴다 */
+  const statGainEntry = Object.entries(draft?.item?.effect.statGain ?? {})[0];
+  const statGainKey = statGainEntry?.[0] ?? '';
+  const statGainAmount = statGainEntry?.[1] ?? 0;
 
   const commit = () => {
     if (!draft) return;
@@ -415,6 +449,60 @@ export default function ShopEditor({
                   </label>
                 ))}
               </div>
+
+              <h3 className="sub-title">영구 강화 — 쓰면 시트의 능력치가 오릅니다</h3>
+              <div className="admin-grid">
+                <label className="input-row">
+                  <span className="field-label">올릴 능력치</span>
+                  <select
+                    className="ctl input"
+                    value={statGainKey}
+                    onChange={(event) =>
+                      patchStatGain(event.target.value, statGainAmount || 1)
+                    }
+                  >
+                    <option value="">없음 — 강화 아이템이 아닙니다</option>
+                    {STAT_CHOICES.map((stat) => (
+                      <option key={stat.key} value={stat.key}>
+                        {stat.side} · {stat.labelKo}({stat.label}) — {stat.effect}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="input-row">
+                  <span className="field-label">한 번에 오르는 값</span>
+                  <input
+                    className="ctl input"
+                    type="number"
+                    min={0}
+                    disabled={!statGainKey}
+                    value={statGainAmount || ''}
+                    onChange={(event) =>
+                      patchStatGain(statGainKey, Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label className="input-row">
+                  <span className="field-label">강화 상한 (비우면 제한 없음)</span>
+                  <input
+                    className="ctl input"
+                    type="number"
+                    min={0}
+                    disabled={!statGainKey}
+                    value={draft.item.effect.statCap ?? ''}
+                    onChange={(event) =>
+                      patchStatCap(
+                        event.target.value === '' ? undefined : Number(event.target.value),
+                      )
+                    }
+                  />
+                </label>
+              </div>
+              {statGainKey && draft.item.combatUsable && (
+                <p className="notice warn">
+                  강화 아이템은 <b>전투 밖</b>에서만 씁니다 — 위의 “전투 중 사용”을 불가로 두세요.
+                </p>
+              )}
 
               <div className="input-row">
                 <span className="field-label">부여 상태이상</span>

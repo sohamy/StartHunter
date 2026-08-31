@@ -42,7 +42,7 @@ import {
   selectPattern,
 } from './engine/enemy';
 import { declarationValid, planCheck, rollCheck } from './engine/gimmick';
-import { addItem, inventoryFor, itemAvailability, quantityOf } from './engine/items';
+import { addItem, bagOf, inventoryFor, itemAvailability, quantityOf } from './engine/items';
 import { buildRecord, settle, settleable, type SettlementTarget } from './engine/record';
 import { earnedBy } from './engine/rewards';
 import {
@@ -52,7 +52,7 @@ import {
   setControlMode,
   submitPairAction,
 } from './engine/round';
-import { purchase, refund, withPurchase, type Wallet } from './engine/shop';
+import { giftRoom, purchase, refund, useSupply, withPurchase, type Wallet } from './engine/shop';
 import { skillToAction, toRuntime } from './engine/skills';
 import {
   aggregateModifiers,
@@ -1229,7 +1229,12 @@ check('회복 차단 상태에서는 회복되지 않는다', blockedPreview.pai
 /* ── 17. 아이템 ─────────────────────────────────────── */
 console.log('\n=== 17. 아이템 ===');
 
-check('기본 보급을 들고 시작한다', quantityOf(createBattle({ mode: 'DUEL', gimmickId: null }).pairs[0].inventory, 'item.medkit') === 2);
+check('기본 보급을 들고 시작한다', quantityOf(bagOf(createBattle({ mode: 'DUEL', gimmickId: null }).pairs[0], 'HUNTER'), 'item.medkit') === 2);
+check(
+  '기본 보급도 쪽마다 갈린다 — 헌터는 성유물을 받지 않는다',
+  quantityOf(bagOf(createBattle({ mode: 'DUEL', gimmickId: null }).pairs[0], 'HUNTER'), 'item.censer') === 0 &&
+    quantityOf(bagOf(createBattle({ mode: 'DUEL', gimmickId: null }).pairs[0], 'CONSTELLATION'), 'item.censer') === 1,
+);
 check('개수는 상한을 넘지 않는다', quantityOf(addItem([], 'item.medkit', 99), 'item.medkit') === ITEM_RULES.maxQuantity);
 check('0 이하가 되면 항목이 사라진다', addItem([{ itemId: 'item.medkit', quantity: 1 }], 'item.medkit', -1).length === 0);
 check('정의에 없는 아이템은 들어가지 않는다', addItem([], 'item.nope', 1).length === 0);
@@ -1242,11 +1247,22 @@ check('성좌는 성유물을 들 수 있다', inventoryFor(
   'CONSTELLATION',
 ).some((row) => row.item.id === 'item.censer'));
 
+/** 가방은 사람마다 따로다 — 시험에서는 누가 쓸지 모르니 두 사람 모두에게 넣어 둔다 */
 function itemBattle(itemId: string, quantity = 1) {
   const state = createBattle({ mode: 'DUEL', primaryPair: { hunterSheet, constellationSheet }, gimmickId: null });
+  const pair = state.pairs[0];
   return {
     ...state,
-    pairs: [{ ...state.pairs[0], inventory: addItem(state.pairs[0].inventory, itemId, quantity) }],
+    pairs: [
+      {
+        ...pair,
+        hunter: { ...pair.hunter, inventory: addItem(pair.hunter.inventory, itemId, quantity) },
+        constellation: {
+          ...pair.constellation,
+          inventory: addItem(pair.constellation.inventory, itemId, quantity),
+        },
+      },
+    ],
   };
 }
 
@@ -1264,12 +1280,17 @@ const medkitPreview = previewRound(medkit);
 check('아이템 행동이 유지된다', medkitPreview.pairs[0].hunterActionId === 'hunter.item', String(medkitPreview.pairs[0].hunterActionId));
 check('아이템 비용은 아이템이 정한다', medkitPreview.pairs[0].apSpent.hunter === 1);
 check('아이템 회복량', medkitPreview.pairs[0].heals[0]?.amount === 47, `amount ${medkitPreview.pairs[0].heals[0]?.amount}`);
-const medkitBefore = quantityOf(medkit.pairs[0].inventory, 'item.medkit');
+const medkitBefore = quantityOf(bagOf(medkit.pairs[0], 'HUNTER'), 'item.medkit');
+const medkitOtherBefore = quantityOf(bagOf(medkit.pairs[0], 'CONSTELLATION'), 'item.medkit');
 medkit = applyRound(medkit, medkitPreview);
 check(
-  '사용하면 개수가 줄어든다',
-  quantityOf(medkit.pairs[0].inventory, 'item.medkit') === medkitBefore - 1,
-  `${medkitBefore} → ${quantityOf(medkit.pairs[0].inventory, 'item.medkit')}`,
+  '사용하면 쓴 사람의 가방에서만 줄어든다',
+  quantityOf(bagOf(medkit.pairs[0], 'HUNTER'), 'item.medkit') === medkitBefore - 1,
+  `${medkitBefore} → ${quantityOf(bagOf(medkit.pairs[0], 'HUNTER'), 'item.medkit')}`,
+);
+check(
+  '상대의 가방은 그대로다',
+  quantityOf(bagOf(medkit.pairs[0], 'CONSTELLATION'), 'item.medkit') === medkitOtherBefore,
 );
 check('아이템 사용 로그', medkit.log.some((entry) => entry.text.includes('ITEM USED')));
 
@@ -1378,7 +1399,13 @@ let lifeline = createBattle({ mode: 'RAID', pairCount: 2, gimmickId: null });
 lifeline = {
   ...lifeline,
   pairs: [
-    { ...lifeline.pairs[0], inventory: addItem(lifeline.pairs[0].inventory, 'item.lifeline', 1) },
+    {
+      ...lifeline.pairs[0],
+      hunter: {
+        ...lifeline.pairs[0].hunter,
+        inventory: addItem(lifeline.pairs[0].hunter.inventory, 'item.lifeline', 1),
+      },
+    },
     { ...lifeline.pairs[1], hunter: { ...lifeline.pairs[1].hunter, hp: 0 } },
   ],
 };
@@ -1414,7 +1441,13 @@ check(
 check(
   '전투 불능 대상이 없으면 부활 아이템을 쓸 수 없다',
   itemAvailability(
-    { ...itemPair, inventory: addItem(itemPair.inventory, 'item.lifeline', 1) },
+    {
+      ...itemPair,
+      hunter: {
+        ...itemPair.hunter,
+        inventory: addItem(itemPair.hunter.inventory, 'item.lifeline', 1),
+      },
+    },
     'HUNTER',
     'item.lifeline',
     true,
@@ -1485,12 +1518,13 @@ check(
   rewardPreview.pairs[0].rewards[0]?.points === 100,
   String(rewardPreview.pairs[0].rewards[0]?.points),
 );
-const pointsBefore = reward.pairs[0].points;
+const pointsBefore = reward.pairs[0].hunter.points;
 reward = applyRound(reward, rewardPreview);
 check(
-  '보상이 보유 포인트에 더해진다',
-  reward.pairs[0].points === pointsBefore + 100,
-  `${pointsBefore} → ${reward.pairs[0].points}`,
+  '보상은 두 사람 각자의 소지금에 더해진다',
+  reward.pairs[0].hunter.points === pointsBefore + 100 &&
+    reward.pairs[0].constellation.points === pointsBefore + 100,
+  `${reward.pairs[0].hunter.points} / ${reward.pairs[0].constellation.points}`,
 );
 check(
   '지급 내역이 원장에 남는다',
@@ -1503,7 +1537,7 @@ check('원장 합계 조회', earnedBy(reward, reward.pairs[0].id) === 100);
 let cleared = createBattle({ mode: 'DUEL', primaryPair: { hunterSheet, constellationSheet }, gimmickId: null });
 // 방어 전담형의 기본 공격은 무겁지 않다 — 마지막 한 방만 남긴다
 cleared = { ...cleared, enemies: [{ ...cleared.enemies[0], hp: 1 }] };
-const clearedPointsBefore = cleared.pairs[0].points;
+const clearedPointsBefore = cleared.pairs[0].hunter.points;
 cleared = submitPairAction(cleared, cleared.pairs[0].id, {
   hunterActionId: 'hunter.attack',
   constellationActionId: 'const.buff',
@@ -1511,7 +1545,7 @@ cleared = submitPairAction(cleared, cleared.pairs[0].id, {
   constellationSubmitted: true,
 });
 cleared = applyRound(cleared, previewRound(cleared));
-check('보스 층 클리어 → 300P', cleared.pairs[0].points === clearedPointsBefore + 300, `${clearedPointsBefore} → ${cleared.pairs[0].points}`);
+check('보스 층 클리어 → 300P', cleared.pairs[0].hunter.points === clearedPointsBefore + 300, `${clearedPointsBefore} → ${cleared.pairs[0].hunter.points}`);
 check('클리어 원장', cleared.rewards.some((row) => row.reason === 'BOSS_CLEAR'));
 
 // 기믹 해제 보상 — 8장에서 만든 상태를 다시 쓰지 않고 새로 확인한다
@@ -1523,18 +1557,36 @@ check(
 
 // 운영진 수동 지급 · 취소
 let manual = createBattle({ mode: 'DUEL', gimmickId: null });
-const manualBefore = manual.pairs[0].points;
+const manualBefore = manual.pairs[0].hunter.points;
 manual = admin.grantPoints(manual, manual.pairs[0].id, 'SUB_MISSION', 120);
-check('운영진 수동 지급', manual.pairs[0].points === manualBefore + 120, `${manualBefore} → ${manual.pairs[0].points}`);
+check('운영진 수동 지급', manual.pairs[0].hunter.points === manualBefore + 120, `${manualBefore} → ${manual.pairs[0].hunter.points}`);
 manual = admin.revokeReward(manual, manual.rewards[0].id);
-check('지급 취소로 되돌아온다', manual.pairs[0].points === manualBefore && manual.rewards.length === 0);
+check('지급 취소로 되돌아온다', manual.pairs[0].hunter.points === manualBefore && manual.rewards.length === 0);
+
+// 한 사람만 지목한 지급
+let onlyHunter = createBattle({ mode: 'DUEL', gimmickId: null });
+const onlyBefore = onlyHunter.pairs[0].constellation.points;
+onlyHunter = admin.grantPoints(onlyHunter, onlyHunter.pairs[0].id, 'SUB_MISSION', 90, 'HUNTER');
+check(
+  '지목 지급은 그 사람만 받는다',
+  onlyHunter.pairs[0].constellation.points === onlyBefore,
+  String(onlyHunter.pairs[0].constellation.points),
+);
+onlyHunter = admin.revokeReward(onlyHunter, onlyHunter.rewards[0].id);
+check('지목 지급도 취소로 되돌아온다', onlyHunter.pairs[0].hunter.points === onlyBefore);
 
 // 운영진 아이템 지급 · 회수
 let itemAdmin = createBattle({ mode: 'DUEL', gimmickId: null });
-itemAdmin = admin.grantItem(itemAdmin, itemAdmin.pairs[0].id, 'item.grenade', 2);
-check('운영진 아이템 지급', quantityOf(itemAdmin.pairs[0].inventory, 'item.grenade') === 2);
-itemAdmin = admin.revokeItem(itemAdmin, itemAdmin.pairs[0].id, 'item.grenade', 1);
-check('운영진 아이템 회수', quantityOf(itemAdmin.pairs[0].inventory, 'item.grenade') === 1);
+itemAdmin = admin.grantItem(itemAdmin, itemAdmin.pairs[0].id, 'HUNTER', 'item.grenade', 2);
+check('운영진 아이템 지급', quantityOf(bagOf(itemAdmin.pairs[0], 'HUNTER'), 'item.grenade') === 2);
+check(
+  '지급은 지목한 사람에게만 간다',
+  quantityOf(bagOf(itemAdmin.pairs[0], 'CONSTELLATION'), 'item.grenade') === 0,
+);
+itemAdmin = admin.revokeItem(itemAdmin, itemAdmin.pairs[0].id, 'HUNTER', 'item.grenade', 1);
+check('운영진 아이템 회수', quantityOf(bagOf(itemAdmin.pairs[0], 'HUNTER'), 'item.grenade') === 1);
+itemAdmin = admin.setActorPoints(itemAdmin, itemAdmin.pairs[0].id, 'CONSTELLATION', 777);
+check('운영진 소지금 지정', itemAdmin.pairs[0].constellation.points === 777);
 check(
   '계약 값을 바꾸면 단계도 따라온다',
   admin.setContract(itemAdmin, itemAdmin.pairs[0].id, { value: 20 }).pairs[0].contract.stage ===
@@ -1575,6 +1627,41 @@ const refunded = refund(stocked, 'item.medkit');
 check('반납은 절반을 환급한다', refunded.ok === true && refunded.points === bought.points + 40, `points ${refunded.points}`);
 check('보유하지 않으면 반납 거절', refund(wallet, 'item.grenade').ok === false);
 
+// 영구 강화 — 전투 밖에서만 쓰고, 상한을 넘지 못한다
+const trainee = {
+  side: 'HUNTER' as const,
+  affiliation: 'GOVERNMENT' as const,
+  inventory: [{ itemId: 'item.train.str', quantity: 2 }],
+  statBonus: {},
+};
+const trained = useSupply(trainee, 'item.train.str');
+check('강화 아이템을 쓰면 능력치가 오른다', trained.ok === true && trained.statBonus.str === 1, trained.reason);
+check('쓰면 가방에서 하나 빠진다', quantityOf(trained.inventory, 'item.train.str') === 1);
+check(
+  '상한에 닿으면 거절',
+  useSupply({ ...trainee, statBonus: { str: 3 } }, 'item.train.str').ok === false,
+);
+check(
+  '성좌는 헌터 강화품을 쓸 수 없다',
+  useSupply({ ...trainee, side: 'CONSTELLATION' }, 'item.train.str').ok === false,
+);
+check('전투용 품목은 여기서 쓸 수 없다', useSupply(trainee, 'item.medkit').ok === false);
+check(
+  '강화는 배분 점수 밖에서 더해진다',
+  deriveHunter({ ...hunterSheet, statBonus: { str: 2 } }).attack ===
+    deriveHunter({ ...hunterSheet, stats: { ...hunterSheet.stats, str: 4 } }).attack,
+  String(deriveHunter({ ...hunterSheet, statBonus: { str: 2 } }).attack),
+);
+check(
+  '강화하면 실제로 더 세진다',
+  deriveHunter({ ...hunterSheet, statBonus: { str: 2 } }).attack > derivedHunter.attack,
+);
+check('강화해도 시트 검증은 통과한다', validateSheet({ ...hunterSheet, statBonus: { str: 3 } }).length === 0);
+
+// 선물 — 받는 쪽의 보유 한도를 넘겨 보낼 수 없다
+check('받는 쪽 여유 개수', giftRoom([{ itemId: 'item.medkit', quantity: 4 }], 'item.medkit') === 1);
+check('한도를 채웠으면 못 보낸다', giftRoom([{ itemId: 'item.anchor', quantity: 1 }], 'item.anchor') === 0);
+
 /* ── 21. 공략 기록 · 정산 ───────────────────────────── */
 console.log('\n=== 21. 공략 기록 ===');
 
@@ -1584,7 +1671,11 @@ check('기록 상태', record.status === 'CLEARED');
 check('기록에 라운드 수', record.rounds === cleared.round);
 check('기록에 보스 이름', record.bossName === cleared.enemies[0].name, String(record.bossName));
 check('기록에 획득 포인트', record.pairs[0].pointsEarned === 300, String(record.pairs[0].pointsEarned));
-check('기록에 보유 포인트', record.pairs[0].pointsTotal === cleared.pairs[0].points);
+check('기록에 사람별 소지금', record.pairs[0].hunterPoints === cleared.pairs[0].hunter.points);
+check(
+  '기록에 사람별 가방',
+  quantityOf(record.pairs[0].constellationInventory, 'item.censer') === 1,
+);
 check('기록에 로그 사본', record.log.length === cleared.log.length);
 check('기록은 정산 대상', settleable(record) === true);
 
@@ -1593,11 +1684,16 @@ const settleTargets: SettlementTarget[] = [
   { accountId: 'h', side: 'HUNTER', points: 100, inventory: [{ itemId: 'item.medkit', quantity: 2 }] },
   { accountId: 'c', side: 'CONSTELLATION', points: 50, inventory: [] },
 ];
-const settled = settle(
-  { ...record, pairs: [{ ...record.pairs[0], label: 'PAIR 01', inventory: [] }] },
-  [bond],
-  settleTargets,
-);
+// 전투가 끝난 시점의 개인 값 — 정산은 이 값을 시트에 그대로 옮긴다
+const settleRecordRow = {
+  ...record.pairs[0],
+  label: 'PAIR 01',
+  hunterPoints: 400,
+  hunterInventory: [{ itemId: 'item.medkit', quantity: 1 }],
+  constellationPoints: 350,
+  constellationInventory: [],
+};
+const settled = settle({ ...record, pairs: [settleRecordRow] }, [bond], settleTargets);
 const settledHunter = settled.targets.find((row) => row.accountId === 'h');
 const settledConstellation = settled.targets.find((row) => row.accountId === 'c');
 
@@ -1605,7 +1701,35 @@ check('정산은 두 사람 각자에게 포인트를 준다', settledHunter?.po
 check('정산 내역이 사람 수만큼 남는다', settled.rows.length === 2 && settled.rows[0]?.earned === 300);
 check(
   '전투에서 쓴 만큼 개인 가방에서 빠진다',
-  quantityOf(settledHunter?.inventory ?? [], 'item.medkit') === 0,
+  quantityOf(settledHunter?.inventory ?? [], 'item.medkit') === 1,
+);
+check(
+  '두 번 정산해도 값이 달라지지 않는다',
+  settle({ ...record, pairs: [settleRecordRow] }, [bond], settled.targets).targets.find(
+    (row) => row.accountId === 'h',
+  )?.points === 400,
+);
+
+// 옛 기록(공용 가방 시절)도 그대로 정산된다
+const legacyRecord = {
+  ...record,
+  pairs: [
+    {
+      ...record.pairs[0],
+      label: 'PAIR 01',
+      hunterPoints: undefined,
+      hunterInventory: undefined,
+      constellationPoints: undefined,
+      constellationInventory: undefined,
+      inventory: [],
+    } as unknown as (typeof record.pairs)[0],
+  ],
+};
+const legacySettled = settle(legacyRecord, [bond], settleTargets);
+check(
+  '옛 기록은 얻은 포인트를 더하고 쓴 만큼 뺀다',
+  legacySettled.targets.find((row) => row.accountId === 'h')?.points === 400 &&
+    quantityOf(legacySettled.targets.find((row) => row.accountId === 'h')?.inventory ?? [], 'item.medkit') === 0,
 );
 check(
   '라벨이 다르면 정산하지 않는다',

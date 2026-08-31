@@ -29,6 +29,13 @@ export const SHOP_ENTRIES: ShopEntry[] = [
   { itemId: 'item.anchor', price: 320, limit: 1 },
   { itemId: 'item.badge.government', price: 200, limit: 2 },
   { itemId: 'item.charm.guild', price: 200, limit: 2 },
+  { itemId: 'item.stim', price: 90, limit: 3 },
+  // 영구 강화 — 값이 비싼 대신 시트에 남는다. 상한은 아이템 정의(statCap)가 정한다.
+  { itemId: 'item.train.str', price: 400, limit: 2 },
+  { itemId: 'item.train.vit', price: 400, limit: 2 },
+  { itemId: 'item.train.agi', price: 400, limit: 2 },
+  { itemId: 'item.train.authority', price: 400, limit: 2 },
+  { itemId: 'item.train.divinity', price: 400, limit: 2 },
 ];
 
 export interface ShopRow extends ShopEntry {

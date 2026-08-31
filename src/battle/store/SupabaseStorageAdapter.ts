@@ -38,8 +38,10 @@ interface PairRow {
   hunter: PairState['hunter'];
   constellation: PairState['constellation'];
   contract: PairState['contract'];
-  points: number;
-  inventory: PairState['inventory'] | null;
+  /** @deprecated 소지금과 가방을 사람마다 나누기 전의 값. 옛 전투를 읽을 때만 본다 */
+  points: number | null;
+  /** @deprecated 옛 공용 가방 */
+  inventory: PairState['hunter']['inventory'] | null;
   pattern_revealed: boolean;
 }
 
@@ -157,17 +159,27 @@ export class SupabaseStorageAdapter implements StorageAdapter {
 
     const pairs: PairState[] = (pairRows ?? []).map((raw) => {
       const row = raw as PairRow;
+
+      // 소지금과 가방은 이제 사람 쪽(hunter · constellation)에 들어 있다.
+      // 그 전에 저장된 전투는 페어 칸에만 값이 있으므로, 잃지 않도록 헌터에게 얹어 둔다 —
+      // 운영진이 전투 화면에서 두 사람에게 나눠 줄 수 있다.
+      const legacy = row.hunter.points === undefined;
+      const hunter = legacy
+        ? { ...row.hunter, points: row.points ?? 0, inventory: row.inventory ?? [] }
+        : row.hunter;
+      const constellation = legacy
+        ? { ...row.constellation, points: 0, inventory: [] }
+        : row.constellation;
+
       return {
         id: row.id,
         label: row.label,
         affiliation: row.affiliation,
         hunterAccountId: this.accountHandle(row.hunter_account),
         constellationAccountId: this.accountHandle(row.constellation_account),
-        hunter: row.hunter,
-        constellation: row.constellation,
+        hunter,
+        constellation,
         contract: row.contract,
-        points: row.points,
-        inventory: row.inventory ?? [],
         submission: toSubmission(submissionByPair.get(row.id)),
         patternRevealed: row.pattern_revealed,
       };
@@ -248,8 +260,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         hunter: pair.hunter,
         constellation: pair.constellation,
         contract: pair.contract,
-        points: pair.points,
-        inventory: pair.inventory,
+        // points · inventory 칸은 더 이상 쓰지 않는다 — 개인 소지금과 가방은
+        // hunter · constellation 안에 들어 있다. 옛 값은 건드리지 않고 그대로 둔다.
         pattern_revealed: pair.patternRevealed,
       });
       if (error) throw new Error(`페어 저장 실패: ${error.message}`);

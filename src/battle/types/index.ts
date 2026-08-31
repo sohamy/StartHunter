@@ -64,6 +64,16 @@ export interface ItemEffect {
   stageRepair?: number;
   /** 전투 불능 대상을 최대 HP 이 비율로 되살린다 */
   revivePercent?: number;
+  /**
+   * 시트의 능력치를 **영구히** 올린다 (예: { str: 1 }).
+   * 전투 밖에서만 쓰며, 배분 점수(POINT_BUY)와 별개로 시트의 statBonus 에 쌓인다.
+   */
+  statGain?: StatBlock;
+  /**
+   * statGain 으로 한 스탯에 쌓을 수 있는 보너스 상한.
+   * 운영진이 품목마다 정한다 — 비우면 상한 없음.
+   */
+  statCap?: number;
 }
 
 export interface ItemDefinition {
@@ -269,6 +279,10 @@ export interface HunterState {
    * 한 전투에 한 번만 버틸 수 있으므로 상태로 남긴다.
    */
   lastStandUsed: boolean;
+  /** 소지금. 개인 소유다 — 페어와 합치지 않는다. 전투 시작 때 시트에서 복사한다. */
+  points: number;
+  /** 개인 가방. 전투 시작 때 시트에서 복사하고, 전투가 끝나면 시트로 되돌아간다. */
+  inventory: ItemStack[];
 }
 
 /** 현신 남은 사용 횟수. null 은 무제한 */
@@ -293,6 +307,10 @@ export interface ConstellationState {
   skills: SkillRuntime[];
   /** 시트 스탯 사본 — 기믹 판정처럼 스탯을 직접 쓰는 계산에 필요하다 */
   stats: StatBlock;
+  /** 소지금. 개인 소유다 — 헌터와 합치지 않는다. */
+  points: number;
+  /** 개인 가방. 헌터의 가방과 섞이지 않는다. */
+  inventory: ItemStack[];
 }
 
 export interface ContractState {
@@ -343,10 +361,6 @@ export interface PairState {
   hunter: HunterState;
   constellation: ConstellationState;
   contract: ContractState;
-  /** 전투 중 두 사람의 소지금을 합쳐 보여 주는 값. 실제 지갑은 개인 시트에 있다. */
-  points: number;
-  /** 전투 한 판 동안 함께 쓰는 가방. 두 사람의 개인 가방을 합쳐 만든다. */
-  inventory: ItemStack[];
   submission: RoundSubmission;
   /** 계시로 다음 패턴을 확인한 상태인지 (페어 단위 정보) */
   patternRevealed: boolean;
@@ -513,6 +527,11 @@ export interface RewardEntry {
   id: string;
   round: number;
   pairId: string;
+  /**
+   * 받는 사람. null 이면 두 사람 모두 — 같이 벌었으므로 나누지 않고 각자 받는다.
+   * 운영진이 한 사람만 지목해 지급할 때 값이 들어간다.
+   */
+  side?: ActorSide | null;
   /** config/rewards.ts 의 RewardReason 또는 운영진 수동 지급 사유 */
   reason: string;
   label: string;
@@ -582,8 +601,13 @@ export interface CharacterSheet extends SheetProfile {
    * 지급 · 차감은 관리국이 하고, 참가자는 상점에서 쓴다.
    */
   points: number;
-  /** 개인 가방. 전투에 들어갈 때 페어의 가방으로 합쳐진다. */
+  /** 개인 가방. 전투에 들어갈 때 그대로 들고 들어간다 — 페어와 합치지 않는다. */
   inventory: ItemStack[];
+  /**
+   * 강화 아이템으로 영구히 올린 능력치.
+   * 배분 점수(POINT_BUY)와 따로 센다 — 스탯 검증은 stats 만 본다.
+   */
+  statBonus?: StatBlock;
   /**
    * 캐릭터 사진 — 정사각 축소본 data URL.
    * 없을 수 있다. 규칙은 config/rules.ts 의 PORTRAIT_RULES 에 있다.
@@ -651,11 +675,25 @@ export interface BattleRecordPair {
   injury: InjuryStage;
   constellationStage: ConstellationStage;
   contract: ContractState;
-  /** 이 전투에서 얻은 포인트 */
+  /** 이 전투에서 얻은 포인트 — 두 사람이 각자 받는다 */
   pointsEarned: number;
-  /** 전투 종료 시점의 보유 포인트 */
-  pointsTotal: number;
-  inventory: ItemStack[];
+  /** 헌터가 이 전투에서만 따로 받은 포인트 (운영진 지목 지급) */
+  hunterPointsEarned: number;
+  /** 성좌가 이 전투에서만 따로 받은 포인트 */
+  constellationPointsEarned: number;
+  /** 전투 종료 시점의 헌터 소지금 · 가방 */
+  hunterPoints: number;
+  hunterInventory: ItemStack[];
+  /** 전투 종료 시점의 성좌 소지금 · 가방 */
+  constellationPoints: number;
+  constellationInventory: ItemStack[];
+  /**
+   * @deprecated 소지금과 가방을 사람마다 나누기 전의 기록.
+   * 옛 기록을 정산할 때만 읽는다 — 새 기록은 위의 쪽별 값을 쓴다.
+   */
+  pointsTotal?: number;
+  /** @deprecated 옛 기록의 공용 가방 */
+  inventory?: ItemStack[];
 }
 
 export interface BattleRecord {

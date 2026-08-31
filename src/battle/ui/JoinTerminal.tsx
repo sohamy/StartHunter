@@ -793,9 +793,10 @@ export default function JoinTerminal() {
           <h2 className="panel-title">SUPPLY · 보급과 포인트</h2>
           <SupplyBlock supply={supply} />
           <p className="hint" style={{ marginTop: 12 }}>
-            소지금과 보급품은 <b>개인 소유</b>입니다 — 페어와 나누지 않습니다. 구매와 반납은{' '}
-            <a href={shopUrl()}>보급 상점</a>에서 직접 합니다. 다만 전투에 배치된 동안에는 살 수
-            없습니다.
+            소지금과 보급품은 <b>개인 소유</b>입니다 — 전투에 들어가도 페어와 합치지 않고 각자
+            자기 것을 씁니다. 구매 · 반납 · <b>선물하기</b> · <b>강화 사용</b>은{' '}
+            <a href={shopUrl()}>보급 상점</a>에서 합니다. 다만 전투에 배치된 동안에는 창구가
+            닫힙니다.
           </p>
 
           <h3 className="sub-title">

@@ -37,6 +37,8 @@ import {
 } from '../engine/enemy';
 import { availableStage, gimmickBrief } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
+import { addItem, bagOf } from '../engine/items';
+import { rewardSideLabel } from '../engine/rewards';
 import { buildRecord, settle, type SettlementTarget } from '../engine/record';
 import { actionAvailability, applyRound, previewRound } from '../engine/round';
 import { REFUND_RATIO, purchase, refund, withPurchase } from '../engine/shop';
@@ -260,6 +262,108 @@ function TextField({
   );
 }
 
+/**
+ * 보급 조정 — 운영진이 한 사람에게 소지금과 보급품을 직접 준다.
+ *
+ * 상점을 거치지 않는다. 값을 받지 않고 그냥 주거나 거둬들이는 창구이므로,
+ * 편성되지 않은 사람에게도 쓸 수 있다.
+ */
+function SupplyAdmin({
+  row,
+  busy,
+  onPoints,
+  onItem,
+}: {
+  row: SheetRecord;
+  busy: boolean;
+  onPoints: (row: SheetRecord, delta: number) => void;
+  onItem: (row: SheetRecord, itemId: string, delta: number) => void;
+}) {
+  const [amount, setAmount] = useState(100);
+  const bag = (row.sheet.inventory ?? []).filter((stack) => stack.quantity > 0);
+
+  return (
+    <div className="item-admin">
+      <div className="bond-resource">
+        <span className="field-label">소지금</span>
+        <b className="num gold">{(row.sheet.points ?? 0).toLocaleString()} P</b>
+        <input
+          className="ctl input"
+          type="number"
+          min={0}
+          step={10}
+          value={amount}
+          onChange={(event) => setAmount(Math.max(0, Number(event.target.value)))}
+        />
+        <button
+          type="button"
+          className="ctl small primary"
+          disabled={busy || amount <= 0}
+          onClick={() => onPoints(row, amount)}
+        >
+          +{amount} P 지급
+        </button>
+        <button
+          type="button"
+          className="ctl small"
+          disabled={busy || amount <= 0}
+          onClick={() => onPoints(row, -amount)}
+        >
+          −{amount} P 차감
+        </button>
+      </div>
+
+      {bag.length > 0 && (
+        <ul className="inventory-list">
+          {bag.map((stack) => {
+            const item = findItem(stack.itemId);
+            if (!item) return null;
+            return (
+              <li key={stack.itemId}>
+                <span>{item.nameKo}</span>
+                <b className="num gold">{stack.quantity}</b>
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={busy}
+                  onClick={() => onItem(row, stack.itemId, 1)}
+                >
+                  +1
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={busy}
+                  onClick={() => onItem(row, stack.itemId, -1)}
+                >
+                  −1
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <select
+        className="ctl input"
+        value=""
+        disabled={busy}
+        onChange={(event) => {
+          if (!event.target.value) return;
+          onItem(row, event.target.value, 1);
+        }}
+      >
+        <option value="">보급품 지급…</option>
+        {ITEM_DEFINITIONS.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.nameKo} · {describeItem(item).join(' / ') || '효과 없음'}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function Bar({ value, max, tone }: { value: number; max: number; tone: string }) {
   const percent = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
@@ -376,6 +480,8 @@ export default function ControlTerminal() {
   const [shopItems, setShopItems] = useState<ShopItemRecord[]>([]);
   const [sheetQuery, setSheetQuery] = useState('');
   const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
+  /** 소지금 지급 대상 — 페어 id 마다 기억한다. BOTH 는 두 사람이 각자 받는다. */
+  const [rewardSide, setRewardSide] = useState<Record<string, 'BOTH' | ActorSide>>({});
   const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
   /** 페어가 늘면 카드 하나가 화면 한 장을 먹는다 — 기본은 접어 둔다 */
   const [monitorDense, setMonitorDense] = useState(true);
@@ -930,11 +1036,19 @@ export default function ControlTerminal() {
       setMessage('정산할 항목이 없습니다 — 얻은 포인트가 없거나 시트를 불러오지 못했습니다.');
       return;
     }
+    // 정산은 전투가 끝난 시점의 값을 시트에 맞춰 쓴다 — 이미 한 기록을 다시 하면
+    // 그 뒤에 산 물건과 받은 소지금이 그 시점으로 되돌아간다. 먼저 알린다.
+    const again = record.note.includes('[정산 완료]');
     if (
       !confirmed(
-        `${result.rows.length}명에게 포인트를 반영합니다.\n` +
+        (again ? '이미 정산한 기록입니다 — 다시 하면 전투 종료 시점 값으로 되돌립니다.\n\n' : '') +
+          `${result.rows.length}명의 소지금과 가방을 전투 종료 시점 값으로 맞춥니다.\n` +
           result.rows
-            .map((row) => `${row.name} (${row.label}) ${row.pointsBefore} → ${row.pointsAfter}`)
+            .map(
+              (row) =>
+                `${row.name} (${row.label}) 소지금 ${row.pointsBefore} → ${row.pointsAfter}` +
+                (row.earned > 0 ? ` (이 전투 지급 +${row.earned})` : ''),
+            )
             .join('\n'),
       )
     ) {
@@ -958,7 +1072,11 @@ export default function ControlTerminal() {
         note: `${record.note}\n[정산 완료]`.trim(),
       });
       await refresh();
-      setMessage(`정산 완료 — ${result.rows.map((row) => `${row.name} +${row.earned}P`).join(' · ')}`);
+      setMessage(
+        `정산 완료 — ${result.rows
+          .map((row) => `${row.name} ${row.pointsBefore} → ${row.pointsAfter}P`)
+          .join(' · ')}`,
+      );
     });
   };
 
@@ -1018,6 +1136,38 @@ export default function ControlTerminal() {
       await auth.updateSheet(row.accountId, withPurchase(row.sheet, result));
       await refresh();
       setMessage(`${row.sheet.name} — ${result.message}`);
+    });
+  };
+
+  /**
+   * 소지금 부여 · 차감 — 운영진 권한.
+   *
+   * 참가자는 상점(shop_trade)을 거쳐야 소지금이 바뀌지만, 운영진은 창구를 직접 연다.
+   * 편성 여부와 상관없이 시트가 있는 사람이면 누구에게나 줄 수 있다.
+   */
+  const giveSheetPoints = async (row: SheetRecord, delta: number) => {
+    if (delta === 0) return;
+    const next = Math.max(0, (row.sheet.points ?? 0) + delta);
+    await guard(async () => {
+      await auth.updateSheet(row.accountId, { ...row.sheet, points: next });
+      await refresh();
+      setMessage(
+        `${row.sheet.name} 소지금 ${delta > 0 ? '+' : ''}${delta} P — ${row.sheet.points ?? 0} → ${next}`,
+      );
+    });
+  };
+
+  /** 보급품 지급 · 회수 — 값을 받지 않고 그냥 준다 */
+  const giveSheetItem = async (row: SheetRecord, itemId: string, delta: number) => {
+    const item = findItem(itemId);
+    if (!item || delta === 0) return;
+    const inventory = addItem(row.sheet.inventory ?? [], itemId, delta);
+    await guard(async () => {
+      await auth.updateSheet(row.accountId, { ...row.sheet, inventory });
+      await refresh();
+      setMessage(
+        `${row.sheet.name} — ${item.nameKo} ${delta > 0 ? `지급 ×${delta}` : `회수 ×${-delta}`}`,
+      );
     });
   };
 
@@ -1930,6 +2080,16 @@ export default function ControlTerminal() {
                       }
                     />
                     <PublicSheetLink accountId={row.accountId} />
+                    <Collapsible label={`보급 조정 · ${row.sheet.points ?? 0} P`}>
+                      <SupplyAdmin
+                        row={row}
+                        busy={busy}
+                        onPoints={(target, delta) => void giveSheetPoints(target, delta)}
+                        onItem={(target, itemId, delta) =>
+                          void giveSheetItem(target, itemId, delta)
+                        }
+                      />
+                    </Collapsible>
                   </div>
                 );
               })}
@@ -1954,28 +2114,41 @@ export default function ControlTerminal() {
                 }
 
                 return (
-                  <SheetDetail
-                    key={`${row.accountId}-${row.sheet.id}`}
-                    sheet={row.sheet}
-                    accountId={row.accountId}
-                    supply={supplyOf(row.accountId)}
-                    note={
-                      <>
-                        {bond ? (
-                          <span className="tag ok">{bond.label}</span>
-                        ) : (
-                          <span className="tag offline">미편성</span>
-                        )}
-                        <button
-                          type="button"
-                          className="ctl small"
-                          onClick={() => setEditingSheetId(row.sheet.id)}
-                        >
-                          수정
-                        </button>
-                      </>
-                    }
-                  />
+                  <div key={`${row.accountId}-${row.sheet.id}`}>
+                    <SheetDetail
+                      sheet={row.sheet}
+                      accountId={row.accountId}
+                      supply={supplyOf(row.accountId)}
+                      note={
+                        <>
+                          {bond ? (
+                            <span className="tag ok">{bond.label}</span>
+                          ) : (
+                            <span className="tag offline">미편성</span>
+                          )}
+                          <button
+                            type="button"
+                            className="ctl small"
+                            onClick={() => setEditingSheetId(row.sheet.id)}
+                          >
+                            수정
+                          </button>
+                        </>
+                      }
+                    />
+                    <Collapsible
+                      label={`보급 조정 — ${row.sheet.name} · ${row.sheet.points ?? 0} P`}
+                    >
+                      <SupplyAdmin
+                        row={row}
+                        busy={busy}
+                        onPoints={(target, delta) => void giveSheetPoints(target, delta)}
+                        onItem={(target, itemId, delta) =>
+                          void giveSheetItem(target, itemId, delta)
+                        }
+                      />
+                    </Collapsible>
+                  </div>
                 );
               })}
             </div>
@@ -3034,8 +3207,12 @@ export default function ControlTerminal() {
                         <b className="num gold">×{pair.constellation.power}</b>
                       </span>
                       <span>
-                        <i>P</i>
-                        <b className="num gold">{pair.points}</b>
+                        <i>헌터 P</i>
+                        <b className="num gold">{pair.hunter.points ?? 0}</b>
+                      </span>
+                      <span>
+                        <i>성좌 P</i>
+                        <b className="num gold">{pair.constellation.points ?? 0}</b>
                       </span>
                     </div>
 
@@ -3228,10 +3405,20 @@ export default function ControlTerminal() {
                           }
                         />
                         <NumberField
-                          label="포인트"
-                          value={pair.points}
+                          label="헌터 소지금"
+                          value={pair.hunter.points ?? 0}
                           step={10}
-                          onCommit={(value) => update(admin.setPairPoints(battle, pair.id, value))}
+                          onCommit={(value) =>
+                            update(admin.setActorPoints(battle, pair.id, 'HUNTER', value))
+                          }
+                        />
+                        <NumberField
+                          label="성좌 소지금"
+                          value={pair.constellation.points ?? 0}
+                          step={10}
+                          onCommit={(value) =>
+                            update(admin.setActorPoints(battle, pair.id, 'CONSTELLATION', value))
+                          }
                         />
                         <label className="num-field">
                           <span className="field-label">성좌 상태</span>
@@ -3291,72 +3478,123 @@ export default function ControlTerminal() {
                         />
                       </div>
 
-                      <h4 className="sub-title">아이템 지급 · 회수</h4>
-                      <div className="item-admin">
-                        {pair.inventory.length === 0 ? (
-                          <p className="dim small-text">가방이 비어 있습니다.</p>
-                        ) : (
-                          <ul className="inventory-list">
-                            {pair.inventory.map((stack) => {
-                              const item = findItem(stack.itemId);
-                              if (!item) return null;
-                              return (
-                                <li key={stack.itemId}>
-                                  <span>{item.nameKo}</span>
-                                  <b className="num gold">{stack.quantity}</b>
-                                  <button
-                                    type="button"
-                                    className="ctl small"
-                                    onClick={() =>
-                                      update(admin.grantItem(battle, pair.id, stack.itemId, 1))
-                                    }
-                                  >
-                                    +1
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="ctl small"
-                                    onClick={() =>
-                                      update(admin.revokeItem(battle, pair.id, stack.itemId, 1))
-                                    }
-                                  >
-                                    −1
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                        <select
-                          className="ctl input"
-                          value=""
-                          onChange={(event) => {
-                            if (!event.target.value) return;
-                            update(admin.grantItem(battle, pair.id, event.target.value, 1));
-                          }}
-                        >
-                          <option value="">아이템 지급…</option>
-                          {ITEM_DEFINITIONS.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.nameKo} · {describeItem(item).join(' / ') || '효과 없음'}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      {/* 가방은 사람마다 따로다 — 누구에게 주는지 골라서 지급한다 */}
+                      {(['HUNTER', 'CONSTELLATION'] as ActorSide[]).map((side) => {
+                        const bag = bagOf(pair, side);
+                        const owner = side === 'HUNTER' ? pair.hunter.name : pair.constellation.name;
+                        return (
+                          <div key={`bag-${side}`}>
+                            <h4 className="sub-title">
+                              아이템 지급 · 회수 — {sideLabel(side)} {owner}
+                            </h4>
+                            <div className="item-admin">
+                              {bag.length === 0 ? (
+                                <p className="dim small-text">가방이 비어 있습니다.</p>
+                              ) : (
+                                <ul className="inventory-list">
+                                  {bag.map((stack) => {
+                                    const item = findItem(stack.itemId);
+                                    if (!item) return null;
+                                    return (
+                                      <li key={stack.itemId}>
+                                        <span>{item.nameKo}</span>
+                                        <b className="num gold">{stack.quantity}</b>
+                                        <button
+                                          type="button"
+                                          className="ctl small"
+                                          onClick={() =>
+                                            update(
+                                              admin.grantItem(
+                                                battle,
+                                                pair.id,
+                                                side,
+                                                stack.itemId,
+                                                1,
+                                              ),
+                                            )
+                                          }
+                                        >
+                                          +1
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="ctl small"
+                                          onClick={() =>
+                                            update(
+                                              admin.revokeItem(
+                                                battle,
+                                                pair.id,
+                                                side,
+                                                stack.itemId,
+                                                1,
+                                              ),
+                                            )
+                                          }
+                                        >
+                                          −1
+                                        </button>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              )}
+                              <select
+                                className="ctl input"
+                                value=""
+                                onChange={(event) => {
+                                  if (!event.target.value) return;
+                                  update(
+                                    admin.grantItem(battle, pair.id, side, event.target.value, 1),
+                                  );
+                                }}
+                              >
+                                <option value="">아이템 지급…</option>
+                                {ITEM_DEFINITIONS.map((item) => (
+                                  <option key={item.id} value={item.id}>
+                                    {item.nameKo} ·{' '}
+                                    {describeItem(item).join(' / ') || '효과 없음'}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      })}
 
-                      <h4 className="sub-title">포인트 지급</h4>
+                      <h4 className="sub-title">소지금 지급</h4>
                       <div className="item-admin">
+                        {/* 소지금은 개인 소유다 — 누구에게 줄지 먼저 고른다 */}
+                        <label className="num-field">
+                          <span className="field-label">받는 사람</span>
+                          <select
+                            className="ctl input"
+                            value={rewardSide[pair.id] ?? 'BOTH'}
+                            onChange={(event) =>
+                              setRewardSide((current) => ({
+                                ...current,
+                                [pair.id]: event.target.value as 'BOTH' | ActorSide,
+                              }))
+                            }
+                          >
+                            <option value="BOTH">두 사람 — 각자 같은 금액을 받습니다</option>
+                            <option value="HUNTER">헌터 {pair.hunter.name}</option>
+                            <option value="CONSTELLATION">성좌 {pair.constellation.name}</option>
+                          </select>
+                        </label>
                         <select
                           className="ctl input"
                           value=""
                           onChange={(event) => {
                             const reason = event.target.value;
                             if (!reason) return;
+                            const target = rewardSide[pair.id] ?? 'BOTH';
                             update(
                               admin.grantPoints(
                                 battle,
                                 pair.id,
                                 reason as Parameters<typeof admin.grantPoints>[2],
+                                undefined,
+                                target === 'BOTH' ? null : target,
                               ),
                             );
                           }}
@@ -3377,11 +3615,12 @@ export default function ControlTerminal() {
                                 <li key={row.id}>
                                   <span>R{row.round}</span>
                                   <span>{row.label}</span>
+                                  <span className="tag">{rewardSideLabel(row.side)}</span>
                                   <b className="num gold">+{row.points}</b>
                                   <button
                                     type="button"
                                     className="ctl small"
-                                    title="지급을 취소하고 포인트를 되돌립니다"
+                                    title="지급을 취소하고 소지금을 되돌립니다"
                                     onClick={() => update(admin.revokeReward(battle, row.id))}
                                   >
                                     ✕

@@ -16,7 +16,7 @@ import type {
   PairBond,
 } from '../types';
 import { addItem, quantityOf } from './items';
-import { earnedBy } from './rewards';
+import { earnedOnlyBy, earnedShared } from './rewards';
 import { injuryOf } from './status';
 
 export function buildRecord(state: BattleState, at: Date, note = ''): BattleRecord {
@@ -31,9 +31,14 @@ export function buildRecord(state: BattleState, at: Date, note = ''): BattleReco
     injury: injuryOf(pair.hunter).stage,
     constellationStage: pair.constellation.stage,
     contract: { ...pair.contract },
-    pointsEarned: earnedBy(state, pair.id),
-    pointsTotal: pair.points,
-    inventory: pair.inventory.map((row) => ({ ...row })),
+    // 소지금과 가방은 사람마다 따로 남긴다 — 정산은 이 값을 그대로 시트에 옮긴다
+    pointsEarned: earnedShared(state, pair.id),
+    hunterPointsEarned: earnedOnlyBy(state, pair.id, 'HUNTER'),
+    constellationPointsEarned: earnedOnlyBy(state, pair.id, 'CONSTELLATION'),
+    hunterPoints: pair.hunter.points ?? 0,
+    hunterInventory: (pair.hunter.inventory ?? []).map((row) => ({ ...row })),
+    constellationPoints: pair.constellation.points ?? 0,
+    constellationInventory: (pair.constellation.inventory ?? []).map((row) => ({ ...row })),
   }));
 
   return {
@@ -81,13 +86,11 @@ export interface SettlementTarget {
 /**
  * 기록의 결과를 **개인**에게 반영한다.
  *
- * 소지금과 가방은 개인 소유다. 전투는 두 사람의 가방을 합쳐 한 판을 돌므로,
- * 정산에서 두 가지를 한다.
+ * 소지금과 가방은 사람마다 따로 굴러간다 — 전투 안에서도 합치지 않는다.
+ * 그래서 정산은 나눌 것이 없다: 전투가 끝난 시점의 개인 소지금 · 가방을
+ * 시트에 그대로 옮겨 적으면 된다. 쓴 것도, 운영진이 준 것도 이미 그 값에 들어 있다.
  *
- *   1) 얻은 포인트를 **두 사람 각자에게** 준다 (나눠 갖지 않는다 — 같이 올랐으니 같이 받는다)
- *   2) 전투에서 쓴 만큼을 각자의 가방에서 뺀다
- *      쓴 양 = (두 사람 가방을 합친 것) − (전투가 끝났을 때 남은 것)
- *      전용 품목은 그 쪽에서 먼저 빼고, 공용은 가진 사람 쪽에서 뺀다
+ * 같은 기록을 두 번 정산해도 결과가 달라지지 않는다 (더하지 않고 맞춰 쓰므로).
  *
  * 라벨로 짝을 맞춘다: 전투 페어 id 는 전투마다 새로 만들어지므로 편성 id 와 다르다.
  */
@@ -97,68 +100,116 @@ export function settle(
   targets: SettlementTarget[],
 ): { targets: SettlementTarget[]; rows: SettlementRow[] } {
   const rows: SettlementRow[] = [];
-  const byAccount = new Map(targets.map((row) => [row.accountId, row]));
   const next = new Map(targets.map((row) => [row.accountId, { ...row }]));
 
   for (const bond of bonds) {
     const row = record.pairs.find((candidate) => candidate.label === bond.label);
     if (!row) continue;
 
-    const hunter = bond.hunterAccountId ? next.get(bond.hunterAccountId) : undefined;
-    const constellation = bond.constellationAccountId
-      ? next.get(bond.constellationAccountId)
-      : undefined;
-    if (!hunter && !constellation) continue;
+    // 사람마다 나누기 전에 남긴 기록은 옛 방식으로 정산한다
+    if (row.hunterPoints === undefined) {
+      rows.push(...settleLegacy(row, bond, next));
+      continue;
+    }
 
-    // ── 1) 포인트
-    for (const [member, name] of [
-      [hunter, row.hunterName],
-      [constellation, row.constellationName],
-    ] as Array<[SettlementTarget | undefined, string]>) {
-      if (!member || row.pointsEarned === 0) continue;
+    const members: Array<[string | null, string, number, ItemStack[], number]> = [
+      [
+        bond.hunterAccountId,
+        row.hunterName,
+        row.hunterPoints,
+        row.hunterInventory ?? [],
+        row.pointsEarned + (row.hunterPointsEarned ?? 0),
+      ],
+      [
+        bond.constellationAccountId,
+        row.constellationName,
+        row.constellationPoints ?? 0,
+        row.constellationInventory ?? [],
+        row.pointsEarned + (row.constellationPointsEarned ?? 0),
+      ],
+    ];
+
+    for (const [accountId, name, points, inventory, earned] of members) {
+      const member = accountId ? next.get(accountId) : undefined;
+      if (!member) continue;
+
       const before = member.points ?? 0;
-      member.points = before + row.pointsEarned;
+      member.points = Math.max(0, points);
+      member.inventory = inventory.map((stack) => ({ ...stack }));
+
       rows.push({
         accountId: member.accountId,
         label: bond.label,
         name,
         pointsBefore: before,
         pointsAfter: member.points,
-        earned: row.pointsEarned,
+        earned,
       });
-    }
-
-    // ── 2) 쓴 만큼 각자의 가방에서 뺀다
-    let carried: ItemStack[] = [];
-    for (const stack of [
-      ...(byAccount.get(hunter?.accountId ?? '')?.inventory ?? []),
-      ...(byAccount.get(constellation?.accountId ?? '')?.inventory ?? []),
-    ]) {
-      carried = addItem(carried, stack.itemId, stack.quantity);
-    }
-
-    for (const stack of carried) {
-      const left = row.inventory.find((candidate) => candidate.itemId === stack.itemId);
-      let used = stack.quantity - (left?.quantity ?? 0);
-      if (used <= 0) continue;
-
-      const item = findItem(stack.itemId);
-      // 전용 품목은 쓸 수 있는 쪽에서 먼저 뺀다
-      const order: Array<SettlementTarget | undefined> =
-        item?.category === 'CONSTELLATION_ONLY'
-          ? [constellation, hunter]
-          : [hunter, constellation];
-
-      for (const member of order) {
-        if (!member || used <= 0) continue;
-        const have = quantityOf(member.inventory, stack.itemId);
-        if (have <= 0) continue;
-        const take = Math.min(have, used);
-        member.inventory = addItem(member.inventory, stack.itemId, -take);
-        used -= take;
-      }
     }
   }
 
   return { targets: [...next.values()], rows };
+}
+
+/**
+ * 옛 기록(공용 가방 시절) 정산.
+ *
+ * 얻은 포인트를 두 사람에게 각자 주고, 전투에서 쓴 만큼을 각자의 가방에서 뺀다.
+ *   쓴 양 = (두 사람 가방을 합친 것) − (전투가 끝났을 때 남은 것)
+ *   전용 품목은 그 쪽에서 먼저 빼고, 공용은 가진 사람 쪽에서 뺀다
+ */
+function settleLegacy(
+  row: BattleRecordPair,
+  bond: PairBond,
+  next: Map<string, SettlementTarget>,
+): SettlementRow[] {
+  const rows: SettlementRow[] = [];
+  const hunter = bond.hunterAccountId ? next.get(bond.hunterAccountId) : undefined;
+  const constellation = bond.constellationAccountId
+    ? next.get(bond.constellationAccountId)
+    : undefined;
+  if (!hunter && !constellation) return rows;
+
+  for (const [member, name] of [
+    [hunter, row.hunterName],
+    [constellation, row.constellationName],
+  ] as Array<[SettlementTarget | undefined, string]>) {
+    if (!member || row.pointsEarned === 0) continue;
+    const before = member.points ?? 0;
+    member.points = before + row.pointsEarned;
+    rows.push({
+      accountId: member.accountId,
+      label: bond.label,
+      name,
+      pointsBefore: before,
+      pointsAfter: member.points,
+      earned: row.pointsEarned,
+    });
+  }
+
+  let carried: ItemStack[] = [];
+  for (const stack of [...(hunter?.inventory ?? []), ...(constellation?.inventory ?? [])]) {
+    carried = addItem(carried, stack.itemId, stack.quantity);
+  }
+
+  for (const stack of carried) {
+    const left = (row.inventory ?? []).find((candidate) => candidate.itemId === stack.itemId);
+    let used = stack.quantity - (left?.quantity ?? 0);
+    if (used <= 0) continue;
+
+    const item = findItem(stack.itemId);
+    const order: Array<SettlementTarget | undefined> =
+      item?.category === 'CONSTELLATION_ONLY' ? [constellation, hunter] : [hunter, constellation];
+
+    for (const member of order) {
+      if (!member || used <= 0) continue;
+      const have = quantityOf(member.inventory, stack.itemId);
+      if (have <= 0) continue;
+      const take = Math.min(have, used);
+      member.inventory = addItem(member.inventory, stack.itemId, -take);
+      used -= take;
+    }
+  }
+
+  return rows;
 }

@@ -15,8 +15,11 @@ import {
   type PublicProfile,
   type RegisterInput,
   type SheetRecord,
+  type GiftInput,
+  type GiftResult,
   type TradeKind,
   type TradeResult,
+  type UseSupplyOutcome,
 } from './AuthAdapter';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 
@@ -79,6 +82,7 @@ interface SheetRow {
   skills: CharacterSheet['skills'];
   points: number | null;
   inventory: CharacterSheet['inventory'] | null;
+  stat_bonus: CharacterSheet['statBonus'] | null;
   personality: string | null;
   traits: string | null;
   contract_story: string | null;
@@ -101,6 +105,7 @@ function toSheet(row: SheetRow): CharacterSheet {
     skills: row.skills ?? [],
     points: row.points ?? 0,
     inventory: row.inventory ?? [],
+    statBonus: row.stat_bonus ?? {},
     // 마이그레이션 전에 적힌 시트도 그대로 열린다 — 옛 concept 은 성격 칸으로 읽는다
     ...toProfile({
       personality: row.personality ?? undefined,
@@ -130,6 +135,7 @@ function toPublicRow(row: Record<string, unknown>): PublicProfile {
     affiliation: (row.affiliation as PublicProfile['affiliation']) ?? 'GOVERNMENT',
     portrait: (row.portrait as string | null) ?? null,
     stats: (row.stats as PublicProfile['stats']) ?? {},
+    statBonus: (row.stat_bonus as PublicProfile['statBonus']) ?? {},
     skills: (row.skills as PublicProfile['skills']) ?? [],
     points: (row.points as number | null) ?? 0,
     inventory: (row.inventory as PublicProfile['inventory']) ?? [],
@@ -316,6 +322,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
         skills: sheet.skills,
         points: sheet.points ?? 0,
         inventory: sheet.inventory ?? [],
+        stat_bonus: sheet.statBonus ?? {},
         personality: sheet.personality,
         traits: sheet.traits,
         contract_story: sheet.contractStory,
@@ -354,6 +361,50 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     return {
       points: (row.points as number) ?? 0,
       inventory: (row.inventory as TradeResult['inventory']) ?? [],
+    };
+  }
+
+  /**
+   * 선물하기 — 서버 함수에 맡긴다.
+   *
+   * 활동명으로 상대를 찾고, 잔액 · 보유 개수 · 받는 쪽 한도까지 서버가 본다.
+   * 전투에 배치된 동안에는 상점과 같은 이유로 창구가 닫힌다.
+   */
+  async giftTo(input: GiftInput): Promise<GiftResult> {
+    const { data, error } = await requireSupabase().rpc('shop_gift', {
+      p_handle: input.toHandle.trim(),
+      p_kind: input.kind,
+      p_item_id: input.itemId ?? null,
+      p_amount: Math.floor(input.amount),
+    });
+
+    if (error) throw new AuthError('INVALID_INPUT', error.message);
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new AuthError('UNAVAILABLE', '창구가 응답하지 않았습니다.');
+
+    return {
+      points: (row.points as number) ?? 0,
+      inventory: (row.inventory as GiftResult['inventory']) ?? [],
+      toName: (row.to_name as string) ?? input.toHandle,
+    };
+  }
+
+  /**
+   * 강화 아이템 사용 — 서버 함수에 맡긴다.
+   * 상한 판정도 서버가 한다. 브라우저가 능력치를 직접 올리는 길은 두지 않는다.
+   */
+  async useSupply(itemId: string): Promise<UseSupplyOutcome> {
+    const { data, error } = await requireSupabase().rpc('use_supply', { p_item_id: itemId });
+
+    if (error) throw new AuthError('INVALID_INPUT', error.message);
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new AuthError('UNAVAILABLE', '창구가 응답하지 않았습니다.');
+
+    return {
+      statBonus: (row.stat_bonus as UseSupplyOutcome['statBonus']) ?? {},
+      inventory: (row.inventory as UseSupplyOutcome['inventory']) ?? [],
     };
   }
 

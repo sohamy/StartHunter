@@ -9,7 +9,22 @@
  * 엔진은 `effect` 필드를 해석할 뿐 개별 아이템 이름을 알지 않는다.
  */
 
-import type { Affiliation, ItemDefinition } from '../types';
+import { CONSTELLATION_STATS, HUNTER_STATS } from './characters';
+import type { Affiliation, ItemDefinition, StatBlock } from '../types';
+
+/** 스탯 키를 사람이 읽는 이름으로 — 강화 아이템 설명에 쓴다 */
+export function statLabel(key: string): string {
+  const def = [...HUNTER_STATS, ...CONSTELLATION_STATS].find((row) => row.key === key);
+  return def ? `${def.labelKo}(${def.label})` : key;
+}
+
+/** 이 아이템이 올려 주는 능력치. 없으면 null */
+export function statGainOf(item: ItemDefinition | null): StatBlock | null {
+  const gain = item?.effect.statGain;
+  if (!gain) return null;
+  const rows = Object.entries(gain).filter(([, amount]) => amount > 0);
+  return rows.length > 0 ? Object.fromEntries(rows) : null;
+}
 
 export const ITEM_RULES = {
   /** 아이템 하나가 쌓일 수 있는 최대 개수 */
@@ -139,6 +154,81 @@ export const ITEM_DEFINITIONS: ItemDefinition[] = [
     effect: { healPercent: 0.15, applyStatusIds: ['guard.up'] },
   },
   {
+    id: 'item.stim',
+    name: 'COMBAT STIM',
+    nameKo: '전투 각성제',
+    category: 'HUNTER_ONLY',
+    description: '한 판만 몸을 끌어올린다. 끝나면 그대로 가라앉는다.',
+    target: 'SELF',
+    apCost: 1,
+    combatUsable: true,
+    effect: { applyStatusIds: ['stat.surge'] },
+  },
+
+  /* ── 영구 강화 ─────────────────────────────────────────
+     전투 중에는 쓸 수 없다 — 보급 창구에서 쓰고, 시트의 능력치가 영구히 오른다.
+     statCap 은 한 스탯에 쌓을 수 있는 보너스 상한이며 운영진이 진열에서 고친다.
+
+     주의 — 이 다섯 품목의 정의는 서버(supabase/migrations/0017)의 shop_items 에도
+     같은 값으로 심는다. 사용 판정을 서버가 하므로 서버에도 정의가 있어야 한다.
+     값을 고칠 때는 작전실 진열에서 고치면 되고, 그 값이 코드보다 우선한다. */
+  {
+    id: 'item.train.str',
+    name: 'STRENGTH CORE',
+    nameKo: '근력 단련석',
+    category: 'HUNTER_ONLY',
+    description: '삼키면 근육이 다시 짜인다. 몸에 남는다.',
+    target: 'SELF',
+    apCost: 0,
+    combatUsable: false,
+    effect: { statGain: { str: 1 }, statCap: 3 },
+  },
+  {
+    id: 'item.train.vit',
+    name: 'VITALITY CORE',
+    nameKo: '체력 강화제',
+    category: 'HUNTER_ONLY',
+    description: '버티는 몸을 만든다. 몸에 남는다.',
+    target: 'SELF',
+    apCost: 0,
+    combatUsable: false,
+    effect: { statGain: { vit: 1 }, statCap: 3 },
+  },
+  {
+    id: 'item.train.agi',
+    name: 'AGILITY CORE',
+    nameKo: '민첩 촉진제',
+    category: 'HUNTER_ONLY',
+    description: '반응이 한 박자 빨라진다. 몸에 남는다.',
+    target: 'SELF',
+    apCost: 0,
+    combatUsable: false,
+    effect: { statGain: { agi: 1 }, statCap: 3 },
+  },
+  {
+    id: 'item.train.authority',
+    name: 'AUTHORITY CRYSTAL',
+    nameKo: '권능 응결정',
+    category: 'CONSTELLATION_ONLY',
+    description: '성유물. 흩어진 권능을 한 겹 더 굳힌다.',
+    target: 'SELF',
+    apCost: 0,
+    combatUsable: false,
+    effect: { statGain: { authority: 1 }, statCap: 3 },
+  },
+  {
+    id: 'item.train.divinity',
+    name: 'DIVINITY SHARD',
+    nameKo: '신격의 편린',
+    category: 'CONSTELLATION_ONLY',
+    description: '성유물. 격이 한 뼘 올라간다.',
+    target: 'SELF',
+    apCost: 0,
+    combatUsable: false,
+    effect: { statGain: { divinity: 1 }, statCap: 3 },
+  },
+
+  {
     id: 'item.floorpass',
     name: 'FLOOR CLEARANCE',
     nameKo: '층 통행 인가',
@@ -210,6 +300,13 @@ export function describeItem(item: ItemDefinition): string[] {
   if (effect.damage) lines.push(`적에게 피해 ${effect.damage}`);
   if (effect.contractRepair) lines.push(`계약 안정도 +${effect.contractRepair}`);
   if (effect.stageRepair) lines.push(`성좌 상태 ${effect.stageRepair}단계 회복`);
+  if (effect.statGain) {
+    for (const [key, amount] of Object.entries(effect.statGain)) {
+      if (!amount) continue;
+      lines.push(`${statLabel(key)} +${amount} (영구)`);
+    }
+    if (effect.statCap) lines.push(`강화 상한 +${effect.statCap}`);
+  }
   if (effect.cureKinds?.length) lines.push(`상태이상 해제 (${effect.cureKinds.join(' · ')})`);
   if (effect.applyStatusIds?.length) lines.push(`상태이상 부여 ${effect.applyStatusIds.join(' · ')}`);
   if (!item.combatUsable) lines.push('전투 중 사용 불가');

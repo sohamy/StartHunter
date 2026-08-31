@@ -68,6 +68,18 @@ export const STATUS_DEFINITIONS: StatusDefinition[] = [
     description: '권능을 크게 쏟아부어 공격력을 끌어올린다.',
   },
   {
+    id: 'stat.surge',
+    label: 'SURGE',
+    labelKo: '능력치 각성',
+    kind: 'BUFF',
+    appliesTo: 'HUNTER',
+    duration: 3,
+    stackable: false,
+    maxStacks: 1,
+    modifiers: { attackUp: 0.25, damageReduction: 0.15 },
+    description: '약물로 몸을 끌어올린다 — 공격력과 버티는 힘이 함께 오른다.',
+  },
+  {
     id: 'guard.up',
     label: 'GUARD',
     labelKo: '피해 감소',

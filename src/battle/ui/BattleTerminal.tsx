@@ -35,7 +35,7 @@ import {
   rollCheck,
 } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
-import { inventoryFor, itemAvailability } from '../engine/items';
+import { bagOf, inventoryFor, itemAvailability } from '../engine/items';
 import {
   actionAvailability,
   apCostOf,
@@ -286,14 +286,15 @@ function ItemPicker({
   );
 }
 
-/** 이 판 동안 함께 쓰는 가방 — 전투 화면에서는 보유량만 확인한다 */
-function InventoryList({ pair }: { pair: PairState }) {
-  if (pair.inventory.length === 0) {
+/** 개인 가방 — 전투 화면에서는 보유량만 확인한다. 두 사람의 가방은 섞이지 않는다. */
+function InventoryList({ pair, side }: { pair: PairState; side: ActorSide }) {
+  const bag = bagOf(pair, side);
+  if (bag.length === 0) {
     return <p className="hint">보급품이 없습니다.</p>;
   }
   return (
     <ul className="inventory-list">
-      {pair.inventory.map((stack) => {
+      {bag.map((stack) => {
         const item = findItemDefinition(stack.itemId);
         if (!item) return null;
         return (
@@ -1362,9 +1363,12 @@ export default function BattleTerminal() {
             )}
           </div>
 
-          <h3 className="sub-title">PAIR RESOURCE</h3>
-          <Field label="POINT">
-            <span className="num gold">{pair.points} P</span>
+          <h3 className="sub-title">RESOURCE · 개인 소지</h3>
+          <Field label="헌터 소지금">
+            <span className="num gold">{pair.hunter.points ?? 0} P</span>
+          </Field>
+          <Field label="성좌 소지금">
+            <span className="num gold">{pair.constellation.points ?? 0} P</span>
           </Field>
           <Field label="AFFILIATION">
             <span className={`tag ${pair.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
@@ -1372,11 +1376,15 @@ export default function BattleTerminal() {
             </span>
           </Field>
           <p className="hint">
-            포인트는 보급 창구에서만 씁니다 — 전투 중에는 행동력이나 스킬을 살 수 없습니다.
+            소지금과 가방은 <b>각자의 것</b>입니다 — 페어와 나누지 않고, 상대의 가방에서 꺼내 쓸
+            수 없습니다. 포인트는 보급 창구에서만 씁니다.
           </p>
 
-          <h3 className="sub-title">SUPPLY · 보급품</h3>
-          <InventoryList pair={pair} />
+          <h3 className="sub-title">SUPPLY · 헌터 가방</h3>
+          <InventoryList pair={pair} side="HUNTER" />
+
+          <h3 className="sub-title">SUPPLY · 성좌 가방</h3>
+          <InventoryList pair={pair} side="CONSTELLATION" />
 
           {battle.rewards.filter((row) => row.pairId === pair.id).length > 0 && (
             <>

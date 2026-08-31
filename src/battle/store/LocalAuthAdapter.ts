@@ -8,7 +8,8 @@
  */
 
 import { toProfile } from '../config/characters';
-import { purchase, refund } from '../engine/shop';
+import { addItem, quantityOf } from '../engine/items';
+import { giftRoom, purchase, refund, useSupply } from '../engine/shop';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 import {
   AuthError,
@@ -18,8 +19,11 @@ import {
   type PublicProfile,
   type RegisterInput,
   type SheetRecord,
+  type GiftInput,
+  type GiftResult,
   type TradeKind,
   type TradeResult,
+  type UseSupplyOutcome,
 } from './AuthAdapter';
 
 const ACCOUNTS_KEY = 'sh.auth.accounts';
@@ -204,6 +208,76 @@ export class LocalAuthAdapter implements AuthAdapter {
     };
     writeAccounts(accounts);
     return { points: result.points, inventory: result.inventory };
+  }
+
+  /** 선물 — 로컬 모드에서는 같은 브라우저 안의 두 계정 사이에서만 오간다 */
+  async giftTo(input: GiftInput): Promise<GiftResult> {
+    const session = await this.currentSession();
+    if (!session) throw new AuthError('NOT_FOUND', '접속 상태가 아닙니다.');
+
+    const accounts = readAccounts();
+    const from = accounts.findIndex((account) => account.id === session.accountId);
+    const to = accounts.findIndex(
+      (account) => account.id.toLowerCase() === input.toHandle.trim().toLowerCase(),
+    );
+    if (from < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+    if (to < 0) throw new AuthError('NOT_FOUND', '그런 활동명을 찾을 수 없습니다.');
+    if (from === to) throw new AuthError('INVALID_INPUT', '자기 자신에게는 보낼 수 없습니다.');
+
+    const amount = Math.floor(input.amount);
+    if (amount < 1) throw new AuthError('INVALID_INPUT', '1 이상을 보내세요.');
+
+    const sender = migrateSheet(accounts[from].sheet);
+    const receiver = migrateSheet(accounts[to].sheet);
+
+    if (input.kind === 'POINTS') {
+      if ((sender.points ?? 0) < amount) {
+        throw new AuthError('INVALID_INPUT', '소지금이 부족합니다.');
+      }
+      sender.points = (sender.points ?? 0) - amount;
+      receiver.points = (receiver.points ?? 0) + amount;
+    } else {
+      const itemId = input.itemId ?? '';
+      if (quantityOf(sender.inventory ?? [], itemId) < amount) {
+        throw new AuthError('INVALID_INPUT', '보유 개수가 모자랍니다.');
+      }
+      if (giftRoom(receiver.inventory ?? [], itemId) < amount) {
+        throw new AuthError('INVALID_INPUT', '받는 쪽의 보유 한도를 넘습니다.');
+      }
+      sender.inventory = addItem(sender.inventory ?? [], itemId, -amount);
+      receiver.inventory = addItem(receiver.inventory ?? [], itemId, amount);
+    }
+
+    accounts[from] = { ...accounts[from], sheet: sender };
+    accounts[to] = { ...accounts[to], sheet: receiver };
+    writeAccounts(accounts);
+
+    return {
+      points: sender.points ?? 0,
+      inventory: sender.inventory ?? [],
+      toName: receiver.name,
+    };
+  }
+
+  /** 강화 아이템 사용 — 가방에서 하나 빠지고 시트의 능력치가 영구히 오른다 */
+  async useSupply(itemId: string): Promise<UseSupplyOutcome> {
+    const session = await this.currentSession();
+    if (!session) throw new AuthError('NOT_FOUND', '접속 상태가 아닙니다.');
+
+    const accounts = readAccounts();
+    const index = accounts.findIndex((account) => account.id === session.accountId);
+    if (index < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+
+    const sheet = migrateSheet(accounts[index].sheet);
+    const result = useSupply(sheet, itemId);
+    if (!result.ok) throw new AuthError('INVALID_INPUT', result.reason ?? '쓰지 못했습니다.');
+
+    accounts[index] = {
+      ...accounts[index],
+      sheet: { ...sheet, statBonus: result.statBonus, inventory: result.inventory },
+    };
+    writeAccounts(accounts);
+    return { statBonus: result.statBonus, inventory: result.inventory };
   }
 
   async listSheets(): Promise<SheetRecord[]> {

@@ -13,12 +13,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { ITEM_CATEGORY_LABELS, describeItem } from '../config/items';
+import { ITEM_CATEGORY_LABELS, describeItem, findItem, statGainOf, statLabel } from '../config/items';
 import { shopRows } from '../config/shop';
 import { REFUND_RATIO } from '../engine/shop';
 import { getAuth, getStorage, loadShopCatalog } from '../store';
 import { SupplyBlock } from './SheetView';
-import type { Account, BattleState } from '../types';
+import type { Account, BattleState, ItemStack } from '../types';
+
+type GiftKind = 'POINTS' | 'ITEM';
 
 type Phase = 'LOADING' | 'READY' | 'GUEST';
 
@@ -61,6 +63,14 @@ export default function ShopTerminal() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /* ── 선물하기 ─────────────────────────────────────── */
+  const [giftHandle, setGiftHandle] = useState('');
+  const [giftKind, setGiftKind] = useState<GiftKind>('POINTS');
+  const [giftItemId, setGiftItemId] = useState('');
+  const [giftAmount, setGiftAmount] = useState(1);
+  /** 활동명을 확인한 결과 — 누구에게 보내는지 눈으로 보고 누르게 한다 */
+  const [giftTarget, setGiftTarget] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,12 +135,112 @@ export default function ShopTerminal() {
     [account, auth],
   );
 
+  /** 활동명이 실제로 있는지 미리 확인한다 — 눌러 보고 알게 하지 않는다 */
+  const lookupGiftTarget = useCallback(async () => {
+    const handle = giftHandle.trim();
+    setGiftTarget(null);
+    if (!handle) return;
+    try {
+      const found = await auth.getPublicProfile(handle);
+      if (found) {
+        setGiftTarget(`${found.name} · ${found.side === 'HUNTER' ? '헌터' : '성좌'}`);
+      } else {
+        setError('그런 활동명을 찾을 수 없습니다.');
+      }
+    } catch {
+      // 조회에 실패해도 보내기는 서버가 다시 판정한다 — 여기서 막지 않는다
+    }
+  }, [auth, giftHandle]);
+
+  const sendGift = useCallback(async () => {
+    if (!account) return;
+    setMessage(null);
+    setError(null);
+
+    const handle = giftHandle.trim();
+    if (!handle) {
+      setError('받는 사람의 활동명을 입력하세요.');
+      return;
+    }
+    if (giftKind === 'ITEM' && !giftItemId) {
+      setError('보낼 보급품을 고르세요.');
+      return;
+    }
+    const amount = Math.floor(giftAmount);
+    if (amount < 1) {
+      setError('1 이상을 보내세요.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await auth.giftTo({
+        toHandle: handle,
+        kind: giftKind,
+        itemId: giftKind === 'ITEM' ? giftItemId : null,
+        amount,
+      });
+      setAccount({
+        ...account,
+        sheet: { ...account.sheet, points: result.points, inventory: result.inventory },
+      });
+      setMessage(
+        giftKind === 'POINTS'
+          ? `${result.toName} 에게 ${amount} P 를 보냈습니다 — 남은 소지금 ${result.points} P`
+          : `${result.toName} 에게 ${findItem(giftItemId)?.nameKo ?? giftItemId} ${amount}개를 보냈습니다.`,
+      );
+      setGiftAmount(1);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : '보내지 못했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  }, [account, auth, giftAmount, giftHandle, giftItemId, giftKind]);
+
+  /** 강화 아이템 사용 — 전투 밖에서만, 능력치가 영구히 오른다 */
+  const useItem = useCallback(
+    async (itemId: string) => {
+      if (!account) return;
+      setMessage(null);
+      setError(null);
+      setBusy(true);
+      try {
+        const result = await auth.useSupply(itemId);
+        setAccount({
+          ...account,
+          sheet: {
+            ...account.sheet,
+            statBonus: result.statBonus,
+            inventory: result.inventory,
+          },
+        });
+        const gained = Object.entries(statGainOf(findItem(itemId)) ?? {})
+          .map(([key, amount]) => `${statLabel(key)} +${amount}`)
+          .join(' · ');
+        setMessage(`${findItem(itemId)?.nameKo ?? itemId} 사용 — ${gained} (영구)`);
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : '쓰지 못했습니다.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [account, auth],
+  );
+
   if (phase === 'LOADING' || !catalogReady) {
     return <div className="console-loading">OPENING SUPPLY DEPOT…</div>;
   }
 
   const sheet = account?.sheet ?? null;
   const rows = shopRows();
+
+  /** 가방에 있는 것 중 지금 쓸 수 있는 강화 보급품 */
+  const usableRows = (sheet?.inventory ?? []).flatMap((stack: ItemStack) => {
+    const item = findItem(stack.itemId);
+    const gain = statGainOf(item);
+    if (!item || !gain || item.combatUsable || stack.quantity <= 0) return [];
+    return [{ item, quantity: stack.quantity, gain }];
+  });
 
   return (
     <div className="console">
@@ -182,6 +292,147 @@ export default function ShopTerminal() {
             접속하기
             <small>계약 등록 단말로 이동</small>
           </a>
+        </section>
+      )}
+
+      {sheet && (
+        <section className="panel">
+          <h2 className="panel-title">강화 · 사용</h2>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            능력치를 올려 주는 보급품은 <b>여기서 씁니다</b> — 전투 중에는 쓸 수 없고, 한 번 쓰면
+            시트에 영구히 남습니다. 올라간 값은 배분 점수와 따로 셉니다.
+          </p>
+          {usableRows.length === 0 ? (
+            <p className="dim">쓸 수 있는 강화 보급품이 가방에 없습니다.</p>
+          ) : (
+            <ul className="shop-list">
+              {usableRows.map(({ item, quantity, gain }) => (
+                <li key={item.id}>
+                  <span className="shop-name">
+                    {item.nameKo}
+                    <small className="dim">
+                      {Object.entries(gain)
+                        .map(([key, amount]) => {
+                          const now = sheet.statBonus?.[key] ?? 0;
+                          const cap = item.effect.statCap;
+                          return `${statLabel(key)} +${amount} · 지금 +${now}${
+                            cap ? ` / 상한 +${cap}` : ''
+                          }`;
+                        })
+                        .join(' · ')}
+                    </small>
+                  </span>
+                  <span className="tag ok">보유 {quantity}</span>
+                  <button
+                    type="button"
+                    className="ctl small primary"
+                    disabled={busy || deployed !== null}
+                    title={
+                      deployed ? '전투에 배치된 동안에는 쓸 수 없습니다' : '한 개를 써서 강화합니다'
+                    }
+                    onClick={() => void useItem(item.id)}
+                  >
+                    사용
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {sheet && (
+        <section className="panel">
+          <h2 className="panel-title">선물하기</h2>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            받는 사람의 <b>활동명</b>을 적으면 소지금이나 보급품을 넘길 수 있습니다. 되돌릴 수
+            없으니 이름을 확인하고 보내세요. 전투에 배치된 동안에는 창구가 닫힙니다.
+          </p>
+
+          <div className="admin-grid">
+            <label className="input-row">
+              <span className="field-label">받는 사람 활동명</span>
+              <input
+                className="ctl input"
+                value={giftHandle}
+                placeholder="예: nightfall"
+                onChange={(event) => {
+                  setGiftHandle(event.target.value);
+                  setGiftTarget(null);
+                }}
+                onBlur={() => void lookupGiftTarget()}
+              />
+            </label>
+
+            <label className="input-row">
+              <span className="field-label">무엇을</span>
+              <select
+                className="ctl input"
+                value={giftKind}
+                onChange={(event) => setGiftKind(event.target.value as GiftKind)}
+              >
+                <option value="POINTS">소지금 (P)</option>
+                <option value="ITEM">보급품</option>
+              </select>
+            </label>
+
+            {giftKind === 'ITEM' && (
+              <label className="input-row">
+                <span className="field-label">보낼 품목</span>
+                <select
+                  className="ctl input"
+                  value={giftItemId}
+                  onChange={(event) => setGiftItemId(event.target.value)}
+                >
+                  <option value="">가방에서 고르기…</option>
+                  {(sheet.inventory ?? [])
+                    .filter((stack: ItemStack) => stack.quantity > 0)
+                    .map((stack: ItemStack) => (
+                      <option key={stack.itemId} value={stack.itemId}>
+                        {findItem(stack.itemId)?.nameKo ?? stack.itemId} · 보유 {stack.quantity}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+
+            <label className="input-row">
+              <span className="field-label">
+                {giftKind === 'POINTS' ? '금액 (P)' : '개수'}
+              </span>
+              <input
+                className="ctl input"
+                type="number"
+                min={1}
+                step={giftKind === 'POINTS' ? 10 : 1}
+                value={giftAmount}
+                onChange={(event) => setGiftAmount(Number(event.target.value))}
+              />
+            </label>
+          </div>
+
+          {giftTarget && (
+            <p className="notice ok" style={{ marginTop: 10 }}>
+              받는 사람 — <b>{giftTarget}</b>
+            </p>
+          )}
+
+          <div className="btn-row" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="ctl primary"
+              disabled={busy || deployed !== null || giftHandle.trim().length === 0}
+              title={deployed ? '전투에 배치된 동안에는 보낼 수 없습니다' : undefined}
+              onClick={() => void sendGift()}
+            >
+              {busy ? '보내는 중…' : '보내기'}
+            </button>
+            <span className="hint">
+              {giftKind === 'POINTS'
+                ? `내 소지금 ${sheet.points ?? 0} P`
+                : '받는 쪽의 보유 한도를 넘으면 거절됩니다.'}
+            </span>
+          </div>
         </section>
       )}
 

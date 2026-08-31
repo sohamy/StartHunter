@@ -6,9 +6,9 @@
  * 공략 사이에도 유지되며, 페어와 나누지 않는다.
  */
 
-import { findItem } from '../config/items';
+import { ITEM_RULES, allowedFor, findItem, statGainOf, statLabel } from '../config/items';
 import { findShopEntry, shopRows, type ShopRow } from '../config/shop';
-import type { ItemStack } from '../types';
+import type { ActorSide, Affiliation, ItemStack, StatBlock } from '../types';
 import { addItem, quantityOf } from './items';
 
 /**
@@ -112,4 +112,78 @@ export function refund(wallet: Wallet, itemId: string): PurchaseResult {
     inventory: addItem(inventory, itemId, -1),
     message: `${item.nameKo} 1개 반납 — ${back}P 환급`,
   };
+}
+
+/* ── 영구 강화 ─────────────────────────────────────────
+   강화 아이템은 전투 밖에서만 쓴다. 쓰면 가방에서 하나 빠지고
+   시트의 statBonus 가 오른다 — 배분 점수와 따로 쌓이는 값이다.
+   상한(statCap)은 아이템 정의가 정하고, 운영진이 진열에서 고친다. */
+
+export interface UseSupplyResult {
+  ok: boolean;
+  reason?: string;
+  statBonus: StatBlock;
+  inventory: ItemStack[];
+  message: string;
+}
+
+/** 강화 아이템을 쓰는 사람 — 시트가 그대로 이 모양이다 */
+export interface Trainee {
+  side: ActorSide;
+  affiliation: Affiliation;
+  inventory?: ItemStack[];
+  statBonus?: StatBlock | null;
+}
+
+export function useSupply(owner: Trainee, itemId: string): UseSupplyResult {
+  const inventory = owner.inventory ?? [];
+  const statBonus: StatBlock = { ...(owner.statBonus ?? {}) };
+  const item = findItem(itemId);
+  const gain = statGainOf(item);
+
+  const fail = (reason: string): UseSupplyResult => ({
+    ok: false,
+    reason,
+    statBonus,
+    inventory,
+    message: '',
+  });
+
+  if (!item) return fail('취급하지 않는 품목입니다.');
+  if (!gain) return fail('여기서 쓸 수 있는 품목이 아닙니다.');
+  if (item.combatUsable) return fail('전투에서 쓰는 품목입니다.');
+  if (!allowedFor(item, owner.side, owner.affiliation)) {
+    return fail('이 주체가 쓸 수 없는 분류입니다.');
+  }
+  if (quantityOf(inventory, itemId) <= 0) return fail('보유하고 있지 않습니다.');
+
+  const cap = item.effect.statCap ?? null;
+  const lines: string[] = [];
+  for (const [key, amount] of Object.entries(gain)) {
+    const next = (statBonus[key] ?? 0) + amount;
+    if (cap !== null && next > cap) {
+      return fail(`${statLabel(key)} 강화 상한을 넘습니다. (상한 +${cap} · 지금 +${statBonus[key] ?? 0})`);
+    }
+    statBonus[key] = next;
+    lines.push(`${statLabel(key)} +${amount}`);
+  }
+
+  return {
+    ok: true,
+    statBonus,
+    inventory: addItem(inventory, itemId, -1),
+    message: `${item.nameKo} 사용 — ${lines.join(' · ')}`,
+  };
+}
+
+/* ── 선물 ──────────────────────────────────────────────
+   활동명으로 상대를 찾아 소지금이나 보급품을 넘긴다.
+   값 판정은 서버(shop_gift)가 하고, 여기 있는 것은 화면이 미리 막기 위한 규칙이다. */
+
+/** 받는 쪽이 이 아이템을 더 받을 수 있는 최대 개수 */
+export function giftRoom(receiverInventory: ItemStack[], itemId: string): number {
+  const entry = findShopEntry(itemId);
+  const owned = quantityOf(receiverInventory, itemId);
+  const ceiling = entry?.limit ?? ITEM_RULES.maxQuantity;
+  return Math.max(0, Math.min(ceiling, ITEM_RULES.maxQuantity) - owned);
 }
