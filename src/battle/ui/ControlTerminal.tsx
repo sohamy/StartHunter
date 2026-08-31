@@ -13,10 +13,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { GIMMICK_DEFINITIONS } from '../config/gimmicks';
-import { PATTERN_SETS } from '../config/patterns';
+import { GIMMICK_CHECK, GIMMICK_DEFINITIONS, findGimmick } from '../config/gimmicks';
+import { DEFAULT_INVENTORY, ITEM_DEFINITIONS, describeItem, findItem } from '../config/items';
+import { PATTERN_SETS, findPatternSet } from '../config/patterns';
+import { manualRewards } from '../config/rewards';
+import { PROFILE_FIELDS } from '../config/characters';
 import { CONSTELLATION_STAGES, CONTRACT_STAGES } from '../config/rules';
-import { DEFAULT_OPERATION } from '../config/scenario';
+import { DEFAULT_OPERATION, DEFAULT_POINTS } from '../config/scenario';
+import { shopRows } from '../config/shop';
 import { STATUS_DEFINITIONS } from '../config/status';
 import * as admin from '../engine/admin';
 import {
@@ -25,9 +29,18 @@ import {
   pairReady,
   type BondEntry,
 } from '../engine/battle';
-import { nextPatternAdmin } from '../engine/enemy';
+import {
+  describePhaseBands,
+  nextPatternAdmin,
+  normalizeCutoffs,
+  patternSetToPreset,
+} from '../engine/enemy';
+import { availableStage, gimmickBrief } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
-import { applyRound, previewRound } from '../engine/round';
+import { buildRecord, settle } from '../engine/record';
+import { actionAvailability, applyRound, previewRound } from '../engine/round';
+import { purchase, refund, withPurchase } from '../engine/shop';
+import { actionsFor } from '../engine/skills';
 import { injuryOf, statusViews } from '../engine/status';
 import {
   AuthError,
@@ -36,6 +49,7 @@ import {
   getServerStorage,
   getStorage,
   isServerMode,
+  toPublicProfile,
   type PublicProfile,
   type SheetRecord,
 } from '../store';
@@ -43,9 +57,10 @@ import AttackEditor from './AttackEditor';
 import ChatPanel from './ChatPanel';
 import Collapsible from './Collapsible';
 import SheetEditor from './SheetEditor';
-import { ActorSheet, SheetDetail, sideLabel } from './SheetView';
+import { ActorSheet, PublicSheetCard, SheetDetail, sideLabel } from './SheetView';
 import type {
   ActorSide,
+  BattleRecord,
   BattleState,
   BattleSummary,
   CharacterSheet,
@@ -59,10 +74,39 @@ import type {
   StatusHolder,
 } from '../types';
 
-type Tab = 'ROSTER' | 'SHEET' | 'ENCOUNTER' | 'OPERATION' | 'LOG';
+type Tab = 'ROSTER' | 'SHEET' | 'ENCOUNTER' | 'OPERATION' | 'LOG' | 'ARCHIVE';
 type PairFilter = 'ALL' | 'GOVERNMENT' | 'GUILD' | 'INJURED' | 'DOWN' | 'NOT_SUBMITTED';
 type SheetFilter = 'ALL' | 'HUNTER' | 'CONSTELLATION' | 'UNPAIRED';
+/** 시트 전문(수치까지) 과 참가자에게 보이는 프로필 카드를 오간다 */
+type SheetLayout = 'DETAIL' | 'PROFILE';
 type LogTab = 'SYSTEM' | 'ROLEPLAY';
+
+/**
+ * 전투 편성 프리셋.
+ *
+ * 같은 페어 · 같은 적 조합을 매번 다시 고르는 일이 잦다.
+ * 서버 스키마를 건드리지 않으려고 운영자 브라우저에만 남긴다.
+ */
+interface OperationPreset {
+  id: string;
+  name: string;
+  bondIds: string[];
+  enemyIds: string[];
+  gimmickId: string;
+  floor: number;
+}
+
+const PRESET_KEY = 'tower-raid.operation-presets';
+
+function loadPresets(): OperationPreset[] {
+  try {
+    const raw = window.localStorage.getItem(PRESET_KEY);
+    const rows: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(rows) ? (rows as OperationPreset[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 function terminalUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -108,12 +152,17 @@ function NumberField({
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
+  /* 값은 blur 나 Enter 에서 반영된다 — 아직 안 들어갔음을 보여 준다 */
+  const pending = draft !== String(value);
 
   return (
     <label className="num-field">
-      <span className="field-label">{label}</span>
+      <span className="field-label">
+        {label}
+        {pending && <i className="pending">ENTER</i>}
+      </span>
       <input
-        className="ctl input"
+        className={`ctl input ${pending ? 'pending' : ''}`}
         type="number"
         value={draft}
         min={min}
@@ -146,11 +195,15 @@ function TextField({
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
+  const pending = draft !== value;
   return (
     <label className="num-field">
-      <span className="field-label">{label}</span>
+      <span className="field-label">
+        {label}
+        {pending && <i className="pending">ENTER</i>}
+      </span>
       <input
-        className="ctl input"
+        className={`ctl input ${pending ? 'pending' : ''}`}
         value={draft}
         placeholder={placeholder}
         onChange={(event) => setDraft(event.target.value)}
@@ -258,6 +311,7 @@ export default function ControlTerminal() {
   const [sheets, setSheets] = useState<SheetRecord[]>([]);
   const [bonds, setBonds] = useState<PairBond[]>([]);
   const [templates, setTemplates] = useState<EnemyTemplate[]>([]);
+  const [records, setRecords] = useState<BattleRecord[]>([]);
   const [battles, setBattles] = useState<BattleSummary[]>([]);
   const [battle, setBattle] = useState<BattleState | null>(null);
   const [preview, setPreview] = useState<RoundPreview | null>(null);
@@ -274,28 +328,49 @@ export default function ControlTerminal() {
 
   const [filter, setFilter] = useState<PairFilter>('ALL');
   const [sheetFilter, setSheetFilter] = useState<SheetFilter>('ALL');
+  const [sheetLayout, setSheetLayout] = useState<SheetLayout>('DETAIL');
   const [sheetQuery, setSheetQuery] = useState('');
   const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
   const [logTab, setLogTab] = useState<LogTab>('SYSTEM');
+  /** 페어가 늘면 카드 하나가 화면 한 장을 먹는다 — 기본은 접어 둔다 */
+  const [monitorDense, setMonitorDense] = useState(true);
+  /** 일괄 조작 대상 페어 */
+  const [bulkPairs, setBulkPairs] = useState<string[]>([]);
+  /** 직전 확정을 한 번만 되돌린다 — 손으로 수치를 복원하는 일을 없앤다 */
+  const [undoBattle, setUndoBattle] = useState<BattleState | null>(null);
+  const [presets, setPresets] = useState<OperationPreset[]>([]);
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [logDraft, setLogDraft] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  /** 운영 도크에서 곧장 뛰어갈 자리들 — 긴 화면을 오르내리지 않게 한다 */
+  const processRef = useRef<HTMLElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+  /**
+   * 자동 보관용 참조.
+   * 보관 함수는 아래에서 선언되므로, 위쪽 효과에서 쓰려면 참조를 거쳐야 한다.
+   */
+  const archiveBattleRef = useRef<((state: BattleState, silent?: boolean) => Promise<void>) | null>(
+    null,
+  );
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [profileRows, sheetRows, bondRows, templateRows, battleRows] = await Promise.all([
-        auth.listProfiles(),
-        auth.listSheets(),
-        storage.listBonds(),
-        storage.listEnemyTemplates(),
-        storage.listBattles(),
-      ]);
+      const [profileRows, sheetRows, bondRows, templateRows, battleRows, recordRows] =
+        await Promise.all([
+          auth.listProfiles(),
+          auth.listSheets(),
+          storage.listBonds(),
+          storage.listEnemyTemplates(),
+          storage.listBattles(),
+          storage.listRecords(),
+        ]);
       setProfiles(profileRows);
       setSheets(sheetRows);
       setBonds(bondRows);
       setTemplates(templateRows);
       setBattles(battleRows);
+      setRecords(recordRows);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -308,6 +383,14 @@ export default function ControlTerminal() {
   useEffect(() => {
     if (access === 'GRANTED' || access === 'LOCAL') void refresh();
   }, [access, refresh]);
+
+  useEffect(() => setPresets(loadPresets()), []);
+
+  /** 전투가 바뀌면 되돌리기와 일괄 선택은 의미가 없다 */
+  useEffect(() => {
+    setUndoBattle(null);
+    setBulkPairs([]);
+  }, [battle?.id]);
 
   useEffect(() => {
     (async () => {
@@ -328,6 +411,19 @@ export default function ControlTerminal() {
       setError(caught instanceof Error ? `전투 저장 실패: ${caught.message}` : '전투 저장 실패');
     });
   }, [battle, storage]);
+
+  /**
+   * 전투가 끝나면 곧바로 기록으로 남긴다.
+   *
+   * 운영진이 잊고 새 전투를 열면 결과와 포인트 근거가 사라진다.
+   * 같은 결과로 이미 보관된 기록이 있으면 다시 만들지 않는다.
+   */
+  useEffect(() => {
+    if (!battle) return;
+    if (battle.status !== 'CLEARED' && battle.status !== 'FAILED') return;
+    if (records.some((row) => row.battleId === battle.id && row.status === battle.status)) return;
+    void archiveBattleRef.current?.(battle, true);
+  }, [battle, records]);
 
   const update = useCallback((next: BattleState) => {
     setBattle(next);
@@ -536,6 +632,8 @@ export default function ControlTerminal() {
       affiliation: 'GOVERNMENT',
       active: true,
       createdAt: new Date().toISOString(),
+      points: DEFAULT_POINTS,
+      inventory: DEFAULT_INVENTORY.map((row) => ({ ...row })),
     };
 
     await guard(async () => {
@@ -592,6 +690,7 @@ export default function ControlTerminal() {
       maxPhase: boss ? 3 : 1,
       patternSetId: boss ? 'set.star_devourer' : 'set.husk',
       attacks: [],
+      phaseCutoffs: [],
       boss,
     };
     await guard(async () => {
@@ -606,6 +705,36 @@ export default function ControlTerminal() {
       await storage.saveEnemyTemplate({ ...template, ...patch });
       await refresh();
     });
+  };
+
+  /**
+   * 프리셋 패턴을 편집 가능한 공격 목록으로 펼친다.
+   *
+   * 프리셋은 코드에 있어 고칠 수 없다 — 한 번 펼쳐 두면 그 보스만의 패턴으로
+   * 이름 · 계수 · 예고 · 주기까지 전부 운영진이 손볼 수 있다.
+   */
+  const importPreset = async (template: EnemyTemplate) => {
+    const preset = patternSetToPreset(template.patternSetId ?? null);
+    if (!preset) {
+      setMessage('불러올 프리셋 패턴을 먼저 고르세요.');
+      return;
+    }
+    const current = (template.attacks ?? []).length;
+    if (
+      current > 0 &&
+      !confirmed(`${template.name} 에 만들어 둔 공격 ${current}개를 프리셋으로 덮어씁니다.`)
+    ) {
+      return;
+    }
+
+    await patchTemplate(template, {
+      attacks: preset.attacks,
+      phaseCutoffs: preset.phaseCutoffs,
+      maxPhase: Math.max(template.maxPhase, preset.maxPhase),
+    });
+    setMessage(
+      `${findPatternSet(template.patternSetId ?? null)?.labelKo} 패턴을 불러왔습니다 — 이제 자유롭게 고칠 수 있습니다.`,
+    );
   };
 
   /* ── 전투 시작 ───────────────────────────────────── */
@@ -712,6 +841,91 @@ export default function ControlTerminal() {
     }
   };
 
+  /* ── 공략 기록 ───────────────────────────────────── */
+
+  /** 끝난 전투를 기록으로 보관한다. 같은 전투를 두 번 보관하지 않는다. */
+  const archiveBattle = async (state: BattleState, silent = false) => {
+    if (records.some((row) => row.battleId === state.id && row.status === state.status)) {
+      if (!silent) setMessage('이미 같은 결과로 보관된 기록이 있습니다.');
+      return;
+    }
+    await guard(async () => {
+      await storage.saveRecord(buildRecord(state, new Date()));
+      await refresh();
+      if (!silent) setMessage('공략 기록으로 보관했습니다.');
+    });
+  };
+
+  /** 기록의 포인트와 남은 보급품을 영구 편성에 반영한다 */
+  const settleRecord = async (record: BattleRecord) => {
+    const result = settle(record, bonds);
+    if (result.rows.length === 0) {
+      setMessage('정산할 항목이 없습니다 — 이 기록에서 얻은 포인트가 없습니다.');
+      return;
+    }
+    if (
+      !confirmed(
+        `${result.rows.length}개 편성에 포인트를 반영합니다.\n` +
+          result.rows
+            .map((row) => `${row.label} ${row.pointsBefore} → ${row.pointsAfter}`)
+            .join('\n'),
+      )
+    ) {
+      return;
+    }
+
+    await guard(async () => {
+      for (const bond of result.bonds) {
+        if (result.rows.some((row) => row.bondId === bond.id)) await storage.saveBond(bond);
+      }
+      await storage.saveRecord({
+        ...record,
+        note: `${record.note}\n[정산 완료]`.trim(),
+      });
+      await refresh();
+      setMessage(`정산 완료 — ${result.rows.map((row) => `${row.label} +${row.earned}P`).join(' · ')}`);
+    });
+  };
+
+  archiveBattleRef.current = archiveBattle;
+
+  const removeRecord = async (record: BattleRecord) => {
+    if (!confirmed(`${record.operation.name} 기록을 삭제합니다.`)) return;
+    await guard(async () => {
+      await storage.deleteRecord(record.id);
+      await refresh();
+      setMessage('기록을 삭제했습니다.');
+    });
+  };
+
+  /* ── 보급 창구 ───────────────────────────────────── */
+
+  const buyForBond = async (bond: PairBond, itemId: string) => {
+    const result = purchase(bond, itemId, 1);
+    if (!result.ok) {
+      setError(result.reason ?? '구매에 실패했습니다.');
+      return;
+    }
+    await guard(async () => {
+      await storage.saveBond(withPurchase(bond, result));
+      await refresh();
+      setMessage(`${bond.label} — ${result.message}`);
+    });
+  };
+
+  const sellForBond = async (bond: PairBond, itemId: string) => {
+    const result = refund(bond, itemId);
+    if (!result.ok) {
+      setError(result.reason ?? '반납에 실패했습니다.');
+      return;
+    }
+    await guard(async () => {
+      await storage.saveBond(withPurchase(bond, result));
+      await refresh();
+      setMessage(`${bond.label} — ${result.message}`);
+    });
+  };
+
   const copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -740,6 +954,12 @@ export default function ControlTerminal() {
         bond.hunterAccountId === accountId || bond.constellationAccountId === accountId,
     ) ?? null;
 
+  /** 컨셉 세 칸과 계약 상대를 한 덩어리로 묶어 검색에 태운다 */
+  const profileText = (sheet: CharacterSheet) =>
+    [sheet.partnerName, ...PROFILE_FIELDS.map((field) => sheet[field.key] ?? '')]
+      .join(' ')
+      .toLowerCase();
+
   const query = sheetQuery.trim().toLowerCase();
   const filteredSheets = sheets
     .filter((row) => {
@@ -760,7 +980,7 @@ export default function ControlTerminal() {
         row.sheet.name.toLowerCase().includes(query) ||
         row.accountId.toLowerCase().includes(query) ||
         row.sheet.classId.toLowerCase().includes(query) ||
-        (row.sheet.concept ?? '').toLowerCase().includes(query) ||
+        profileText(row.sheet).includes(query) ||
         (row.sheet.skills ?? []).some((skill) => skill.name.toLowerCase().includes(query)),
     );
 
@@ -827,6 +1047,174 @@ export default function ControlTerminal() {
 
   const readyCount = battle ? battle.pairs.filter(pairReady).length : 0;
 
+  /** 그 페어가 지금 겨누고 있는 적 — 참가자 시점 미리보기에 쓴다 */
+  const peekTarget = (pair: BattleState['pairs'][number]): EnemyState | null => {
+    if (!battle) return null;
+    return (
+      battle.enemies.find((row) => row.id === pair.submission.targetEnemyId) ??
+      battle.enemies[0] ??
+      null
+    );
+  };
+
+  /**
+   * 편성한 적과 층 기믹이 서로 맞는지 본다.
+   * 포식처럼 기믹 해제를 전제로 한 패턴은 장치 없이 세우면 받아 낼 방법이 없다.
+   */
+  const gimmickWarning: string | null = (() => {
+    const picked = selectedEnemies
+      .map((id) => templates.find((row) => row.id === id))
+      .filter((row): row is EnemyTemplate => Boolean(row));
+
+    const needs = picked.filter(
+      (row) => findPatternSet(row.patternSetId ?? null)?.requiresGimmick,
+    );
+    if (!gimmickId && needs.length > 0) {
+      return `${needs.map((row) => row.name).join(' · ')} 의 패턴은 층 기믹 해제를 전제로 합니다. 기믹을 고르거나, 기믹 없이도 성립하는 패턴 세트로 바꾸세요.`;
+    }
+    if (gimmickId && picked.length > 0 && needs.length === 0) {
+      return '고른 적 중 기믹을 전제로 한 패턴이 없습니다. 기믹은 별도의 목표로만 굴러갑니다.';
+    }
+    return null;
+  })();
+
+  const jumpTo = (ref: { current: HTMLElement | null }) =>
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  /** 라운드 계산 — 어디서 눌러도 결과표 앞으로 데려간다 */
+  const computeRound = () => {
+    if (!battle) return;
+    setPreview(previewRound(battle));
+    window.requestAnimationFrame(() => jumpTo(processRef));
+  };
+
+  /** 결과 확정 — 도크와 표에서 같은 동작을 쓴다 */
+  const applyPreview = () => {
+    if (!battle || !preview) return;
+    // 확정 직전 상태를 한 장 남긴다. 잘못 넣은 수치를 손으로 복원하지 않게 한다.
+    setUndoBattle(battle);
+    setBattle(applyRound(battle, preview));
+    setPreview(null);
+    setMessage(
+      `ROUND ${battle.round} 결과를 확정했습니다. 연출 로그가 만들어졌고 참가자 화면이 갱신됩니다.`,
+    );
+  };
+
+  /** 직전 확정을 되돌린다 — 한 단계만 남는다 */
+  const undoApply = () => {
+    if (!undoBattle) return;
+    if (
+      !confirmed(
+        `ROUND ${undoBattle.round} 확정을 되돌립니다. 그 뒤에 손으로 고친 수치도 함께 사라집니다.`,
+      )
+    ) {
+      return;
+    }
+    setBattle(undoBattle);
+    setPreview(null);
+    setUndoBattle(null);
+    setMessage(`ROUND ${undoBattle.round} 직전 상태로 되돌렸습니다.`);
+  };
+
+  /**
+   * 선택한 페어에 같은 조작을 한 번에 건다.
+   * 페어가 여섯 조만 되어도 하나씩 여는 것이 일이 된다.
+   */
+  const runBulk = (label: string, step: (state: BattleState, pairId: string) => BattleState) => {
+    if (!battle || bulkPairs.length === 0) return;
+    let next = battle;
+    for (const pairId of bulkPairs) next = step(next, pairId);
+    update(next);
+    setMessage(`${bulkPairs.length}개 페어 — ${label}`);
+  };
+
+  /** 그 페어의 모든 상태이상을 걷어낸다 */
+  const clearStatuses = (state: BattleState, pairId: string): BattleState => {
+    const pair = state.pairs.find((row) => row.id === pairId);
+    if (!pair) return state;
+    let next = state;
+    for (const status of pair.hunter.statuses) {
+      next = admin.revokeStatus(next, 'HUNTER', pairId, status.defId);
+    }
+    for (const status of pair.constellation.statuses) {
+      next = admin.revokeStatus(next, 'CONSTELLATION', pairId, status.defId);
+    }
+    return next;
+  };
+
+  const savePresets = (rows: OperationPreset[]) => {
+    setPresets(rows);
+    try {
+      window.localStorage.setItem(PRESET_KEY, JSON.stringify(rows));
+    } catch {
+      setError('프리셋을 저장할 수 없습니다 (브라우저 저장소 제한).');
+    }
+  };
+
+  const capturePreset = () => {
+    const name = window.prompt(
+      '프리셋 이름',
+      `FLOOR ${floor} · ${selectedBonds.length}페어`,
+    );
+    if (!name) return;
+    savePresets([
+      ...presets.filter((row) => row.name !== name),
+      {
+        id: newId(),
+        name,
+        bondIds: [...selectedBonds],
+        enemyIds: [...selectedEnemies],
+        gimmickId,
+        floor,
+      },
+    ]);
+    setMessage(`프리셋 「${name}」 을 저장했습니다.`);
+  };
+
+  /** 지금 명부에 남아 있는 것만 되살린다 — 지워진 페어 · 적은 조용히 빠진다 */
+  const usePreset = (preset: OperationPreset) => {
+    const bondIds = preset.bondIds.filter((id) => activeBonds.some((row) => row.id === id));
+    const enemyIds = preset.enemyIds.filter((id) => templates.some((row) => row.id === id));
+    setSelectedBonds(bondIds);
+    setSelectedEnemies(enemyIds);
+    setGimmickId(preset.gimmickId);
+    setFloor(preset.floor);
+
+    const dropped =
+      preset.bondIds.length - bondIds.length + (preset.enemyIds.length - enemyIds.length);
+    setMessage(
+      dropped > 0
+        ? `프리셋 「${preset.name}」 적용 — 사라진 항목 ${dropped}건은 빠졌습니다.`
+        : `프리셋 「${preset.name}」 을 불러왔습니다.`,
+    );
+  };
+
+  /**
+   * 미제출자를 채널로 부른다.
+   * 누가 안 냈는지 일일이 옮겨 적는 대신 한 번에 올린다.
+   */
+  const callWaiting = () => {
+    if (!battle || waitingSides.length === 0) return;
+    const names = waitingSides
+      .map((row) => `${row.label} ${row.side === 'HUNTER' ? '헌터' : '성좌'}`)
+      .join(' · ');
+    void guard(async () => {
+      await storage.postMessage({
+        id: newUuid(),
+        channel: battle.id,
+        authorId: operatorHandle,
+        authorName: '관리국',
+        role: 'OPERATOR',
+        side: null,
+        kind: 'OOC',
+        body: `[제출 요청] ROUND ${battle.round} — ${names} 의 제출을 기다립니다.`,
+        dice: null,
+        at: new Date().toISOString(),
+      });
+      setMessage(`채널에 제출 요청을 올렸습니다 (${waitingSides.length}건).`);
+    });
+  };
+
   /* ── 화면 ────────────────────────────────────────── */
 
   return (
@@ -879,6 +1267,7 @@ export default function ControlTerminal() {
             ['ENCOUNTER', `적 세팅 · ${templates.length}`],
             ['OPERATION', battle ? `전투 · ROUND ${battle.round}` : '전투'],
             ['LOG', '로그'],
+            ['ARCHIVE', `공략 기록 · ${records.length}`],
           ] as Array<[Tab, string]>
         ).map(([value, label]) => (
           <button
@@ -923,8 +1312,11 @@ export default function ControlTerminal() {
         </p>
       )}
       {message && (
-        <p className="notice ok" onClick={() => setMessage(null)} title="클릭하면 닫기">
+        <p className="notice ok">
           {message}
+          <button type="button" className="ctl small" onClick={() => setMessage(null)}>
+            닫기
+          </button>
         </p>
       )}
       {access === 'LOCAL' && (
@@ -1036,6 +1428,66 @@ export default function ControlTerminal() {
                         <small className="dim">{bond.constellationAccountId}</small>
                       </div>
                     </div>
+                    <div className="bond-resource">
+                      <span className="field-label">POINT</span>
+                      <b className="num gold">{bond.points ?? 0} P</b>
+                      <NumberField
+                        label="포인트 조정"
+                        value={bond.points ?? 0}
+                        step={10}
+                        onCommit={(value) =>
+                          void patchBond(bond, { points: Math.max(0, value) })
+                        }
+                      />
+                    </div>
+
+                    <Collapsible label={`보급 창구 — 포인트로 아이템을 산다`}>
+                      <p className="hint">
+                        전투 중에는 포인트로 아무것도 살 수 없습니다. 보급은 전투 밖에서만
+                        처리합니다.
+                      </p>
+                      <ul className="shop-list">
+                        {shopRows().map((row) => {
+                          const owned = (bond.inventory ?? []).find(
+                            (stack) => stack.itemId === row.itemId,
+                          )?.quantity ?? 0;
+                          const full = row.limit !== null && owned >= row.limit;
+                          return (
+                            <li key={row.itemId}>
+                              <span className="shop-name">
+                                {row.item.nameKo}
+                                <small className="dim">
+                                  {describeItem(row.item).join(' / ') || '효과 없음'}
+                                </small>
+                              </span>
+                              <b className="num gold">{row.price} P</b>
+                              <span className="tag">
+                                보유 {owned}
+                                {row.limit !== null ? ` / ${row.limit}` : ''}
+                              </span>
+                              <button
+                                type="button"
+                                className="ctl small"
+                                disabled={busy || full || (bond.points ?? 0) < row.price}
+                                onClick={() => void buyForBond(bond, row.itemId)}
+                              >
+                                구매
+                              </button>
+                              <button
+                                type="button"
+                                className="ctl small"
+                                disabled={busy || owned <= 0}
+                                title="구매가의 절반을 환급합니다"
+                                onClick={() => void sellForBond(bond, row.itemId)}
+                              >
+                                반납
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </Collapsible>
+
                     <Collapsible label="시트 열람 — 스탯 · 스킬 · 컨셉">
                       <div className="sheet-list">
                         {(
@@ -1175,6 +1627,22 @@ export default function ControlTerminal() {
                   {label}
                 </button>
               ))}
+              <span className="ctl-sep" />
+              {/* 전체 인원 카드는 이 화면(운영진)에만 있다 — 참가자는 자기 것과 페어 상대만 본다 */}
+              <button
+                type="button"
+                className={`ctl small ${sheetLayout === 'DETAIL' ? 'on' : ''}`}
+                onClick={() => setSheetLayout('DETAIL')}
+              >
+                시트 전문
+              </button>
+              <button
+                type="button"
+                className={`ctl small ${sheetLayout === 'PROFILE' ? 'on' : ''}`}
+                onClick={() => setSheetLayout('PROFILE')}
+              >
+                프로필 카드
+              </button>
               <button type="button" className="ctl small" onClick={() => void refresh()}>
                 새로 고침
               </button>
@@ -1204,6 +1672,32 @@ export default function ControlTerminal() {
             </p>
           ) : filteredSheets.length === 0 ? (
             <p className="dim">조건에 맞는 시트가 없습니다.</p>
+          ) : sheetLayout === 'PROFILE' ? (
+            <div className="dossier-list">
+              {filteredSheets.map((row) => {
+                const bond = bondOf(row.accountId);
+                const partner = bond
+                  ? row.sheet.side === 'HUNTER'
+                    ? bond.constellationName
+                    : bond.hunterName
+                  : null;
+
+                return (
+                  <PublicSheetCard
+                    key={`${row.accountId}-${row.sheet.id}`}
+                    profile={toPublicProfile(row.accountId, row.sheet)}
+                    partnerName={partner}
+                    badge={
+                      bond ? (
+                        <span className="tag ok">{bond.label}</span>
+                      ) : (
+                        <span className="tag offline">미편성</span>
+                      )
+                    }
+                  />
+                );
+              })}
+            </div>
           ) : (
             <div className="sheet-list">
               {filteredSheets.map((row) => {
@@ -1337,7 +1831,16 @@ export default function ControlTerminal() {
                       value={template.maxPhase}
                       min={1}
                       max={5}
-                      onCommit={(value) => void patchTemplate(template, { maxPhase: value })}
+                      /* 직접 정한 경계가 있으면 새 페이즈 수에 맞춰 다시 나눈다 */
+                      onCommit={(value) =>
+                        void patchTemplate(template, {
+                          maxPhase: value,
+                          phaseCutoffs:
+                            (template.phaseCutoffs ?? []).length > 0
+                              ? normalizeCutoffs(template.phaseCutoffs, value)
+                              : [],
+                        })
+                      }
                     />
                     <label className="num-field">
                       <span className="field-label">
@@ -1354,10 +1857,17 @@ export default function ControlTerminal() {
                         <option value="">없음 (단일 공격만)</option>
                         {PATTERN_SETS.map((set) => (
                           <option key={set.id} value={set.id}>
-                            {set.id}
+                            {set.labelKo}
                           </option>
                         ))}
                       </select>
+                      <small className="hint">
+                        {findPatternSet(template.patternSetId ?? null)?.note ??
+                          '패턴 없이 매 라운드 단일 공격만 합니다.'}
+                        {template.patternSetId && (template.attacks ?? []).length === 0 && (
+                          <> 아래 <b>보스 패턴</b> 에서 불러오면 그대로 고칠 수 있습니다.</>
+                        )}
+                      </small>
                     </label>
                     <label className="num-field">
                       <span className="field-label">보스 여부</span>
@@ -1375,14 +1885,26 @@ export default function ControlTerminal() {
                   </div>
 
                   <Collapsible
-                    label={`공격 패턴 ${(template.attacks ?? []).length}개 — 페이즈별로 적용`}
+                    label={`보스 패턴 — 공격 ${(template.attacks ?? []).length}개 · ${describePhaseBands(
+                      template,
+                    )}`}
                     defaultOpen={(template.attacks ?? []).length > 0}
                   >
                     <AttackEditor
                       attacks={template.attacks ?? []}
                       maxPhase={template.maxPhase}
                       enemyAttack={template.attack}
+                      maxHp={template.maxHp}
+                      phaseCutoffs={template.phaseCutoffs ?? []}
+                      patternSetId={template.patternSetId}
                       onChange={(attacks) => void patchTemplate(template, { attacks })}
+                      onPhaseCutoffs={(phaseCutoffs) =>
+                        void patchTemplate(template, { phaseCutoffs })
+                      }
+                      onImportPreset={
+                        template.patternSetId ? () => void importPreset(template) : undefined
+                      }
+                      presetLabel={findPatternSet(template.patternSetId ?? null)?.labelKo}
                     />
                   </Collapsible>
                 </article>
@@ -1470,14 +1992,56 @@ export default function ControlTerminal() {
                 value={gimmickId}
                 onChange={(event) => setGimmickId(event.target.value)}
               >
-                <option value="">없음</option>
+                <option value="">없음 (장치 없는 전투)</option>
                 {GIMMICK_DEFINITIONS.map((def) => (
                   <option key={def.id} value={def.id}>
                     {def.labelKo} · {def.required}회 / {def.roundLimit ?? '∞'}R
                   </option>
                 ))}
               </select>
+              <small className="hint">
+                {gimmickId
+                  ? '헌터의 기믹 수행으로 파악 → 해결 순으로 풉니다.'
+                  : '기믹 수행 행동이 잠깁니다. 보스 패턴만으로 진행하는 전투가 됩니다.'}
+              </small>
             </label>
+          </div>
+
+          {/* 기믹이 있어야 성립하는 보스를 장치 없이 세우면 그대로 학살이 된다 */}
+          {gimmickWarning && <p className="notice warn">{gimmickWarning}</p>}
+
+          {/* 같은 조합을 매번 다시 고르지 않게 한다. 이 브라우저에만 남는다. */}
+          <h3 className="sub-title">프리셋</h3>
+          <div className="preset-bar">
+            <button
+              type="button"
+              className="ctl small"
+              disabled={selectedBonds.length === 0 && selectedEnemies.length === 0}
+              onClick={capturePreset}
+            >
+              지금 구성 저장
+            </button>
+            {presets.length === 0 ? (
+              <span className="dim small-text">저장된 프리셋이 없습니다.</span>
+            ) : (
+              presets.map((preset) => (
+                <span key={preset.id} className="preset-chip">
+                  <button type="button" className="ctl small" onClick={() => usePreset(preset)}>
+                    {preset.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="ctl small"
+                    title="이 프리셋을 지웁니다"
+                    onClick={() =>
+                      savePresets(presets.filter((row) => row.id !== preset.id))
+                    }
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))
+            )}
           </div>
 
           <button
@@ -1673,13 +2237,18 @@ export default function ControlTerminal() {
             <section className="panel desertion">
               <div className="process-head">
                 <h2 className="panel-title">미제출 · {waitingSides.length}</h2>
-                <button
-                  type="button"
-                  className="ctl primary"
-                  onClick={() => update(admin.forceAutoForUnsubmitted(battle))}
-                >
-                  전원 자동 위임
-                </button>
+                <div className="btn-row">
+                  <button type="button" className="ctl small" onClick={callWaiting}>
+                    채널로 호출
+                  </button>
+                  <button
+                    type="button"
+                    className="ctl primary"
+                    onClick={() => update(admin.forceAutoForUnsubmitted(battle))}
+                  >
+                    전원 자동 위임
+                  </button>
+                </div>
               </div>
               <div className="desertion-list">
                 {waitingSides.map((row) => (
@@ -1747,6 +2316,37 @@ export default function ControlTerminal() {
                     onGrant={(h, o, d) => update(admin.grantStatus(battle, h, o, d))}
                     onRevoke={(h, o, d) => update(admin.revokeStatus(battle, h, o, d))}
                   />
+                  {/* 접지 않고 바로 깎는다 — 전투 중 가장 자주 하는 조작이다 */}
+                  <div className="quick-hp">
+                    <span className="field-label">HP</span>
+                    {[-20, -10, -5, 5, 10].map((delta) => (
+                      <button
+                        key={delta}
+                        type="button"
+                        className="ctl small"
+                        onClick={() =>
+                          update(admin.setEnemyHp(battle, enemy.id, enemy.hp + delta))
+                        }
+                      >
+                        {delta > 0 ? `+${delta}` : delta}
+                      </button>
+                    ))}
+                    <NumberField
+                      label=""
+                      value={enemy.hp}
+                      max={enemy.maxHp}
+                      onCommit={(value) => update(admin.setEnemyHp(battle, enemy.id, value))}
+                    />
+                    <button
+                      type="button"
+                      className="ctl small"
+                      title="이 적을 쓰러뜨립니다"
+                      onClick={() => update(admin.setEnemyHp(battle, enemy.id, 0))}
+                    >
+                      처치
+                    </button>
+                  </div>
+
                   <div className="admin-only">
                     <span className="field-label">운영진 전용 · 다음 패턴</span>
                     <b className="gold">{nextPatternAdmin(enemy, battle.round)}</b>
@@ -1765,13 +2365,23 @@ export default function ControlTerminal() {
                       </>
                     )}
                   </div>
-                  <Collapsible label={`공격 패턴 ${(enemy.attacks ?? []).length}개`}>
+                  <Collapsible
+                    label={`보스 패턴 — 공격 ${(enemy.attacks ?? []).length}개 · ${describePhaseBands(
+                      enemy,
+                    )}`}
+                  >
                     <AttackEditor
                       attacks={enemy.attacks ?? []}
                       maxPhase={enemy.maxPhase}
                       enemyAttack={enemy.attack}
+                      maxHp={enemy.maxHp}
+                      phaseCutoffs={enemy.phaseCutoffs ?? []}
+                      patternSetId={enemy.patternSetId}
                       onChange={(attacks) =>
                         update(admin.setEnemyAttacks(battle, enemy.id, attacks))
+                      }
+                      onPhaseCutoffs={(phaseCutoffs) =>
+                        update(admin.setEnemyPhaseRules(battle, enemy.id, { phaseCutoffs }))
                       }
                     />
                   </Collapsible>
@@ -1812,6 +2422,15 @@ export default function ControlTerminal() {
                         min={1}
                         max={enemy.maxPhase}
                         onCommit={(value) => update(admin.setEnemyPhase(battle, enemy.id, value))}
+                      />
+                      <NumberField
+                        label="MAX PHASE"
+                        value={enemy.maxPhase}
+                        min={1}
+                        max={5}
+                        onCommit={(value) =>
+                          update(admin.setEnemyPhaseRules(battle, enemy.id, { maxPhase: value }))
+                        }
                       />
                     </div>
                   </Collapsible>
@@ -1858,6 +2477,45 @@ export default function ControlTerminal() {
                 </select>
               </div>
             )}
+
+            {/* 무엇을 해야 풀리는 장치인지 — 판정을 인정할 때 기준이 된다 */}
+            {battle.gimmick && (findGimmick(battle.gimmick.defId)?.approaches.length ?? 0) > 0 && (
+              <Collapsible label="인정되는 접근 (판정 기준)">
+                <table className="preview-table">
+                  <thead>
+                    <tr>
+                      <th>단계</th>
+                      <th>접근</th>
+                      <th>보정</th>
+                      <th>인정 낱말</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(findGimmick(battle.gimmick.defId)?.approaches ?? []).map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <span className={`tag ${row.stage === 'INSIGHT' ? 'blue' : 'gold'}`}>
+                            {row.stage === 'INSIGHT' ? '파악' : '해결'}
+                          </span>
+                        </td>
+                        <td>
+                          {row.label}
+                          <small className="dim">{row.detail}</small>
+                        </td>
+                        <td className="num">+{row.bonus}</td>
+                        <td className="dim small-text">{row.keywords.join(' · ')}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td colSpan={3} className="dim small-text">
+                        어느 접근에도 걸리지 않은 선언
+                      </td>
+                      <td className="num warn-text">{GIMMICK_CHECK.offApproachPenalty}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </Collapsible>
+            )}
           </section>
 
           {/* 페어 모니터 */}
@@ -1884,6 +2542,124 @@ export default function ControlTerminal() {
                     {label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className={`ctl small ${monitorDense ? '' : 'on'}`}
+                  title="편집 도구까지 펼쳐 봅니다"
+                  onClick={() => setMonitorDense((current) => !current)}
+                >
+                  {monitorDense ? '간략' : '상세'}
+                </button>
+              </div>
+            </div>
+
+            {/* 일괄 조작 — 페어를 하나씩 열어 같은 값을 넣는 일을 없앤다 */}
+            <div className="bulk-bar">
+              <button
+                type="button"
+                className="ctl small"
+                onClick={() =>
+                  setBulkPairs((current) =>
+                    current.length === filteredPairs.length
+                      ? []
+                      : filteredPairs.map((row) => row.id),
+                  )
+                }
+              >
+                {bulkPairs.length === filteredPairs.length && filteredPairs.length > 0
+                  ? '선택 해제'
+                  : `보이는 ${filteredPairs.length}개 선택`}
+              </button>
+              <span className="field-label">선택 {bulkPairs.length}</span>
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={bulkPairs.length === 0}
+                  onClick={() =>
+                    runBulk('HP 완전 회복', (state, pairId) => {
+                      const pair = state.pairs.find((row) => row.id === pairId);
+                      return pair ? admin.setHunterHp(state, pairId, pair.hunter.maxHp) : state;
+                    })
+                  }
+                >
+                  HP 완전 회복
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={bulkPairs.length === 0}
+                  onClick={() =>
+                    runBulk('HP 절반 회복', (state, pairId) => {
+                      const pair = state.pairs.find((row) => row.id === pairId);
+                      if (!pair) return state;
+                      const half = Math.ceil(pair.hunter.maxHp / 2);
+                      return admin.setHunterHp(state, pairId, Math.max(pair.hunter.hp, half));
+                    })
+                  }
+                >
+                  HP 절반까지
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={bulkPairs.length === 0}
+                  onClick={() =>
+                    runBulk('행동력 충전', (state, pairId) => {
+                      const pair = state.pairs.find((row) => row.id === pairId);
+                      if (!pair) return state;
+                      return admin.setActorAp(
+                        admin.setActorAp(state, pairId, 'HUNTER', pair.hunter.maxAp),
+                        pairId,
+                        'CONSTELLATION',
+                        pair.constellation.maxAp,
+                      );
+                    })
+                  }
+                >
+                  AP 충전
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={bulkPairs.length === 0}
+                  onClick={() => runBulk('상태이상 해제', clearStatuses)}
+                >
+                  상태이상 해제
+                </button>
+                <button
+                  type="button"
+                  className="ctl small"
+                  disabled={bulkPairs.length === 0}
+                  onClick={() => runBulk('제출 초기화', admin.resetSubmission)}
+                >
+                  제출 초기화
+                </button>
+                <select
+                  className="ctl small"
+                  value=""
+                  disabled={bulkPairs.length === 0}
+                  onChange={(event) => {
+                    const reason = event.target.value;
+                    if (!reason) return;
+                    const rule = manualRewards().find((row) => row.reason === reason);
+                    runBulk(`${rule?.labelKo ?? reason} 지급`, (state, pairId) =>
+                      admin.grantPoints(
+                        state,
+                        pairId,
+                        reason as Parameters<typeof admin.grantPoints>[2],
+                      ),
+                    );
+                    event.target.value = '';
+                  }}
+                >
+                  <option value="">포인트 일괄 지급…</option>
+                  {manualRewards().map((rule) => (
+                    <option key={rule.reason} value={rule.reason}>
+                      {rule.labelKo} · {rule.points}P
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -1893,9 +2669,27 @@ export default function ControlTerminal() {
                 const ready = pairReady(pair);
 
                 return (
-                  <article key={pair.id} className={`monitor-card ${ready ? 'ready' : ''}`}>
+                  <article
+                    key={pair.id}
+                    className={`monitor-card ${ready ? 'ready' : ''} ${
+                      bulkPairs.includes(pair.id) ? 'picked' : ''
+                    }`}
+                  >
                     <header className="monitor-head">
                       <div>
+                        <input
+                          type="checkbox"
+                          className="bulk-check"
+                          title="일괄 조작 대상"
+                          checked={bulkPairs.includes(pair.id)}
+                          onChange={() =>
+                            setBulkPairs((current) =>
+                              current.includes(pair.id)
+                                ? current.filter((id) => id !== pair.id)
+                                : [...current, pair.id],
+                            )
+                          }
+                        />
                         <b>{pair.label}</b>
                         <span className={`tag ${pair.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
                           {pair.affiliation === 'GOVERNMENT' ? '정부' : '길드'}
@@ -1987,6 +2781,26 @@ export default function ControlTerminal() {
                       </span>
                     </div>
 
+                    {monitorDense ? (
+                      <div className="monitor-status">
+                        <span className="field-label">상태</span>
+                        {[
+                          ...statusViews(pair.hunter.statuses),
+                          ...statusViews(pair.constellation.statuses),
+                        ].length === 0 ? (
+                          <span className="dim small-text">없음</span>
+                        ) : (
+                          [
+                            ...statusViews(pair.hunter.statuses),
+                            ...statusViews(pair.constellation.statuses),
+                          ].map((view, index) => (
+                            <span key={`${view.label}-${index}`} className="tag">
+                              {view.label}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    ) : (
                     <div className="monitor-status">
                       <span className="field-label">헌터</span>
                       <StatusEditor
@@ -2005,8 +2819,79 @@ export default function ControlTerminal() {
                         onRevoke={(h, o, d) => update(admin.revokeStatus(battle, h, o, d))}
                       />
                     </div>
+                    )}
+
+                    {/* 참가자가 지금 무엇을 보고 있는지 — 안내를 하려면 같은 것을 봐야 한다 */}
+                    <Collapsible label="참가자 시점">
+                      <div className="viewer-peek">
+                        <div>
+                          <span className="field-label">장치</span>
+                          {battle.gimmick ? (
+                            <>
+                              <span className={`tag ${battle.gimmick.identified ? 'ok' : 'warn'}`}>
+                                {battle.gimmick.identified ? '파악 완료' : '미파악'}
+                              </span>
+                              {availableStage(battle.gimmick, pair) && (
+                                <span className="tag blue">
+                                  다음 단계 ·{' '}
+                                  {availableStage(battle.gimmick, pair) === 'INSIGHT'
+                                    ? '파악'
+                                    : '해결'}
+                                </span>
+                              )}
+                              <span className="dim small-text">
+                                {gimmickBrief(battle.gimmick).text}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="dim small-text">
+                              이 층에는 장치가 없습니다 — 기믹 수행이 잠겨 있습니다.
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="field-label">다음 패턴</span>
+                          <span className={pair.patternRevealed ? 'gold' : 'dim'}>
+                            {pair.patternRevealed
+                              ? (peekTarget(pair)?.nextPattern ?? '없음')
+                              : 'UNKNOWN (계시 없음)'}
+                          </span>
+                        </div>
+                        {(['HUNTER', 'CONSTELLATION'] as ActorSide[]).map((side) => {
+                          const blocked = actionsFor(pair, side)
+                            .map((action) => ({
+                              action,
+                              availability: actionAvailability(
+                                action,
+                                pair,
+                                Boolean(peekTarget(pair)),
+                                battle.gimmick,
+                              ),
+                            }))
+                            .filter((row) => !row.availability.usable);
+
+                          return (
+                            <div key={side}>
+                              <span className="field-label">
+                                {side === 'HUNTER' ? '헌터' : '성좌'} 잠긴 행동
+                              </span>
+                              {blocked.length === 0 ? (
+                                <span className="dim small-text">없음 — 전부 고를 수 있습니다</span>
+                              ) : (
+                                blocked.map((row) => (
+                                  <span key={row.action.id} className="tag warn">
+                                    {row.action.labelKo} · {row.availability.reason}
+                                  </span>
+                                ))
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Collapsible>
 
                     {/* 판정 근거 — 스탯과 스킬을 모르면 기믹도 연출도 판정할 수 없다 */}
+                    {!monitorDense && (
                     <Collapsible label="시트 · 스킬 (판정 참고)">
                       <div className="sheet-list">
                         <ActorSheet
@@ -2016,7 +2901,8 @@ export default function ControlTerminal() {
                           stats={pair.hunter.stats}
                           skills={pair.hunter.skills}
                           accountId={pair.hunterAccountId}
-                          concept={sheetOf(pair.hunterAccountId)?.concept}
+                          profile={sheetOf(pair.hunterAccountId)}
+                          portrait={sheetOf(pair.hunterAccountId)?.portrait}
                         />
                         <ActorSheet
                           side="CONSTELLATION"
@@ -2025,11 +2911,14 @@ export default function ControlTerminal() {
                           stats={pair.constellation.stats}
                           skills={pair.constellation.skills}
                           accountId={pair.constellationAccountId}
-                          concept={sheetOf(pair.constellationAccountId)?.concept}
+                          profile={sheetOf(pair.constellationAccountId)}
+                          portrait={sheetOf(pair.constellationAccountId)?.portrait}
                         />
                       </div>
                     </Collapsible>
+                    )}
 
+                    {!monitorDense && (
                     <Collapsible label="수치 편집">
                       <div className="admin-grid">
                         <NumberField
@@ -2143,7 +3032,109 @@ export default function ControlTerminal() {
                           }
                         />
                       </div>
+
+                      <h4 className="sub-title">아이템 지급 · 회수</h4>
+                      <div className="item-admin">
+                        {pair.inventory.length === 0 ? (
+                          <p className="dim small-text">가방이 비어 있습니다.</p>
+                        ) : (
+                          <ul className="inventory-list">
+                            {pair.inventory.map((stack) => {
+                              const item = findItem(stack.itemId);
+                              if (!item) return null;
+                              return (
+                                <li key={stack.itemId}>
+                                  <span>{item.nameKo}</span>
+                                  <b className="num gold">{stack.quantity}</b>
+                                  <button
+                                    type="button"
+                                    className="ctl small"
+                                    onClick={() =>
+                                      update(admin.grantItem(battle, pair.id, stack.itemId, 1))
+                                    }
+                                  >
+                                    +1
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="ctl small"
+                                    onClick={() =>
+                                      update(admin.revokeItem(battle, pair.id, stack.itemId, 1))
+                                    }
+                                  >
+                                    −1
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                        <select
+                          className="ctl input"
+                          value=""
+                          onChange={(event) => {
+                            if (!event.target.value) return;
+                            update(admin.grantItem(battle, pair.id, event.target.value, 1));
+                          }}
+                        >
+                          <option value="">아이템 지급…</option>
+                          {ITEM_DEFINITIONS.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.nameKo} · {describeItem(item).join(' / ') || '효과 없음'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <h4 className="sub-title">포인트 지급</h4>
+                      <div className="item-admin">
+                        <select
+                          className="ctl input"
+                          value=""
+                          onChange={(event) => {
+                            const reason = event.target.value;
+                            if (!reason) return;
+                            update(
+                              admin.grantPoints(
+                                battle,
+                                pair.id,
+                                reason as Parameters<typeof admin.grantPoints>[2],
+                              ),
+                            );
+                          }}
+                        >
+                          <option value="">수동 지급 사유…</option>
+                          {manualRewards().map((rule) => (
+                            <option key={rule.reason} value={rule.reason}>
+                              {rule.labelKo} · {rule.points}P
+                              {rule.range ? ` (${rule.range.min}~${rule.range.max})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {battle.rewards.filter((row) => row.pairId === pair.id).length > 0 && (
+                          <ul className="inventory-list">
+                            {battle.rewards
+                              .filter((row) => row.pairId === pair.id)
+                              .map((row) => (
+                                <li key={row.id}>
+                                  <span>R{row.round}</span>
+                                  <span>{row.label}</span>
+                                  <b className="num gold">+{row.points}</b>
+                                  <button
+                                    type="button"
+                                    className="ctl small"
+                                    title="지급을 취소하고 포인트를 되돌립니다"
+                                    onClick={() => update(admin.revokeReward(battle, row.id))}
+                                  >
+                                    ✕
+                                  </button>
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
                     </Collapsible>
+                    )}
                   </article>
                 );
               })}
@@ -2151,20 +3142,32 @@ export default function ControlTerminal() {
           </section>
 
           {/* 라운드 처리 */}
-          <section className="panel process">
+          <section className="panel process" ref={processRef}>
             <div className="process-head">
               <h2 className="panel-title">ROUND {String(battle.round).padStart(2, '0')} 처리</h2>
-              <span className="hint">
-                APPLY 전에 피해량과 연계를 직접 수정할 수 있습니다. 자동 계산은 제안일 뿐입니다.
-              </span>
+              <div className="btn-row">
+                {undoBattle && (
+                  <button
+                    type="button"
+                    className="ctl small"
+                    title={`ROUND ${undoBattle.round} 확정 직전으로 되돌립니다`}
+                    onClick={undoApply}
+                  >
+                    ↩ ROUND {undoBattle.round} 되돌리기
+                  </button>
+                )}
+              </div>
             </div>
+            <p className="hint">
+              APPLY 전에 피해량과 연계를 직접 수정할 수 있습니다. 자동 계산은 제안일 뿐입니다.
+            </p>
 
             {!preview ? (
               <button
                 type="button"
                 className="ctl wide"
                 disabled={battle.status !== 'ENGAGED'}
-                onClick={() => setPreview(previewRound(battle))}
+                onClick={computeRound}
               >
                 라운드 계산
                 {waitingSides.length > 0 && (
@@ -2235,6 +3238,14 @@ export default function ControlTerminal() {
                               <span className="judge-note">{row.gimmickNote}</span>
                               {row.gimmickCheck && (
                                 <span
+                                  className={`tag ${row.gimmickCheck.approachLabel ? 'ok' : 'warn'}`}
+                                  title="선언이 인정되는 접근에 걸렸는지"
+                                >
+                                  {row.gimmickCheck.approachLabel ?? '접근 불인정'}
+                                </span>
+                              )}
+                              {row.gimmickCheck && (
+                                <span
                                   className={`tag ${row.gimmickCheck.success ? 'ok' : 'critical'}`}
                                   title={row.gimmickCheck.breakdown.join(' / ')}
                                 >
@@ -2283,6 +3294,22 @@ export default function ControlTerminal() {
                             !row.gimmickNote && row.gimmickProgress > 0
                               ? `기믹 +${row.gimmickProgress}`
                               : null,
+                            row.itemUses
+                              .map((use) => `${use.itemName} (AP ${use.apCost})`)
+                              .join(' · ') || null,
+                            row.itemDamageToEnemy > 0 ? `아이템 피해 ${row.itemDamageToEnemy}` : null,
+                            row.heals.map((heal) => `${heal.targetLabel} 회복 +${heal.amount}`).join(' · ') ||
+                              null,
+                            row.contractDelta !== 0
+                              ? `계약 ${row.contractDelta > 0 ? '+' : ''}${row.contractDelta}`
+                              : null,
+                            row.stageDrop > 0
+                              ? '성좌 상태 하락'
+                              : row.stageDrop < 0
+                                ? '성좌 상태 회복'
+                                : null,
+                            row.rewards.map((reward) => `${reward.label} +${reward.points}P`).join(' · ') ||
+                              null,
                             row.appliedStatuses.map((s) => s.label).join(' · ') || null,
                           ]
                             .filter(Boolean)
@@ -2343,21 +3370,11 @@ export default function ControlTerminal() {
                   <button
                     type="button"
                     className="ctl primary"
-                    onClick={() => {
-                      setBattle(applyRound(battle, preview));
-                      setPreview(null);
-                      setMessage(
-                        `ROUND ${battle.round} 결과를 확정했습니다. 연출 로그가 만들어졌고 참가자 화면이 갱신됩니다.`,
-                      );
-                    }}
+                    onClick={applyPreview}
                   >
                     결과 확정 · APPLY
                   </button>
-                  <button
-                    type="button"
-                    className="ctl"
-                    onClick={() => setPreview(previewRound(battle))}
-                  >
+                  <button type="button" className="ctl" onClick={computeRound}>
                     재계산
                   </button>
                   <button type="button" className="ctl" onClick={() => setPreview(null)}>
@@ -2367,20 +3384,90 @@ export default function ControlTerminal() {
               </div>
             )}
           </section>
+
+          {/*
+             운영 도크.
+             페어 모니터가 길어지면 상태 확인과 라운드 처리가 화면 양 끝으로 멀어진다.
+             지금 필요한 숫자와 다음 한 수를 화면 아래에 붙여 둔다.
+          */}
+          <section className="panel ops-dock">
+            <div className="ops-dock-status">
+              <span>
+                <i>준비</i>
+                <b className={`num ${readyCount === battle.pairs.length ? 'ok-text' : ''}`}>
+                  {readyCount}/{battle.pairs.length}
+                </b>
+              </span>
+              <span>
+                <i>미제출</i>
+                <b className={`num ${waitingSides.length > 0 ? 'warn-text' : ''}`}>
+                  {waitingSides.length}
+                </b>
+              </span>
+              <span>
+                <i>전투불능</i>
+                <b className={`num ${down > 0 ? 'danger-text' : ''}`}>{down}</b>
+              </span>
+              {battle.gimmick && (
+                <span>
+                  <i>기믹</i>
+                  <b className="num">
+                    {battle.gimmick.progress}/{battle.gimmick.required}
+                  </b>
+                </span>
+              )}
+            </div>
+            <div className="btn-row">
+              <button type="button" className="ctl small" onClick={() => jumpTo(chatRef)}>
+                채널 ↓
+              </button>
+              {undoBattle && (
+                <button type="button" className="ctl small" onClick={undoApply}>
+                  ↩ R{undoBattle.round}
+                </button>
+              )}
+              {waitingSides.length > 0 && (
+                <button type="button" className="ctl small" onClick={callWaiting}>
+                  호출
+                </button>
+              )}
+              {preview ? (
+                <>
+                  <button type="button" className="ctl small" onClick={() => jumpTo(processRef)}>
+                    결과표
+                  </button>
+                  <button type="button" className="ctl primary" onClick={applyPreview}>
+                    결과 확정 · APPLY
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="ctl primary"
+                  disabled={battle.status !== 'ENGAGED'}
+                  onClick={computeRound}
+                >
+                  ROUND {String(battle.round).padStart(2, '0')} 계산
+                </button>
+              )}
+            </div>
+          </section>
         </>
       )}
 
       {/* 채팅 — 어느 탭에서든 보인다 */}
-      <ChatPanel
-        channel={battle?.id ?? 'GLOBAL'}
-        title={battle ? '작전 채널' : '전체 채널'}
-        author={{
-          id: operatorHandle,
-          name: '관리국',
-          role: 'OPERATOR',
-          side: null,
-        }}
-      />
+      <div ref={chatRef}>
+        <ChatPanel
+          channel={battle?.id ?? 'GLOBAL'}
+          title={battle ? '작전 채널' : '전체 채널'}
+          author={{
+            id: operatorHandle,
+            name: '관리국',
+            role: 'OPERATOR',
+            side: null,
+          }}
+        />
+      </div>
 
       {/* ══════════ 로그 ══════════ */}
       {tab === 'LOG' && (
@@ -2513,6 +3600,170 @@ export default function ControlTerminal() {
             </div>
           )}
         </section>
+      )}
+
+      {/* ══════════ 공략 기록 ══════════ */}
+      {tab === 'ARCHIVE' && (
+        <>
+          <section className="panel">
+            <div className="process-head">
+              <h2 className="panel-title">공략 기록 보관</h2>
+              <span className="hint">
+                끝난 전투는 기록으로 남습니다. 정산을 누르면 전투에서 얻은 포인트와 남은 보급품이
+                영구 편성에 반영됩니다.
+              </span>
+            </div>
+
+            {battle && (battle.status === 'CLEARED' || battle.status === 'FAILED') && (
+              <button
+                type="button"
+                className="ctl wide"
+                disabled={busy}
+                onClick={() => void archiveBattle(battle)}
+              >
+                지금 열려 있는 전투를 기록으로 보관 — {battle.operation.name} ·{' '}
+                {battle.status === 'CLEARED' ? '클리어' : '실패'}
+              </button>
+            )}
+
+            {records.length === 0 ? (
+              <p className="dim">보관된 기록이 없습니다.</p>
+            ) : (
+              <div className="record-list">
+                {records.map((record) => {
+                  const earned = record.pairs.reduce((sum, row) => sum + row.pointsEarned, 0);
+                  const settled = record.note.includes('[정산 완료]');
+
+                  return (
+                    <article className="panel record" key={record.id}>
+                      <header className="process-head">
+                        <div>
+                          <b>{record.operation.name}</b>{' '}
+                          <span className="dim">
+                            {record.operation.floor}층 · 위협도 {record.operation.threatLevel} ·{' '}
+                            {record.mode}
+                          </span>
+                          <div className="dim small-text">
+                            {shortTime(record.finishedAt)} · {record.rounds} 라운드
+                            {record.bossName ? ` · ${record.bossName}` : ''}
+                          </div>
+                        </div>
+                        <div className="btn-row">
+                          <span
+                            className={`tag ${record.status === 'CLEARED' ? 'ok' : 'critical'}`}
+                          >
+                            {record.status === 'CLEARED' ? '클리어' : '실패'}
+                          </span>
+                          {record.gimmick && (
+                            <span
+                              className={`tag ${
+                                record.gimmick.status === 'CLEARED' ? 'ok' : 'warn'
+                              }`}
+                            >
+                              {record.gimmick.label} · {record.gimmick.status}
+                            </span>
+                          )}
+                          <span className="tag gold">총 {earned}P</span>
+                          {settled && <span className="tag ok">정산 완료</span>}
+                        </div>
+                      </header>
+
+                      <table className="preview-table">
+                        <thead>
+                          <tr>
+                            <th>페어</th>
+                            <th>헌터</th>
+                            <th>성좌</th>
+                            <th>HP</th>
+                            <th>계약</th>
+                            <th>획득</th>
+                            <th>보유</th>
+                            <th>남은 보급품</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {record.pairs.map((row) => (
+                            <tr key={row.pairId}>
+                              <td>{row.label}</td>
+                              <td>{row.hunterName}</td>
+                              <td>{row.constellationName}</td>
+                              <td className="num">
+                                {row.hunterHp}/{row.hunterMaxHp}
+                                <small className="dim"> {row.injury}</small>
+                              </td>
+                              <td>
+                                {row.contract.stage}
+                                <small className="dim"> {row.contract.value}</small>
+                              </td>
+                              <td className="num gold">+{row.pointsEarned}</td>
+                              <td className="num">{row.pointsTotal}</td>
+                              <td>
+                                {row.inventory.length === 0 ? (
+                                  <span className="dim">없음</span>
+                                ) : (
+                                  row.inventory.map((stack) => (
+                                    <span key={stack.itemId} className="tag">
+                                      {findItem(stack.itemId)?.nameKo ?? stack.itemId} ×
+                                      {stack.quantity}
+                                    </span>
+                                  ))
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <div className="btn-row">
+                        <button
+                          type="button"
+                          className="ctl small on"
+                          disabled={busy || earned === 0}
+                          onClick={() => void settleRecord(record)}
+                        >
+                          편성에 정산 반영
+                        </button>
+                        <button
+                          type="button"
+                          className="ctl small"
+                          onClick={() =>
+                            void copyText(
+                              record.log.map((entry) => `[${entry.at}] ${entry.text}`).join('\n'),
+                            )
+                          }
+                        >
+                          로그 복사
+                        </button>
+                        <button
+                          type="button"
+                          className="ctl small"
+                          disabled={busy}
+                          onClick={() => void removeRecord(record)}
+                        >
+                          삭제
+                        </button>
+                      </div>
+
+                      <Collapsible label={`전투 로그 · ${record.log.length}건`}>
+                        <ol className="log-list">
+                          {record.log.slice(-120).map((entry) => (
+                            <li key={entry.id}>
+                              <span className="log-time num">[{entry.at}]</span>
+                              <span className="log-text">
+                                {entry.text}
+                                {entry.detail && <small className="dim">{entry.detail}</small>}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      </Collapsible>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
       )}
     </div>
   );

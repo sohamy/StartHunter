@@ -8,10 +8,12 @@
 
 import {
   POINT_BUY,
+  PROFILE_FIELDS,
   STAT_SCALING,
   findClass,
   remainingPoints,
   statsFor,
+  toProfile,
 } from '../config/characters';
 import { AP_RULES, HUNTER_DEFAULTS, MANIFEST_RULES } from '../config/rules';
 import type {
@@ -19,6 +21,7 @@ import type {
   CharacterSheet,
   ConstellationState,
   HunterState,
+  SheetProfile,
   SkillDefinition,
   StatBlock,
 } from '../types';
@@ -104,6 +107,7 @@ export function hunterStateFromSheet(sheet: CharacterSheet): HunterState {
     statuses: [],
     skills: toRuntime(sheet.skills ?? []),
     stats: { ...sheet.stats },
+    lastStandUsed: false,
   };
 }
 
@@ -131,7 +135,7 @@ export function constellationStateFromSheet(sheet: CharacterSheet): Constellatio
 /* ── 검증 ──────────────────────────────────────────────── */
 
 export interface SheetIssue {
-  field: 'name' | 'classId' | 'stats' | 'concept' | 'skills';
+  field: 'name' | 'classId' | 'stats' | 'profile' | 'skills';
   message: string;
 }
 
@@ -140,9 +144,8 @@ export function validateSheet(sheet: {
   name: string;
   classId: string;
   stats: StatBlock;
-  concept: string;
   skills?: SkillDefinition[];
-}): SheetIssue[] {
+} & Partial<SheetProfile>): SheetIssue[] {
   const issues: SheetIssue[] = [];
   const name = sheet.name.trim();
 
@@ -177,8 +180,14 @@ export function validateSheet(sheet: {
     }
   }
 
-  if (sheet.concept.trim().length > 400) {
-    issues.push({ field: 'concept', message: '컨셉은 400자 이내로 입력하세요.' });
+  const profile = toProfile(sheet);
+  for (const field of PROFILE_FIELDS) {
+    if (profile[field.key].trim().length > field.maxChars) {
+      issues.push({
+        field: 'profile',
+        message: `${field.labelKo}은(는) ${field.maxChars}자 이내로 입력하세요.`,
+      });
+    }
   }
 
   for (const issue of validateSkills(sheet.skills ?? [], sheet.side)) {

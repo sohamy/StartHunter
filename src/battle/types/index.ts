@@ -29,6 +29,64 @@ export type ActionKind =
 
 export type TargetType = 'ENEMY' | 'SELF' | 'PAIR' | 'ALLY' | 'NONE';
 
+/* ── 아이템 ────────────────────────────────────────────
+   정의(ItemDefinition)는 config/items.ts 에 있고,
+   보유 개수는 전투 상태의 인스턴스(ItemStack)가 들고 있다. */
+
+/** 요구사항서 15장의 분류 */
+export type ItemCategory =
+  | 'HUNTER_ONLY'
+  | 'CONSTELLATION_ONLY'
+  | 'SHARED'
+  | 'AFFILIATION'
+  | 'KEY';
+
+/**
+ * 아이템 사용 효과.
+ * 엔진은 존재하는 필드만 해석한다 — 새 필드를 넣어도 기존 아이템은 그대로 동작한다.
+ */
+export interface ItemEffect {
+  /** 대상 헌터의 HP 를 고정값만큼 회복 */
+  healHp?: number;
+  /** 대상 헌터의 최대 HP 비율만큼 회복 */
+  healPercent?: number;
+  /** 사용한 주체의 행동력 즉시 회복 */
+  restoreAp?: number;
+  /** 부여하는 상태이상 정의 id */
+  applyStatusIds?: string[];
+  /** 이 종류의 상태이상을 제거한다 */
+  cureKinds?: StatusKind[];
+  /** 적에게 주는 고정 피해 (방어력을 무시한다) */
+  damage?: number;
+  /** 계약 안정도 회복량 */
+  contractRepair?: number;
+  /** 성좌 상태 단계 회복 수 */
+  stageRepair?: number;
+  /** 전투 불능 대상을 최대 HP 이 비율로 되살린다 */
+  revivePercent?: number;
+}
+
+export interface ItemDefinition {
+  id: string;
+  name: string;
+  nameKo: string;
+  category: ItemCategory;
+  description: string;
+  target: TargetType;
+  apCost: number;
+  /** 전투 중 사용 가능 여부 */
+  combatUsable: boolean;
+  /** AFFILIATION 분류일 때 어느 진영 것인지 */
+  affiliation?: Affiliation;
+  effect: ItemEffect;
+}
+
+/** 보유 아이템 — 페어 공용 가방에 담긴다 */
+export interface ItemStack {
+  itemId: string;
+  quantity: number;
+}
+
 /** 헌터 부상 단계 */
 export type InjuryStage = 'NORMAL' | 'INJURED' | 'SEVERE' | 'CRITICAL' | 'DOWN';
 
@@ -140,6 +198,8 @@ export interface ActionEffect {
   attackUp?: number;
   /** 적 방어력 감소 비율 (0~1) */
   enemyDefenseDown?: number;
+  /** 대상 헌터의 최대 HP 이 비율만큼 회복 */
+  heal?: number;
   /** 적의 다음 패턴 공개 */
   revealPattern?: boolean;
   /** 부여하는 상태이상 정의 id */
@@ -185,6 +245,11 @@ export interface HunterState {
   skills: SkillRuntime[];
   /** 시트 스탯 사본 — 기믹 판정처럼 스탯을 직접 쓰는 계산에 필요하다 */
   stats: StatBlock;
+  /**
+   * 전투 불능 저항(의지)을 이미 소진했는지.
+   * 한 전투에 한 번만 버틸 수 있으므로 상태로 남긴다.
+   */
+  lastStandUsed: boolean;
 }
 
 /** 현신 남은 사용 횟수. null 은 무제한 */
@@ -240,6 +305,10 @@ export interface RoundSubmission {
   gimmickStage: GimmickStage | null;
   /** 확정 시점에 굴린 판정. 채팅에도 공개된다 */
   gimmickCheck: GimmickCheck | null;
+  /** 헌터가 아이템 행동으로 쓰려는 아이템 (config/items.ts) */
+  hunterItemId: string | null;
+  /** 성좌가 성유물 행동으로 쓰려는 아이템 */
+  constellationItemId: string | null;
   hunterSubmitted: boolean;
   constellationSubmitted: boolean;
 }
@@ -257,6 +326,8 @@ export interface PairState {
   contract: ContractState;
   /** 페어 공용 상점 화폐. 전투 중에는 조회만 한다. */
   points: number;
+  /** 페어 공용 가방. 사용하면 개수가 줄어든다. */
+  inventory: ItemStack[];
   submission: RoundSubmission;
   /** 계시로 다음 패턴을 확인한 상태인지 (페어 단위 정보) */
   patternRevealed: boolean;
@@ -289,6 +360,15 @@ export interface CustomAttack {
   telegraphMessage: string;
   /** 이 공격을 쓰는 페이즈 목록. 비어 있으면 모든 페이즈 */
   phases: number[];
+  /**
+   * 라운드 주기 — 2 이상이면 `라운드 % every === offset` 인 라운드에만 쓴다.
+   * 0 · 1 이면 주기 조건이 없다는 뜻이고, 조건 없는 공격끼리 순서대로 돌아간다.
+   */
+  every?: number;
+  /** 주기 안에서의 자리. every 3 · offset 1 이면 1 · 4 · 7 라운드 */
+  offset?: number;
+  /** 적 HP 비율(%)이 이 값 이하일 때만 쓴다. null · 미지정이면 조건 없음 */
+  hpBelowPercent?: number | null;
 }
 
 export interface EnemyState {
@@ -310,6 +390,12 @@ export interface EnemyState {
   boss: boolean;
   /** 이 적이 쓰는 패턴 세트 id (config/patterns.ts) */
   patternSetId: string | null;
+  /**
+   * 페이즈가 넘어가는 HP 비율(%) 경계. 내림차순으로 두고, 길이는 페이즈 수 - 1 이다.
+   * [70, 30] 이면 HP 70% 이상 PHASE 1, 30% 이상 PHASE 2, 그 아래 PHASE 3.
+   * 비어 있으면 패턴 세트의 경계를 쓰고, 그것도 없으면 페이즈 수만큼 균등 분할한다.
+   */
+  phaseCutoffs?: number[];
   /** 예고 중인 패턴 — 발동까지 남은 라운드 */
   telegraph: {
     patternId: string;
@@ -355,6 +441,9 @@ export interface GimmickCheck {
   dc: number;
   success: boolean;
   critical: boolean;
+  /** 선언이 걸린 접근. null 이면 인정되는 접근이 아니었다는 뜻 */
+  approachId?: string | null;
+  approachLabel?: string | null;
 }
 
 export type LogChannel = 'SYSTEM' | 'ROLEPLAY';
@@ -393,6 +482,22 @@ export interface BattleState {
   log: LogEntry[];
   /** 화면 전체 경보 — 최근 항목만 유지한다 */
   alerts: BattleAlert[];
+  /**
+   * 지급된 포인트 내역.
+   * 페어의 `points` 는 합계일 뿐이므로, 무엇으로 얼마를 받았는지는 이 원장에 남긴다 —
+   * 전투 종료 후 정산과 공략 기록이 이 값을 근거로 쓴다.
+   */
+  rewards: RewardEntry[];
+}
+
+export interface RewardEntry {
+  id: string;
+  round: number;
+  pairId: string;
+  /** config/rewards.ts 의 RewardReason 또는 운영진 수동 지급 사유 */
+  reason: string;
+  label: string;
+  points: number;
 }
 
 export type AlertLevel = 'WARNING' | 'CRITICAL' | 'EMERGENCY' | 'TOWER';
@@ -412,18 +517,55 @@ export interface BattleAlert {
 /** 스탯 키는 config 에서 정의한다. 새 스탯을 넣을 때 타입을 고치지 않도록 열어 둔다. */
 export type StatBlock = Record<string, number>;
 
-export interface CharacterSheet {
+/**
+ * 컨셉 서술.
+ *
+ * 한 칸짜리 자유 서술은 무엇을 적어야 할지 알기 어려워 세 칸으로 나눈다.
+ * 칸마다의 안내 문구와 글자 수 상한은 config/characters.ts 의 PROFILE_FIELDS 가 정한다.
+ */
+export interface SheetProfile {
+  /** 성격 */
+  personality: string;
+  /** 특징 — 좋아하는 것 · 싫어하는 것 · 생일 등 */
+  traits: string;
+  /** 성좌와 계약을 맺은 경위. 공란일 수 있다. */
+  contractStory: string;
+}
+
+export type ProfileFieldKey = keyof SheetProfile;
+
+/**
+ * 공개 스킬 — 이름 · 종류 · 설명까지만.
+ * 수치(AP · 위력 · 쿨 · 부여 상태)는 운영진 전용이라 여기에 담지 않는다.
+ */
+export interface PublicSkill {
+  id: string;
+  name: string;
+  kind: SkillKind;
+  description: string;
+}
+
+export interface CharacterSheet extends SheetProfile {
   id: string;
   side: ActorSide;
   /** 헌터의 이름 또는 성좌의 성호 */
   name: string;
+  /**
+   * 계약 상대(페어)의 이름.
+   * 참가자가 직접 적는 칸이다 — 아직 상대가 없으면 공란으로 둔다.
+   * 관리국이 편성(PairBond)을 확정하면 화면은 편성 쪽 이름을 우선해 보여 준다.
+   */
+  partnerName: string;
   /** 헌터 클래스 또는 성좌 권역 id */
   classId: string;
   stats: StatBlock;
   /** 캐릭터별 커스텀 스킬 */
   skills: SkillDefinition[];
-  /** 컨셉 · 설정 자유 서술 */
-  concept: string;
+  /**
+   * 캐릭터 사진 — 정사각 축소본 data URL.
+   * 없을 수 있다. 규칙은 config/rules.ts 의 PORTRAIT_RULES 에 있다.
+   */
+  portrait?: string | null;
   /** 헌터의 소속 진영. 성좌는 계약한 헌터를 따른다. */
   affiliation: Affiliation;
   createdAt: string;
@@ -462,6 +604,52 @@ export interface PairBond {
   /** 해산된 페어는 false — 기록은 남기고 편성에서만 제외한다 */
   active: boolean;
   createdAt: string;
+  /** 공략 사이에도 유지되는 포인트. 전투 정산에서 갱신된다. */
+  points: number;
+  /** 공략 사이에도 유지되는 보급품 */
+  inventory: ItemStack[];
+}
+
+/* ── 공략 기록 ──────────────────────────────────────────
+   끝난 전투는 상태에서 지우지 않고 기록으로 보관한다.
+   운영진이 나중에 결과를 확인하고 포인트를 정산하는 근거가 된다. */
+
+export interface BattleRecordPair {
+  pairId: string;
+  label: string;
+  hunterName: string;
+  constellationName: string;
+  affiliation: Affiliation;
+  hunterHp: number;
+  hunterMaxHp: number;
+  injury: InjuryStage;
+  constellationStage: ConstellationStage;
+  contract: ContractState;
+  /** 이 전투에서 얻은 포인트 */
+  pointsEarned: number;
+  /** 전투 종료 시점의 보유 포인트 */
+  pointsTotal: number;
+  inventory: ItemStack[];
+}
+
+export interface BattleRecord {
+  id: string;
+  schemaVersion: number;
+  battleId: string;
+  mode: BattleMode;
+  operation: { name: string; floor: number; threatLevel: string };
+  status: BattleStatus;
+  rounds: number;
+  /** ISO 문자열 */
+  finishedAt: string;
+  bossName: string | null;
+  /** 기믹 결과 */
+  gimmick: { label: string; status: GimmickState['status'] } | null;
+  pairs: BattleRecordPair[];
+  /** 보관 시점의 전투 로그 사본 */
+  log: LogEntry[];
+  /** 운영진 메모 */
+  note: string;
 }
 
 /* ── 적 세팅 ────────────────────────────────────────────
@@ -479,6 +667,8 @@ export interface EnemyTemplate {
   patternSetId: string | null;
   /** 운영진이 만든 공격 목록 */
   attacks: CustomAttack[];
+  /** 페이즈 전환 HP 비율(%) 경계 — EnemyState.phaseCutoffs 와 같은 규칙 */
+  phaseCutoffs?: number[];
   boss: boolean;
 }
 
@@ -537,6 +727,44 @@ export interface StatusApplication {
   label: string;
   /** 부여 시점의 효과 배율 (권능 배율 등) */
   scale: number;
+  /**
+   * 정의 지속시간에 더해지는 라운드 수.
+   * 권역 특성(재앙)이 늘리고, 헌터의 의지 저항이 깎는다. 음수일 수 있다.
+   */
+  durationBonus?: number;
+}
+
+/**
+ * 아이템 사용 예정 · 결과.
+ *
+ * 예상 결과(preview)와 적용(apply)이 같은 값을 보게 하려고
+ * 표시용 문장과 계산된 수치를 한 덩어리로 들고 다닌다.
+ */
+export interface ItemUse {
+  side: ActorSide;
+  itemId: string;
+  itemName: string;
+  /** 회복 · 부활 대상 페어. 자신이면 자기 페어 id */
+  targetPairId: string | null;
+  targetEnemyId: string | null;
+  /** 사람이 읽는 결과 요약 */
+  effects: string[];
+  /** 대상 헌터가 되찾는 HP */
+  healAmount: number;
+  /** 전투 불능에서 되살리는 것인지 */
+  revive: boolean;
+  /** 적에게 직접 들어가는 피해 (방어력을 무시한다) */
+  damage: number;
+  /** 부여하는 상태이상 정의 id */
+  applyStatusIds: string[];
+  /** 사용한 주체에게서 지워지는 상태이상 정의 id */
+  cureStatusIds: string[];
+  /** 사용한 주체가 되찾는 행동력 */
+  restoreAp: number;
+  contractRepair: number;
+  /** 성좌 상태를 되돌리는 단계 수 */
+  stageRepair: number;
+  apCost: number;
 }
 
 /** 성립한 연계의 표시용 정보 */
@@ -573,6 +801,21 @@ export interface PairPreview {
   combo: ComboResultView | null;
   /** 구조 행동 결과 */
   rescue: { targetPairId: string; targetLabel: string; restoredHp: number } | null;
+  /** 회복 스킬 · 아이템으로 대상 페어 헌터가 되찾는 HP */
+  heals: Array<{ targetPairId: string; targetLabel: string; amount: number; sourceLabel: string }>;
+  /** 이번 라운드 사용하는 아이템 */
+  itemUses: ItemUse[];
+  /** 아이템으로 적에게 직접 들어가는 피해 (방어력 무시) */
+  itemDamageToEnemy: number;
+  /** 계약 안정도 변화량 — 공명 회복과 현신 반동이 합산된다 */
+  contractDelta: number;
+  /**
+   * 성좌 상태가 움직이는 단계 수.
+   * 양수는 하락(계약 붕괴 · 현신 반동), 음수는 회복(성유물)이다.
+   */
+  stageDrop: number;
+  /** 이 페어가 이번 라운드에 얻는 포인트 */
+  rewards: Array<{ reason: string; label: string; points: number }>;
   /** 기믹 수행 진행량 — 관리국이 판정 단계에서 수정한다 */
   gimmickProgress: number;
   /** 기믹 수행 선언문 — 판정 근거 */
@@ -624,6 +867,11 @@ export interface RoundPreview {
   statusTicks: StatusTick[];
   /** 기믹 진행 예상 */
   gimmick: { progress: number; required: number; willClear: boolean; willFail: boolean } | null;
+  /**
+   * 계시가 공략조 전체에 공유되는지 (예지 권역 특성).
+   * 참이면 계시를 내린 페어뿐 아니라 모든 페어가 다음 패턴을 본다.
+   */
+  sharedReveal: boolean;
   /** 이번 라운드 처리로 발생하는 경보 */
   alerts: Array<{ level: AlertLevel; title: string; message: string }>;
   totals: {

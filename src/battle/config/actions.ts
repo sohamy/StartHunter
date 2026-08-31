@@ -114,9 +114,10 @@ export const HUNTER_ACTIONS: ActionDefinition[] = [
     kind: 'ITEM',
     label: 'ITEM',
     labelKo: '아이템',
-    description: '소지한 아이템을 사용한다. 비용은 아이템별로 다르다.',
+    description: '소지한 아이템을 사용한다. 비용과 대상은 아이템별로 다르다.',
+    // 실제 비용과 대상은 고른 아이템 정의에서 온다 — 여기 값은 목록 표기용 기본값이다.
     apCost: 1,
-    target: 'PAIR',
+    target: 'NONE',
     effect: {},
     implementedIn: 6,
   },
@@ -226,8 +227,9 @@ export const CONSTELLATION_ACTIONS: ActionDefinition[] = [
     label: 'RELIC',
     labelKo: '성유물',
     description: '성좌 전용 성유물 또는 공용 아이템을 사용한다.',
+    // 실제 비용과 대상은 고른 아이템 정의에서 온다.
     apCost: 1,
-    target: 'PAIR',
+    target: 'NONE',
     effect: {},
     implementedIn: 6,
   },

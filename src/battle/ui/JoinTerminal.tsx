@@ -9,8 +9,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   POINT_BUY,
+  PROFILE_FIELDS,
+  SHEET_DISCLOSURE,
   classesFor,
+  describeTraits,
   findClass,
+  hasProfile,
   initialStats,
   remainingPoints,
   statsFor,
@@ -19,12 +23,23 @@ import { CURRENT_PHASE } from '../config/rules';
 import { SKILL_RULES, blankSkill, findSkillKind, skillKindsFor } from '../config/skills';
 import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
-import { AuthError, getAuth, getServerAuth, isServerMode } from '../store';
+import {
+  AuthError,
+  getAuth,
+  getServerAuth,
+  getStorage,
+  isServerMode,
+  toPublicProfile,
+  type PublicProfile,
+} from '../store';
+import PortraitField, { Portrait } from './PortraitField';
+import { ProfileBlock, PublicSheetCard } from './SheetView';
 import type {
   Account,
   ActorSide,
   Affiliation,
   CharacterSheet,
+  PairBond,
   SkillDefinition,
   StatBlock,
 } from '../types';
@@ -34,10 +49,14 @@ type Mode = 'LOGIN' | 'REGISTER';
 interface DraftSheet {
   side: ActorSide;
   name: string;
+  partnerName: string;
   classId: string;
   stats: StatBlock;
   skills: SkillDefinition[];
-  concept: string;
+  personality: string;
+  traits: string;
+  contractStory: string;
+  portrait: string | null;
   affiliation: Affiliation;
 }
 
@@ -45,10 +64,14 @@ function emptyDraft(side: ActorSide): DraftSheet {
   return {
     side,
     name: '',
+    partnerName: '',
     classId: '',
     stats: initialStats(side),
     skills: [],
-    concept: '',
+    personality: '',
+    traits: '',
+    contractStory: '',
+    portrait: null,
     affiliation: 'GOVERNMENT',
   };
 }
@@ -376,6 +399,9 @@ export default function JoinTerminal() {
   const [registerId, setRegisterId] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [draft, setDraft] = useState<DraftSheet>(() => emptyDraft('HUNTER'));
+  const [bond, setBond] = useState<PairBond | null>(null);
+  /** 페어 상대의 공개 프로필 — 편성이 확정된 뒤에만 받아 온다 */
+  const [partnerProfile, setPartnerProfile] = useState<PublicProfile | null>(null);
 
   // 이미 로그인된 세션이 있으면 시트 화면으로 바로 넘긴다.
   useEffect(() => {
@@ -401,6 +427,47 @@ export default function JoinTerminal() {
     };
   }, [auth]);
 
+  /**
+   * 확정된 편성을 찾아 온다.
+   * 관리국이 페어를 맺어 주기 전에는 없다 — 그때는 시트에 적어 둔 이름을 대신 보여 준다.
+   */
+  useEffect(() => {
+    if (!account) {
+      setBond(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const bonds = await getStorage().listBonds();
+        const mine = bonds.find(
+          (row) =>
+            row.active &&
+            (row.hunterAccountId === account.id || row.constellationAccountId === account.id),
+        );
+        if (cancelled) return;
+        setBond(mine ?? null);
+
+        // 상대 한 명만 조회한다 — 전체 인원 목록은 관리국 화면에만 있다
+        const partnerId =
+          mine &&
+          (mine.hunterAccountId === account.id
+            ? mine.constellationAccountId
+            : mine.hunterAccountId);
+        setPartnerProfile(partnerId ? await auth.getPublicProfile(partnerId) : null);
+      } catch {
+        // 편성 조회 실패는 화면을 막을 이유가 아니다 — 시트는 그대로 보여 준다
+        if (!cancelled) {
+          setBond(null);
+          setPartnerProfile(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [account, auth]);
+
   // 서버가 거절한 경우(활동명 중복 등)에만 뜬다. 폼이 길어서 스스로 보여 줘야 한다.
   useEffect(() => {
     if (errors.length === 0) return;
@@ -409,10 +476,15 @@ export default function JoinTerminal() {
   }, [errors]);
 
   const setSide = useCallback((side: ActorSide) => {
+    // 쪽을 바꿔도 이미 적어 둔 서술은 남긴다 — 스탯과 클래스만 새로 고른다
     setDraft((current) => ({
       ...emptyDraft(side),
       name: current.name,
-      concept: current.concept,
+      partnerName: current.partnerName,
+      personality: current.personality,
+      traits: current.traits,
+      contractStory: current.contractStory,
+      portrait: current.portrait,
       affiliation: current.affiliation,
     }));
   }, []);
@@ -462,10 +534,14 @@ export default function JoinTerminal() {
         sheet: {
           side: draft.side,
           name: draft.name.trim(),
+          partnerName: draft.partnerName.trim(),
           classId: draft.classId,
           stats: draft.stats,
           skills: draft.skills.map((skill) => ({ ...skill, name: skill.name.trim() })),
-          concept: draft.concept.trim(),
+          personality: draft.personality.trim(),
+          traits: draft.traits.trim(),
+          contractStory: draft.contractStory.trim(),
+          portrait: draft.portrait,
           affiliation: draft.affiliation,
         },
       });
@@ -521,6 +597,13 @@ export default function JoinTerminal() {
     const hunter = sheet.side === 'HUNTER' ? deriveHunter(sheet) : null;
     const constellation = sheet.side === 'CONSTELLATION' ? deriveConstellation(sheet) : null;
 
+    // 편성이 확정됐으면 관리국이 맺어 준 상대가 우선, 아니면 시트에 적어 둔 이름
+    const bondedName =
+      sheet.side === 'HUNTER' ? bond?.constellationName : bond?.hunterName;
+    const bondedHandle =
+      sheet.side === 'HUNTER' ? bond?.constellationAccountId : bond?.hunterAccountId;
+    const partnerName = (bondedName ?? '').trim() || sheet.partnerName.trim();
+
     return (
       <div className="console">
         <header className="console-head">
@@ -557,6 +640,21 @@ export default function JoinTerminal() {
                 <span className="field-value">{sheet.name}</span>
               </div>
               <div className="field">
+                <span className="field-label">PAIR</span>
+                <span className={`field-value ${partnerName ? '' : 'dim'}`}>
+                  {partnerName || '미정 — 공란'}
+                  {bondedHandle && <small className="dim"> @{bondedHandle}</small>}
+                </span>
+              </div>
+              {bond && (
+                <div className="field">
+                  <span className="field-label">SQUAD</span>
+                  <span className="field-value">
+                    {bond.label} <small className="dim">관리국 편성 확정</small>
+                  </span>
+                </div>
+              )}
+              <div className="field">
                 <span className="field-label">{sheet.side === 'HUNTER' ? 'CLASS' : 'DOMAIN'}</span>
                 <span className="field-value">
                   {sheetClass?.label} <small className="dim">{sheetClass?.labelKo}</small>
@@ -573,7 +671,9 @@ export default function JoinTerminal() {
             </div>
 
             <div>
-              <h3 className="sub-title">STATS</h3>
+              <h3 className="sub-title">
+                STATS <span className="tag sealed">관리국 전용</span>
+              </h3>
               <ul className="stat-summary">
                 {statsFor(sheet.side).map((stat) => (
                   <li key={stat.key}>
@@ -586,7 +686,9 @@ export default function JoinTerminal() {
             </div>
 
             <div>
-              <h3 className="sub-title">COMBAT VALUE</h3>
+              <h3 className="sub-title">
+                COMBAT VALUE <span className="tag sealed">관리국 전용</span>
+              </h3>
               {hunter && (
                 <ul className="stat-summary">
                   <li>
@@ -624,7 +726,9 @@ export default function JoinTerminal() {
 
           {(sheet.skills ?? []).length > 0 && (
             <>
-              <h3 className="sub-title">CUSTOM SKILL</h3>
+              <h3 className="sub-title">
+                CUSTOM SKILL <span className="tag sealed">수치는 관리국 전용</span>
+              </h3>
               <ul className="skill-summary">
                 {sheet.skills.map((skill) => (
                   <li key={skill.id}>
@@ -648,13 +752,65 @@ export default function JoinTerminal() {
             </>
           )}
 
-          {sheet.concept && (
+          {sheet.portrait && (
+            <>
+              <h3 className="sub-title">PORTRAIT</h3>
+              <Portrait src={sheet.portrait} name={sheet.name} size="lg" />
+            </>
+          )}
+
+          {hasProfile(sheet) && (
             <>
               <h3 className="sub-title">CONCEPT</h3>
-              <p className="concept-text">{sheet.concept}</p>
+              <ProfileBlock source={sheet} />
             </>
           )}
         </section>
+
+        {/* 공개 시트 — 다른 참가자에게 보이는 그대로 */}
+        <section className="panel">
+          <h2 className="panel-title">PUBLIC DOSSIER · 공개 시트</h2>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            다른 참가자에게는 아래 카드만 보입니다. 스탯과 스킬 수치는 관리국(운영진)만 열람합니다.
+          </p>
+          <PublicSheetCard
+            profile={toPublicProfile(account.id, sheet)}
+            partnerName={bondedName}
+            badge={<span className="tag ok">내 시트</span>}
+          />
+          <div className="disclosure">
+            <div>
+              <h3 className="sub-title">공개되는 것</h3>
+              <ul className="disclosure-list open">
+                {SHEET_DISCLOSURE.public.map((row) => (
+                  <li key={row}>{row}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="sub-title">관리국만 보는 것</h3>
+              <ul className="disclosure-list sealed">
+                {SHEET_DISCLOSURE.operatorOnly.map((row) => (
+                  <li key={row}>{row}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        {partnerProfile && (
+          <section className="panel">
+            <h2 className="panel-title">CONTRACTED PAIR · 계약 상대</h2>
+            <p className="hint" style={{ marginBottom: 12 }}>
+              관리국이 맺어 준 상대의 공개 시트입니다. 상대의 스탯과 스킬 수치는 열람할 수 없습니다.
+            </p>
+            <PublicSheetCard
+              profile={partnerProfile}
+              partnerName={sheet.name}
+              badge={bond ? <span className="tag ok">{bond.label}</span> : undefined}
+            />
+          </section>
+        )}
 
         <section className="panel">
           <h2 className="panel-title">DEPLOY</h2>
@@ -765,15 +921,17 @@ export default function JoinTerminal() {
                 <button
                   key={side}
                   type="button"
-                  className={`role-card ${draft.side === side ? 'selected' : ''}`}
+                  className={`role-card ${side === 'HUNTER' ? 'hunter' : 'constellation'} ${
+                    draft.side === side ? 'selected' : ''
+                  }`}
                   onClick={() => setSide(side)}
                 >
                   <b>{side}</b>
                   <span>{side === 'HUNTER' ? '헌터' : '성좌'}</span>
                   <p className="dim">
                     {side === 'HUNTER'
-                      ? '탑 안에서 직접 싸운다. HP 를 가지고 전선에 선다.'
-                      : '탑 밖에서 권능과 계시를 내린다. HP 대신 존재 상태를 가진다.'}
+                      ? '문을 열고 먼저 들어간다. 무기를 들고 전선에 서며, HP 를 가진다.'
+                      : '하늘에 남아 권능과 계시를 내린다. HP 대신 존재 상태를 가진다.'}
                   </p>
                 </button>
               ))}
@@ -827,6 +985,19 @@ export default function JoinTerminal() {
               />
             </label>
 
+            {/* 이미 짝을 정하고 온 참가자를 위한 칸 — 아직 없으면 비워 둔다 */}
+            <label className="input-row">
+              <span className="field-label">
+                {draft.side === 'HUNTER' ? '계약한 성좌' : '계약한 헌터'}
+              </span>
+              <input
+                className="ctl input"
+                value={draft.partnerName}
+                onChange={(event) => setDraft({ ...draft, partnerName: event.target.value })}
+                placeholder="상대 페어 이름 — 아직 없으면 공란으로 두세요"
+              />
+            </label>
+
             {draft.side === 'HUNTER' && (
               <div className="input-row">
                 <span className="field-label">소속</span>
@@ -865,6 +1036,11 @@ export default function JoinTerminal() {
                     {row.bonus.defense ? <li>방어력 {fmt(row.bonus.defense)}</li> : null}
                     {row.bonus.maxAp ? <li>최대 행동력 {fmt(row.bonus.maxAp)}</li> : null}
                     {row.bonus.power ? <li>권능 배율 +{Math.round(row.bonus.power * 100)}%</li> : null}
+                    {describeTraits(row.traits).map((line) => (
+                      <li key={line} className="gold">
+                        {line}
+                      </li>
+                    ))}
                   </ul>
                   <p className="class-focus">
                     주력 스탯{' '}
@@ -952,14 +1128,42 @@ export default function JoinTerminal() {
               onChange={(skills) => setDraft({ ...draft, skills })}
             />
 
-            <h3 className="sub-title">CONCEPT</h3>
-            <textarea
-              className="ctl input textarea"
-              rows={4}
-              value={draft.concept}
-              onChange={(event) => setDraft({ ...draft, concept: event.target.value })}
-              placeholder="성격, 계약 경위, 탑에 오르는 이유 등 (선택 · 400자 이내)"
+            <h3 className="sub-title">PORTRAIT</h3>
+            <PortraitField
+              value={draft.portrait}
+              name={draft.name}
+              onChange={(portrait) => setDraft({ ...draft, portrait })}
+              label={draft.side === 'HUNTER' ? '헌터 사진' : '성좌 사진'}
             />
+
+            <h3 className="sub-title">CONCEPT</h3>
+            <p className="hint" style={{ marginBottom: 10 }}>
+              세 칸 모두 선택입니다. 적어 둔 내용은 다른 참가자에게도 공개됩니다.
+            </p>
+            {PROFILE_FIELDS.map((field) => {
+              const value = draft[field.key];
+              const over = value.trim().length > field.maxChars;
+              return (
+                <div key={field.key} className="profile-field">
+                  <div className="profile-field-head">
+                    <span className="field-label">
+                      {field.label} <small className="dim">{field.labelKo}</small>
+                    </span>
+                    <span className={`num small-text ${over ? 'danger-text' : 'dim'}`}>
+                      {value.length} / {field.maxChars}
+                    </span>
+                  </div>
+                  <textarea
+                    className="ctl input textarea"
+                    rows={field.rows}
+                    value={value}
+                    onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })}
+                    placeholder={field.placeholder}
+                  />
+                  <p className="hint">{field.hint}</p>
+                </div>
+              );
+            })}
           </section>
 
           <section className="panel confirm">

@@ -6,7 +6,8 @@
  */
 
 import { findGimmick } from '../config/gimmicks';
-import { MANIFEST_RULES, SCHEMA_VERSION } from '../config/rules';
+import { DEFAULT_INVENTORY } from '../config/items';
+import { CONTRACT_RULES, MANIFEST_RULES, SCHEMA_VERSION } from '../config/rules';
 import {
   DEFAULT_GIMMICK_ID,
   DEFAULT_OPERATION,
@@ -27,12 +28,13 @@ import type {
   EnemyState,
   EnemyTemplate,
   GimmickState,
+  ItemStack,
   PairBond,
   PairState,
 } from '../types';
 import { constellationStateFromSheet, hunterStateFromSheet } from './character';
 import { newUuid } from './id';
-import { constellationMaxAp } from './status';
+import { contractFromValue, constellationMaxAp } from './status';
 
 export interface PairInput {
   hunterSheet: CharacterSheet;
@@ -46,6 +48,8 @@ export interface PairInput {
   hpRatio?: number;
   constellationStage?: PairState['constellation']['stage'];
   points?: number;
+  /** 들고 들어가는 보급품. 생략하면 기본 보급을 받는다 */
+  inventory?: ItemStack[];
 }
 
 export function createPair(index: number, input: PairInput): PairState {
@@ -75,8 +79,9 @@ export function createPair(index: number, input: PairInput): PairState {
     constellationAccountId: input.constellationAccountId ?? null,
     hunter,
     constellation,
-    contract: { stage: 'RESONANCE', value: 88 },
+    contract: contractFromValue(CONTRACT_RULES.initialValue),
     points: input.points ?? DEFAULT_POINTS,
+    inventory: (input.inventory ?? DEFAULT_INVENTORY).map((row) => ({ ...row })),
     submission: emptySubmission(),
     patternRevealed: false,
   };
@@ -167,6 +172,7 @@ export function createBattle(options: CreateBattleOptions = {}): BattleState {
     viewerPairId: pairs[0].id,
     log: [],
     alerts: [],
+    rewards: [],
   };
 }
 
@@ -188,6 +194,7 @@ export function enemyFromTemplate(template: EnemyTemplate, index = 0): EnemyStat
     nextPattern: 'UNKNOWN',
     boss: template.boss,
     patternSetId: template.patternSetId,
+    phaseCutoffs: template.phaseCutoffs ?? [],
     telegraph: null,
   };
 }
@@ -204,6 +211,7 @@ export function templateFromEnemy(enemy: EnemyState): EnemyTemplate {
     maxPhase: enemy.maxPhase,
     patternSetId: enemy.patternSetId,
     attacks: enemy.attacks ?? [],
+    phaseCutoffs: enemy.phaseCutoffs ?? [],
     boss: enemy.boss,
   };
 }
@@ -237,6 +245,9 @@ export function assembleBattle(options: AssembleOptions): BattleState {
       hunterAccountId: entry.bond.hunterAccountId,
       constellationAccountId: entry.bond.constellationAccountId,
       affiliation: entry.bond.affiliation,
+      // 편성이 공략 사이에 들고 다니는 포인트와 보급품을 그대로 가져온다
+      points: entry.bond.points,
+      inventory: entry.bond.inventory?.length ? entry.bond.inventory : undefined,
     });
     return { ...pair, label: entry.bond.label };
   });
@@ -259,6 +270,7 @@ export function assembleBattle(options: AssembleOptions): BattleState {
     viewerPairId: pairs[0]?.id ?? '',
     log: [],
     alerts: [],
+    rewards: [],
   };
 }
 

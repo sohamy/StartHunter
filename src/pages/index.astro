@@ -1,5 +1,10 @@
 ---
 import '../styles/global.css';
+
+/* 소개만 읽고 나가는 일이 없도록, 실제 입구 주소를 페이지 곳곳에 둔다 */
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const joinUrl = `${base}/battle/join/`;
+const battleUrl = `${base}/battle/`;
 ---
 <html lang="ko">
 <head>
@@ -25,9 +30,11 @@ import '../styles/global.css';
       <a href="#faction">FACTION</a>
       <a href="#system">SYSTEM</a>
       <a href="#tower">TOWER</a>
+      <a href="#schedule">SCHEDULE</a>
       <a href="#glossary">GLOSSARY</a>
       <a href="#faq">FAQ</a>
     </nav>
+    <a class="nav-cta" href={joinUrl}>참가 신청 →</a>
   </div>
 </header>
 
@@ -51,7 +58,8 @@ import '../styles/global.css';
       <div class="kicker">Pair Community · Tower Raid · Battle</div>
       <h1>별은 인간을 선택했고,<br/>인간은 탑을 올랐다.</h1>
       <p class="lede">
-        하늘 위의 초월자 <b>성좌</b>와, 탑 안에서 직접 싸우는 <b>헌터</b>.
+        이름을 별자리에 걸어 둔 채 하늘에 남은 <b class="cst">성좌</b>와,
+        그 목소리를 등에 지고 탑의 문을 여는 <b class="htr">헌터</b>.
         두 사람이 하나의 계약으로 묶여 검은 탑의 정상을 향해 올라가는 1:1 전투 페어 커뮤니티입니다.
       </p>
       <p class="sub">
@@ -59,6 +67,7 @@ import '../styles/global.css';
         아래 <b>입문 가이드</b>에서 장르와 진행 방식을 처음부터 설명합니다.
       </p>
       <div class="cta-row">
+        <a class="btn join" href={joinUrl}>참가 신청하기</a>
         <a class="btn primary" href="#guide">처음이신가요? 입문 가이드</a>
         <a class="btn" href="#world">세계관 읽기</a>
         <a class="btn" href="#system">전투 시스템 보기</a>
@@ -95,13 +104,17 @@ import '../styles/global.css';
       </div>
 
       <div class="grid-3 mt-l">
-        <article class="card reveal">
+        <article class="card lore constellation reveal">
           <span class="badge violet">GENRE 01</span>
           <h3>성좌물이란?</h3>
           <p class="lead">“하늘에서 지켜보며 인간을 후원하는 신적 존재”가 나오는 장르입니다.</p>
           <p>
-            성좌(星座)는 별자리에 이름을 남긴 초월적 존재로, 세계에 직접 발을 딛지 못합니다.
-            대신 마음에 든 인간 하나를 골라 힘을 빌려주고, 그 인간의 싸움을 지켜보며 자신의 목적을 이룹니다.
+            성좌(星座)는 별자리에 제 이름을 걸어 둔 초월적 존재입니다. 세계에 발을 딛지 못한 채,
+            이미 오래전에 끝난 자기 이야기의 잔향으로 남아 인간의 밤하늘에 떠 있습니다.
+          </p>
+          <p>
+            그러다 마음에 든 인간 하나를 골라 힘을 빌려주고, 그 인간의 눈으로 세계를 다시 봅니다.
+            무엇을 위해 그러는지는 대개 성좌 본인만 알고 있습니다.
           </p>
           <p>
             <b>핵심 감각</b> — 성좌는 강하지만 직접 개입할 수 없고,
@@ -109,13 +122,17 @@ import '../styles/global.css';
           </p>
         </article>
 
-        <article class="card reveal">
+        <article class="card lore hunter reveal">
           <span class="badge blue">GENRE 02</span>
           <h3>헌터물이란?</h3>
           <p class="lead">“어느 날 갑자기 세상에 던전이 열렸다”로 시작하는 장르입니다.</p>
           <p>
             현대 도시에 탑·게이트·던전 같은 이계가 나타나고, 각성한 인간들이 그 안의 괴물과 싸웁니다.
             이 사람들을 <b>헌터</b>라 부르며, 길드에 소속되어 활동하고 국가는 이들을 관리·통제하려 듭니다.
+          </p>
+          <p>
+            문이 열리면 결국 무기를 들고 먼저 걸어 들어가는 쪽은 사람입니다.
+            등급과 전적이 곧 이름값이 되고, 살아 돌아온 횟수가 그대로 실력이 됩니다.
           </p>
           <p>
             <b>핵심 감각</b> — 층, 보스, 보상, 등급처럼 게임 같은 규칙이 현실에 얹혀 있고,
@@ -168,7 +185,7 @@ import '../styles/global.css';
         <div class="node">
           <span>STEP 01</span>
           <h4>역할 고르기</h4>
-          <p>탑에서 직접 싸우는 헌터, 하늘에서 지원하는 성좌 중 하나를 고릅니다.</p>
+          <p>탑 안으로 걸어 들어가 직접 베는 헌터, 하늘에 남아 그 등을 지켜보는 성좌 중 하나를 고릅니다.</p>
         </div>
         <div class="node">
           <span>STEP 02</span>
@@ -218,18 +235,22 @@ import '../styles/global.css';
             침식된 구역에서는 건물과 사람이 형태를 잃습니다. 막는 방법은 하나, 정상까지 올라가 원인을 멈추는 것뿐입니다.
           </p>
         </article>
-        <article class="card reveal">
+        <article class="card lore constellation reveal">
           <span class="badge violet">CONSTELLATION</span>
           <h3>성좌</h3>
           <p>
-            현실에 완전히 내려올 수 없는 초월자입니다. 각자 별자리에 얽힌 이름과 옛 이야기를 가지고 있습니다.
+            현실에 완전히 내려올 수 없는 초월자입니다. 저마다 별자리에 얽힌 옛 이름과,
+            아직 끝까지 들어 본 사람이 없는 이야기를 하나씩 품고 있습니다.
           </p>
           <p>
             직접 싸우는 대신 자신이 고른 헌터에게 <b>권능</b>(힘)과 <b>계시</b>(정보)를 내려보내고,
             결정적인 순간에는 몸의 일부를 잠시 <b>현신</b>시켜 개입합니다. 다만 그 대가는 헌터가 함께 치릅니다.
           </p>
+          <p>
+            어째서 하필 그 인간이었는지 — 성좌는 대개 대답하지 않습니다.
+          </p>
         </article>
-        <article class="card reveal">
+        <article class="card lore hunter reveal">
           <span class="badge blue">HUNTER</span>
           <h3>헌터</h3>
           <p>
@@ -238,6 +259,9 @@ import '../styles/global.css';
           <p>
             무기를 들고 최전선에서 직접 싸우며, 층의 장치를 풀고 동료를 구조하는 것도 헌터의 몫입니다.
             성좌와 헌터의 계약은 <b>반드시 일대일</b>이며, 한 번 맺으면 쉽게 갈아탈 수 없습니다.
+          </p>
+          <p>
+            탑 안에서는 등급도 명성도 소용없습니다. 다음 한 수를 정확히 고른 사람만 걸어서 돌아옵니다.
           </p>
         </article>
       </div>
@@ -322,7 +346,7 @@ import '../styles/global.css';
     <div class="wrap">
       <div class="section-head reveal">
         <div class="eyebrow">Chapter III</div>
-        <h2>SYSTEM<span class="ko">헌터는 직접 싸우고, 성좌는 전황을 조율한다</span></h2>
+        <h2>SYSTEM<span class="ko">헌터는 앞에서 베고, 성좌는 하늘에서 판을 읽는다</span></h2>
         <p>
           전투는 <b>라운드</b> 단위로 돌아갑니다. 한 라운드에 각자 행동을 선택하고, 그 결과가 함께 처리됩니다.
           아래 규칙만 알면 첫 전투를 진행할 수 있습니다.
@@ -330,7 +354,7 @@ import '../styles/global.css';
       </div>
 
       <div class="grid-2 reveal">
-        <article class="card">
+        <article class="card lore hunter">
           <span class="badge blue">HUNTER ACTION</span>
           <h3>헌터가 할 수 있는 행동</h3>
           <ul class="tick">
@@ -342,7 +366,7 @@ import '../styles/global.css';
             <li><b>기믹 수행</b> — 층에 걸린 장치나 조건을 처리한다.</li>
           </ul>
         </article>
-        <article class="card">
+        <article class="card lore constellation">
           <span class="badge violet">CONSTELLATION ACTION</span>
           <h3>성좌가 할 수 있는 행동</h3>
           <ul class="tick">
@@ -492,11 +516,11 @@ import '../styles/global.css';
       <dl class="glossary reveal">
         <div class="term">
           <dt>성좌<small>CONSTELLATION</small></dt>
-          <dd>현실에 직접 내려올 수 없는 초월적 존재. 헌터를 골라 힘과 정보를 보내며 탑을 함께 오릅니다.</dd>
+          <dd>현실에 직접 내려올 수 없는 초월적 존재. 별자리에 이름을 남긴 채, 자신이 고른 헌터의 눈을 빌려 탑을 함께 오릅니다.</dd>
         </div>
         <div class="term">
           <dt>헌터<small>HUNTER</small></dt>
-          <dd>성좌와 계약해 탑에 들어갈 수 있게 된 인간. 최전선에서 직접 싸웁니다.</dd>
+          <dd>성좌와 계약해 탑에 들어갈 수 있게 된 인간. 무기를 들고 최전선에 직접 서는 쪽입니다.</dd>
         </div>
         <div class="term">
           <dt>계약<small>CONTRACT</small></dt>
@@ -504,15 +528,15 @@ import '../styles/global.css';
         </div>
         <div class="term">
           <dt>권능<small>AUTHORITY</small></dt>
-          <dd>성좌가 헌터에게 내려준 고유한 힘. 헌터는 이를 ‘스킬’로 사용합니다.</dd>
+          <dd>성좌가 자기 존재를 덜어 헌터에게 내려준 고유한 힘. 헌터는 이를 ‘스킬’로 사용합니다.</dd>
         </div>
         <div class="term">
           <dt>계시<small>REVELATION</small></dt>
-          <dd>성좌가 헌터에게 보내는 정보. 적의 약점, 함정 위치, 다음 패턴 등을 알려줍니다.</dd>
+          <dd>성좌에게만 보이는 것을 헌터에게 흘려보내는 것. 적의 약점, 함정 위치, 다음 패턴 등을 알려줍니다.</dd>
         </div>
         <div class="term">
           <dt>현신<small>DESCENT</small></dt>
-          <dd>성좌가 자기 몸의 일부를 잠시 실체화해 전장에 직접 개입하는 것. 소모와 위험이 가장 큽니다.</dd>
+          <dd>성좌가 자기 몸의 일부를 잠시 실체화해 전장에 직접 내려서는 것. 소모와 위험이 가장 큽니다.</dd>
         </div>
         <div class="term">
           <dt>침식<small>EROSION</small></dt>
@@ -577,7 +601,7 @@ import '../styles/global.css';
       <details class="faq reveal">
         <summary>성좌와 헌터 중 어느 쪽을 고르는 게 좋을까요?</summary>
         <div class="answer">
-          <p>직접 싸우고 몸으로 부딪히는 장면을 좋아한다면 <b>헌터</b>를, 상황을 읽고 판을 짜거나 한 발 떨어진 위치에서 지켜보는 역할을 좋아한다면 <b>성좌</b>를 추천합니다.</p>
+          <p>무기를 들고 몸으로 부딪히는 장면을 좋아한다면 <b>헌터</b>를, 한 발 떨어진 곳에서 판을 읽고 결정적인 순간에만 손을 대는 역할을 좋아한다면 <b>성좌</b>를 추천합니다.</p>
           <p>난이도 차이는 없습니다. 성좌도 전투 중 매 라운드 행동하며, 자기만의 과거와 목적을 가진 등장인물입니다.</p>
         </div>
       </details>
@@ -613,12 +637,87 @@ import '../styles/global.css';
       </details>
     </div>
   </section>
+
+  <!-- ══════════════════ SCHEDULE ══════════════════ -->
+  <section id="schedule" class="section">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">Schedule</div>
+        <h2>SCHEDULE<span class="ko">17일부터 31일까지, 열닷새 동안 탑을 오릅니다</span></h2>
+        <p>
+          활동기 닷새 · 휴식기 닷새 · 활동기 닷새로 나뉩니다.
+          휴식기에는 전투가 없습니다 — 치료하고, 포인트를 쓰고, 페어와 이야기를 쌓는 기간입니다.
+        </p>
+      </div>
+
+      <div class="timeline reveal">
+        <article class="phase active">
+          <div class="phase-head">
+            <span class="phase-tag">PHASE 01 · 활동기</span>
+            <b class="phase-date">17 – 21</b>
+          </div>
+          <p>계약자 등록과 페어 편성을 마치고 탑에 들어갑니다. 층별 전투와 기믹이 이 닷새 안에 진행됩니다.</p>
+          <ul class="tick">
+            <li>페어 편성 확정 · 첫 공략 개시</li>
+            <li>층별 전투 · 기믹 판정</li>
+          </ul>
+        </article>
+
+        <article class="phase rest">
+          <div class="phase-head">
+            <span class="phase-tag">INTERVAL · 휴식기</span>
+            <b class="phase-date">22 – 26</b>
+          </div>
+          <p>전투가 없는 닷새입니다. 부상을 치료하고 상점에서 보급을 갖추며, 페어끼리의 대화가 중심이 됩니다.</p>
+          <ul class="tick">
+            <li>부상 회복 · 포인트 정산</li>
+            <li>상점 이용 · 페어 교류</li>
+          </ul>
+        </article>
+
+        <article class="phase active">
+          <div class="phase-head">
+            <span class="phase-tag">PHASE 02 · 활동기</span>
+            <b class="phase-date">27 – 31</b>
+          </div>
+          <p>상층부로 올라갑니다. 탑의 정체가 드러나고, 계약 안정도가 결과를 가르는 구간입니다.</p>
+          <ul class="tick">
+            <li>상층부 공략 · 보스 층</li>
+            <li>결말과 정산</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ JOIN ══════════════════ -->
+  <section id="join" class="section join-cta">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">Join Us</div>
+        <h2>JOIN<span class="ko">여기서부터가 시작입니다</span></h2>
+      </div>
+      <p class="join-lede reveal">
+        계약자 등록은 곧 <b>캐릭터 시트 작성</b>입니다.
+        역할(헌터 · 성좌)을 고르고 스탯을 배분하면, 그 수치가 그대로 전투에 들어갑니다.
+        페어 편성은 등록을 마친 뒤 관리국이 진행합니다.
+      </p>
+      <div class="cta-row reveal">
+        <a class="btn join" href={joinUrl}>계약자 등록하기</a>
+        <a class="btn" href={battleUrl}>이미 등록했습니다 · 전투 단말</a>
+      </div>
+    </div>
+  </section>
 </main>
 
 <footer class="footer">
   <div class="wrap">
     <div class="brand-line">✦ CONSTELLATION × HUNTER</div>
     <div>성좌 × 헌터 전투 페어 커뮤니티 소개 사이트 · 장르 입문자 환영</div>
+    <div class="footer-links">
+      <a href={joinUrl}>계약자 등록</a>
+      <a href={battleUrl}>전투 단말</a>
+    </div>
   </div>
 </footer>
 

@@ -90,8 +90,8 @@ export const SKILL_KINDS: SkillKindDefinition[] = [
     labelKo: '회복',
     defaultTarget: 'PAIR',
     sides: ['HUNTER', 'CONSTELLATION'],
-    powerMeaning: '회복량 — 아직 계산에 반영되지 않는다',
-    activeFrom: 99,
+    powerMeaning: '최대 HP 대비 회복 비율 (1.0 = 20%)',
+    activeFrom: 1,
   },
   {
     kind: 'MANIFESTATION',

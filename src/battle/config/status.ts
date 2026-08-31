@@ -23,7 +23,7 @@ export interface StatusModifiers {
   dotDamage?: number;
   /** 행동 불가 */
   blockAction?: boolean;
-  /** 회복 차단 (PHASE 3) */
+  /** 회복 차단 — 회복 스킬과 아이템이 통하지 않는다 */
   healBlock?: boolean;
 }
 
@@ -162,6 +162,18 @@ export const STATUS_DEFINITIONS: StatusDefinition[] = [
     maxStacks: 1,
     modifiers: { attackUp: 0.4 },
     description: '대상의 공격력이 크게 올라간다.',
+  },
+  {
+    id: 'heal.block',
+    label: 'NO MEND',
+    labelKo: '회복 차단',
+    kind: 'DEBUFF',
+    appliesTo: 'HUNTER',
+    duration: 2,
+    stackable: false,
+    maxStacks: 1,
+    modifiers: { healBlock: true },
+    description: '상처가 닫히지 않는다. 회복이 통하지 않는다.',
   },
   {
     id: 'bind',

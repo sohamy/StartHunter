@@ -8,13 +8,25 @@
 
 import type { ReactNode } from 'react';
 
-import { POINT_BUY, findClass, statsFor } from '../config/characters';
+import {
+  PROFILE_FIELDS,
+  POINT_BUY,
+  findClass,
+  hasProfile,
+  statsFor,
+  toProfile,
+} from '../config/characters';
 import { findSkillKind } from '../config/skills';
 import { STATUS_DEFINITIONS } from '../config/status';
 import { deriveConstellation, deriveHunter } from '../engine/character';
+import { Portrait } from './PortraitField';
+import type { PublicProfile } from '../store';
 import type {
   ActorSide,
+  Affiliation,
   CharacterSheet,
+  PublicSkill,
+  SheetProfile,
   SkillDefinition,
   SkillRuntime,
   StatBlock,
@@ -92,6 +104,59 @@ export function SkillList({ skills }: { skills: AnySkill[] }) {
   );
 }
 
+export function affiliationLabel(affiliation: Affiliation): string {
+  return affiliation === 'GOVERNMENT' ? '정부' : '민간 길드';
+}
+
+/**
+ * 컨셉 서술 — 성격 · 특징 · 계약 경위.
+ * 비어 있는 칸은 그리지 않는다. 세 칸이 모두 비면 아무것도 그리지 않는다.
+ */
+export function ProfileBlock({
+  source,
+  compact,
+}: {
+  source: Partial<SheetProfile> | null | undefined;
+  /** 카드 안에 들어갈 때 — 제목을 작게 줄인다 */
+  compact?: boolean;
+}) {
+  const profile = toProfile(source ?? {});
+  if (!hasProfile(profile)) return null;
+
+  return (
+    <div className={`profile-block ${compact ? 'compact' : ''}`}>
+      {PROFILE_FIELDS.filter((field) => profile[field.key].trim().length > 0).map((field) => (
+        <section key={field.key} className="profile-part">
+          <h4 className="profile-part-title">
+            <span>{field.labelKo}</span>
+            <i>{field.label}</i>
+          </h4>
+          <p className="concept-text">{profile[field.key]}</p>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** 공개 스킬 — 이름 · 종류 · 설명까지만. 수치는 운영진 화면에서만 보인다. */
+export function PublicSkillList({ skills }: { skills: PublicSkill[] }) {
+  if (skills.length === 0) {
+    return <p className="dim small-text">등록된 스킬 없음 — 기본 행동만 사용합니다.</p>;
+  }
+
+  return (
+    <ul className="skill-summary public">
+      {skills.map((skill) => (
+        <li key={skill.id}>
+          <b>{skill.name || '(이름 없음)'}</b>
+          <span className="tag">{findSkillKind(skill.kind)?.labelKo ?? skill.kind}</span>
+          {skill.description && <small className="dim">{skill.description}</small>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** 스탯 → 전투 수치 환산. 시트만 보고 전투 능력을 가늠할 수 있게 한다. */
 function DerivedValues({ sheet }: { sheet: CharacterSheet }) {
   if (sheet.side === 'HUNTER') {
@@ -146,7 +211,8 @@ export function ActorSheet({
   stats,
   skills,
   accountId,
-  concept,
+  profile,
+  portrait,
   badge,
 }: {
   side: ActorSide;
@@ -155,7 +221,10 @@ export function ActorSheet({
   stats: StatBlock;
   skills: SkillRuntime[];
   accountId?: string | null;
-  concept?: string;
+  /** 컨셉 서술 — 전투 상태에는 없으므로 시트 쪽에서 받아 온다 */
+  profile?: Partial<SheetProfile> | null;
+  /** 캐릭터 사진 — 전투 상태에는 없으므로 시트 쪽에서 받아 온다 */
+  portrait?: string | null;
   /** 제목 줄에 붙일 표시 (내 캐릭터 · 소속 페어 등) */
   badge?: ReactNode;
 }) {
@@ -164,6 +233,7 @@ export function ActorSheet({
   return (
     <article className={`sheet-card ${side === 'HUNTER' ? 'hunter' : 'constellation'}`}>
       <header className="sheet-card-head">
+        <Portrait src={portrait} name={name} size="sm" />
         <span className={`tag ${side === 'HUNTER' ? 'blue' : 'gold'}`}>{sideLabel(side)}</span>
         <b>{name}</b>
         {classDef && (
@@ -185,10 +255,10 @@ export function ActorSheet({
         <SkillList skills={skills} />
       </div>
 
-      {concept && (
+      {hasProfile(profile) && (
         <div className="sheet-card-row block">
           <span className="field-label">컨셉</span>
-          <p className="concept-text">{concept}</p>
+          <ProfileBlock source={profile} compact />
         </div>
       )}
     </article>
@@ -215,6 +285,7 @@ export function SheetDetail({
   return (
     <article className={`sheet-card ${sheet.side === 'HUNTER' ? 'hunter' : 'constellation'}`}>
       <header className="sheet-card-head">
+        <Portrait src={sheet.portrait} name={sheet.name} size="sm" />
         <span className={`tag ${sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
           {sideLabel(sheet.side)}
         </span>
@@ -245,12 +316,120 @@ export function SheetDetail({
         <SkillList skills={sheet.skills ?? []} />
       </div>
 
-      {sheet.concept && (
-        <div className="sheet-card-row block">
-          <span className="field-label">컨셉</span>
-          <p className="concept-text">{sheet.concept}</p>
+      {sheet.partnerName.trim().length > 0 && (
+        <div className="sheet-card-row">
+          <span className="field-label">계약 상대</span>
+          <span>{sheet.partnerName}</span>
         </div>
       )}
+
+      {hasProfile(sheet) && (
+        <div className="sheet-card-row block">
+          <span className="field-label">컨셉</span>
+          <ProfileBlock source={sheet} compact />
+        </div>
+      )}
+    </article>
+  );
+}
+
+/**
+ * 공개 시트 한 장 — 다른 참가자에게 보이는 범위만 담는다.
+ *
+ * 여기에 들어오는 값은 store 의 toPublicProfile 을 이미 거쳤다.
+ * 즉 스탯도 스킬 수치도 애초에 없으므로, 실수로 새어 나갈 자리가 없다.
+ *
+ * 헌터와 성좌는 같은 정보를 다른 서식으로 낸다.
+ *  · 헌터 — 관리국이 발급한 인사 기록부. 모서리 괄호, 일련번호, 격자 바탕.
+ *  · 성좌 — 천문대가 옮겨 적은 성록(星錄). 별 바탕, 이중 괘선, ✦ 구획선.
+ * 한 명당 한 장이며, 서술은 잘리지 않고 전문이 실린다.
+ */
+export function PublicSheetCard({
+  profile,
+  badge,
+  partnerName,
+}: {
+  profile: PublicProfile;
+  badge?: ReactNode;
+  /** 편성이 확정된 경우의 상대 이름 — 참가자가 적어 둔 값보다 우선한다 */
+  partnerName?: string | null;
+}) {
+  const hunter = profile.side === 'HUNTER';
+  const classDef = findClass(profile.side, profile.classId);
+  const partner = (partnerName ?? '').trim() || profile.partnerName.trim();
+  const filled = PROFILE_FIELDS.filter((field) => (profile[field.key] ?? '').trim().length > 0);
+
+  return (
+    <article className={`dossier ${hunter ? 'hunter' : 'constellation'}`}>
+      <span className="dossier-frame" aria-hidden="true" />
+
+      <header className="dossier-top">
+        <span className="dossier-stamp">{hunter ? 'HUNTER FILE' : 'STELLAR RECORD'}</span>
+        <span className="dossier-serial">
+          {hunter ? 'FILE NO.' : '星錄 NO.'} {profile.accountId}
+        </span>
+      </header>
+
+      <div className="dossier-id">
+        <Portrait src={profile.portrait} name={profile.name} size="lg" />
+        <div className="dossier-titles">
+          <span className="dossier-eyebrow">
+            {classDef ? classDef.label : hunter ? 'UNCLASSIFIED' : 'UNCHARTED'}
+          </span>
+          <b className="dossier-name">{profile.name || '(이름 없음)'}</b>
+          <span className="dossier-sub">
+            {classDef ? classDef.labelKo : '미지정'} · {sideLabel(profile.side)}
+          </span>
+          <div className="dossier-tags">
+            <span className={`tag ${hunter ? 'blue' : 'gold'}`}>
+              {affiliationLabel(profile.affiliation)}
+            </span>
+            {badge}
+          </div>
+        </div>
+      </div>
+
+      <dl className="dossier-facts">
+        <div>
+          <dt>계약 상대</dt>
+          <dd className={partner ? '' : 'dim'}>{partner || '미정 — 공란'}</dd>
+        </div>
+        <div>
+          <dt>활동명</dt>
+          <dd>@{profile.accountId}</dd>
+        </div>
+      </dl>
+
+      <div className="dossier-body">
+        {filled.map((field, index) => (
+          <section key={field.key} className="dossier-part">
+            <h4 className="dossier-part-title">
+              <span className="dossier-index">{String(index + 1).padStart(2, '0')}</span>
+              <span>{field.labelKo}</span>
+              <i>{field.label}</i>
+            </h4>
+            <p className="concept-text">{profile[field.key]}</p>
+          </section>
+        ))}
+
+        <section className="dossier-part">
+          <h4 className="dossier-part-title">
+            <span className="dossier-index">{String(filled.length + 1).padStart(2, '0')}</span>
+            <span>보유 기술</span>
+            <i>SKILL</i>
+          </h4>
+          <PublicSkillList skills={profile.skills} />
+        </section>
+
+        {filled.length === 0 && profile.skills.length === 0 && (
+          <p className="dim small-text">아직 적어 둔 설정이 없습니다.</p>
+        )}
+      </div>
+
+      <footer className="dossier-foot">
+        <span>{hunter ? 'HUNTER MANAGEMENT AGENCY' : 'ASTRAL REGISTRY'}</span>
+        <span>공개 등록 정보 — 스탯 · 스킬 수치는 관리국 열람</span>
+      </footer>
     </article>
   );
 }

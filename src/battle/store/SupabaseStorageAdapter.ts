@@ -11,10 +11,12 @@
  * 전투 상태 쓰기는 RLS 에서 운영진으로 제한된다.
  */
 
+import { SCHEMA_VERSION } from '../config/rules';
 import { requireSupabase } from './supabaseClient';
 import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
 import type {
   ActorSide,
+  BattleRecord,
   BattleState,
   BattleSummary,
   ChatMessage,
@@ -36,6 +38,7 @@ interface PairRow {
   constellation: PairState['constellation'];
   contract: PairState['contract'];
   points: number;
+  inventory: PairState['inventory'] | null;
   pattern_revealed: boolean;
 }
 
@@ -49,6 +52,8 @@ interface SubmissionRow {
   gimmick_note: string | null;
   gimmick_stage: string | null;
   gimmick_check: unknown;
+  hunter_item_id: string | null;
+  constellation_item_id: string | null;
   hunter_submitted: boolean;
   constellation_submitted: boolean;
 }
@@ -62,6 +67,8 @@ function emptySubmissionRow(): RoundSubmission {
     gimmickNote: null,
     gimmickStage: null,
     gimmickCheck: null,
+    hunterItemId: null,
+    constellationItemId: null,
     hunterSubmitted: false,
     constellationSubmitted: false,
   };
@@ -77,6 +84,8 @@ function toSubmission(row: SubmissionRow | undefined): RoundSubmission {
     gimmickNote: row.gimmick_note ?? null,
     gimmickStage: (row.gimmick_stage as RoundSubmission['gimmickStage']) ?? null,
     gimmickCheck: (row.gimmick_check as RoundSubmission['gimmickCheck']) ?? null,
+    hunterItemId: row.hunter_item_id ?? null,
+    constellationItemId: row.constellation_item_id ?? null,
     hunterSubmitted: row.hunter_submitted,
     constellationSubmitted: row.constellation_submitted,
   };
@@ -157,6 +166,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         constellation: row.constellation,
         contract: row.contract,
         points: row.points,
+        inventory: row.inventory ?? [],
         submission: toSubmission(submissionByPair.get(row.id)),
         patternRevealed: row.pattern_revealed,
       };
@@ -187,6 +197,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         };
       }),
       alerts: (battle.alerts ?? []) as BattleState['alerts'],
+      rewards: (battle.rewards ?? []) as BattleState['rewards'],
     };
   }
 
@@ -205,6 +216,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       enemies: state.enemies,
       gimmick: state.gimmick,
       alerts: state.alerts,
+      rewards: state.rewards,
     });
     if (battleError) throw new Error(`전투 저장 실패: ${battleError.message}`);
 
@@ -236,6 +248,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         constellation: pair.constellation,
         contract: pair.contract,
         points: pair.points,
+        inventory: pair.inventory,
         pattern_revealed: pair.patternRevealed,
       });
       if (error) throw new Error(`페어 저장 실패: ${error.message}`);
@@ -280,6 +293,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       gimmickNote?: string | null;
       gimmickStage?: string | null;
       gimmickCheck?: unknown;
+      itemId?: string | null;
       submitted?: boolean;
     },
   ): Promise<void> {
@@ -302,9 +316,11 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       if (patch.gimmickNote !== undefined) update.gimmick_note = patch.gimmickNote;
       if (patch.gimmickStage !== undefined) update.gimmick_stage = patch.gimmickStage;
       if (patch.gimmickCheck !== undefined) update.gimmick_check = patch.gimmickCheck;
+      if (patch.itemId !== undefined) update.hunter_item_id = patch.itemId;
     } else {
       if (patch.actionId !== undefined) update.constellation_action_id = patch.actionId;
       if (patch.submitted !== undefined) update.constellation_submitted = patch.submitted;
+      if (patch.itemId !== undefined) update.constellation_item_id = patch.itemId;
     }
 
     if (Object.keys(update).length === 0) return;
@@ -336,6 +352,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       affiliation: row.affiliation as PairBond['affiliation'],
       active: Boolean(row.active),
       createdAt: row.created_at as string,
+      points: (row.points as number) ?? 0,
+      inventory: (row.inventory as PairBond['inventory']) ?? [],
     }));
   }
 
@@ -349,6 +367,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       constellation_name: bond.constellationName,
       affiliation: bond.affiliation,
       active: bond.active,
+      points: bond.points ?? 0,
+      inventory: bond.inventory ?? [],
     });
     if (error) throw new Error(`편성 저장 실패: ${error.message}`);
   }
@@ -373,6 +393,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       maxPhase: row.max_phase as number,
       patternSetId: (row.pattern_set_id as string) ?? null,
       attacks: (row.attacks as EnemyTemplate['attacks']) ?? [],
+      phaseCutoffs: (row.phase_cutoffs as number[]) ?? [],
       boss: Boolean(row.boss),
     }));
   }
@@ -388,6 +409,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       max_phase: template.maxPhase,
       pattern_set_id: template.patternSetId,
       attacks: template.attacks ?? [],
+      phase_cutoffs: template.phaseCutoffs ?? [],
       boss: template.boss,
     });
     if (error) throw new Error(`적 저장 실패: ${error.message}`);
@@ -496,9 +518,12 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       if (state) battles.push(state);
     }
     const envelope: ExportEnvelope = {
-      schemaVersion: battles[0]?.schemaVersion ?? 0,
+      schemaVersion: battles[0]?.schemaVersion ?? SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       battles,
+      bonds: await this.listBonds(),
+      enemyTemplates: await this.listEnemyTemplates(),
+      records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
   }
@@ -508,6 +533,66 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     for (const state of envelope.battles ?? []) {
       await this.saveBattle(state);
     }
+    for (const bond of envelope.bonds ?? []) {
+      await this.saveBond(bond);
+    }
+    for (const template of envelope.enemyTemplates ?? []) {
+      await this.saveEnemyTemplate(template);
+    }
+    for (const record of envelope.records ?? []) {
+      await this.saveRecord(record);
+    }
+  }
+
+  /* ── 공략 기록 ── */
+
+  async listRecords(): Promise<BattleRecord[]> {
+    const { data, error } = await requireSupabase()
+      .from('battle_records')
+      .select('*')
+      .order('finished_at', { ascending: false });
+
+    if (error) throw new Error(`공략 기록을 불러올 수 없습니다: ${error.message}`);
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      schemaVersion: row.schema_version as number,
+      battleId: row.battle_id as string,
+      mode: row.mode as BattleRecord['mode'],
+      operation: row.operation as BattleRecord['operation'],
+      status: row.status as BattleRecord['status'],
+      rounds: row.rounds as number,
+      finishedAt: row.finished_at as string,
+      bossName: (row.boss_name as string) ?? null,
+      gimmick: (row.gimmick as BattleRecord['gimmick']) ?? null,
+      pairs: (row.pairs as BattleRecord['pairs']) ?? [],
+      log: (row.log as BattleRecord['log']) ?? [],
+      note: (row.note as string) ?? '',
+    }));
+  }
+
+  async saveRecord(record: BattleRecord): Promise<void> {
+    const { error } = await requireSupabase().from('battle_records').upsert({
+      id: record.id,
+      schema_version: record.schemaVersion,
+      battle_id: record.battleId,
+      mode: record.mode,
+      operation: record.operation,
+      status: record.status,
+      rounds: record.rounds,
+      finished_at: record.finishedAt,
+      boss_name: record.bossName,
+      gimmick: record.gimmick,
+      pairs: record.pairs,
+      log: record.log,
+      note: record.note,
+    });
+    if (error) throw new Error(`공략 기록 저장 실패: ${error.message}`);
+  }
+
+  async deleteRecord(id: string): Promise<void> {
+    const { error } = await requireSupabase().from('battle_records').delete().eq('id', id);
+    if (error) throw new Error(`공략 기록 삭제 실패: ${error.message}`);
   }
 
   /** 전투 상태 변경을 실시간으로 구독한다 */

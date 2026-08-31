@@ -45,6 +45,10 @@ export function skillToAction(skill: SkillRuntime | SkillDefinition): ActionDefi
     case 'DEBUFF':
       effect.enemyDefenseDown = skill.power;
       break;
+    case 'HEAL':
+      // power 1.0 이 HEAL_RULES.percentPerPower 만큼의 최대 HP 를 되돌린다
+      effect.heal = skill.power;
+      break;
     default:
       break;
   }

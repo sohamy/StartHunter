@@ -8,11 +8,15 @@
  * 모든 함수는 순수 함수이며 새 상태를 돌려준다.
  */
 
+import { findItem } from '../config/items';
+import { findReward, type RewardReason } from '../config/rewards';
 import { emptySubmission } from '../config/scenario';
 import { findStatus } from '../config/status';
 import { createPair, createPresetPair, createGimmick } from './battle';
+import { describePhaseBands, normalizeCutoffs } from './enemy';
+import { addItem } from './items';
 import { appendLog, createLogEntry } from './log';
-import { applyStatus } from './status';
+import { applyStatus, contractStageOf } from './status';
 import type {
   ActorSide,
   BattleState,
@@ -160,24 +164,121 @@ export function setManifestUses(
   return note(next, `현신 횟수 변경 — ${pairId}`, JSON.stringify(patch), pairId);
 }
 
+/**
+ * 계약 안정도 변경.
+ *
+ * 값만 바꾸면 단계가 값과 어긋나므로 값을 바꿀 때는 단계도 함께 맞춘다.
+ * 운영진이 단계를 직접 지정하면 그 지정이 우선한다.
+ */
 export function setContract(
   state: BattleState,
   pairId: string,
   patch: { stage?: ContractStage; value?: number },
 ): BattleState {
-  const next = patchPair(state, pairId, (pair) => ({
-    ...pair,
-    contract: {
-      stage: patch.stage ?? pair.contract.stage,
-      value: patch.value !== undefined ? clamp(patch.value, 0, 100) : pair.contract.value,
-    },
-  }));
+  const next = patchPair(state, pairId, (pair) => {
+    const value = patch.value !== undefined ? clamp(patch.value, 0, 100) : pair.contract.value;
+    const stage = patch.stage ?? (patch.value !== undefined ? contractStageOf(value) : pair.contract.stage);
+    return { ...pair, contract: { stage, value } };
+  });
   return note(next, `계약 안정도 변경 — ${pairId}`, JSON.stringify(patch), pairId);
 }
 
 export function setPairPoints(state: BattleState, pairId: string, points: number): BattleState {
   const next = patchPair(state, pairId, (pair) => ({ ...pair, points: Math.max(0, points) }));
   return note(next, `포인트 변경 — ${pairId} → ${points}P`, undefined, pairId);
+}
+
+/* ── 포인트 지급 ───────────────────────────────────────────
+   원장에 이유를 함께 남긴다. 합계만 바꾸면 무엇으로 받았는지 잃는다. */
+
+export function grantPoints(
+  state: BattleState,
+  pairId: string,
+  reason: RewardReason,
+  points?: number,
+): BattleState {
+  const rule = findReward(reason);
+  const amount = points ?? rule.points;
+  const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
+
+  const next = patchPair(state, pairId, (pair) => ({
+    ...pair,
+    points: Math.max(0, pair.points + amount),
+  }));
+
+  return note(
+    {
+      ...next,
+      rewards: [
+        ...next.rewards,
+        {
+          id: `RW-ADMIN-${next.rewards.length}-${pairId}`,
+          round: state.round,
+          pairId,
+          reason,
+          label: rule.labelKo,
+          points: amount,
+        },
+      ],
+    },
+    `포인트 지급 — ${label} +${amount}P`,
+    rule.labelKo,
+    pairId,
+  );
+}
+
+/** 원장 항목을 되돌린다 — 잘못 지급한 보상을 취소할 때 쓴다 */
+export function revokeReward(state: BattleState, rewardId: string): BattleState {
+  const entry = state.rewards.find((row) => row.id === rewardId);
+  if (!entry) return state;
+
+  const next = patchPair(state, entry.pairId, (pair) => ({
+    ...pair,
+    points: Math.max(0, pair.points - entry.points),
+  }));
+
+  return note(
+    { ...next, rewards: next.rewards.filter((row) => row.id !== rewardId) },
+    `포인트 지급 취소 — ${entry.label} −${entry.points}P`,
+    undefined,
+    entry.pairId,
+  );
+}
+
+/* ── 아이템 ────────────────────────────────────────────── */
+
+export function grantItem(
+  state: BattleState,
+  pairId: string,
+  itemId: string,
+  quantity = 1,
+): BattleState {
+  const item = findItem(itemId);
+  if (!item) return state;
+
+  const next = patchPair(state, pairId, (pair) => ({
+    ...pair,
+    inventory: addItem(pair.inventory, itemId, quantity),
+  }));
+  const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
+  return note(next, `아이템 지급 — ${label} ${item.nameKo} ×${quantity}`, undefined, pairId);
+}
+
+export function revokeItem(
+  state: BattleState,
+  pairId: string,
+  itemId: string,
+  quantity = 1,
+): BattleState {
+  const item = findItem(itemId);
+  if (!item) return state;
+
+  const next = patchPair(state, pairId, (pair) => ({
+    ...pair,
+    inventory: addItem(pair.inventory, itemId, -quantity),
+  }));
+  const label = state.pairs.find((pair) => pair.id === pairId)?.label ?? pairId;
+  return note(next, `아이템 회수 — ${label} ${item.nameKo} ×${quantity}`, undefined, pairId);
 }
 
 /* ── 상태이상 ──────────────────────────────────────────── */
@@ -296,6 +397,39 @@ export function setEnemyAttacks(
     enemies: state.enemies.map((enemy) => (enemy.id === enemyId ? { ...enemy, attacks } : enemy)),
   };
   return note(next, `적 공격 패턴 변경 — ${enemyId}`, `${attacks.length}개`);
+}
+
+/**
+ * 전투 중 페이즈 규칙 교체.
+ *
+ * 페이즈 수를 줄이면 현재 페이즈도 같이 내려가야 한다 — 존재하지 않는 페이즈에
+ * 남아 있으면 그 페이즈에 걸린 공격이 하나도 없게 된다.
+ */
+export function setEnemyPhaseRules(
+  state: BattleState,
+  enemyId: string,
+  patch: { maxPhase?: number; phaseCutoffs?: number[] },
+): BattleState {
+  let described = '';
+  const next = {
+    ...state,
+    enemies: state.enemies.map((enemy) => {
+      if (enemy.id !== enemyId) return enemy;
+      const maxPhase = patch.maxPhase !== undefined ? clamp(patch.maxPhase, 1, 5) : enemy.maxPhase;
+      // 빈 경계는 빈 채로 둔다 — 프리셋 · 균등 분할을 따르라는 뜻이다
+      const source = patch.phaseCutoffs ?? enemy.phaseCutoffs ?? [];
+      const cutoffs = source.length > 0 ? normalizeCutoffs(source, maxPhase) : [];
+      const updated = {
+        ...enemy,
+        maxPhase,
+        phase: clamp(enemy.phase, 1, maxPhase),
+        phaseCutoffs: cutoffs,
+      };
+      described = describePhaseBands(updated);
+      return updated;
+    }),
+  };
+  return note(next, `적 페이즈 규칙 변경 — ${enemyId}`, described);
 }
 
 export function setEnemyStats(

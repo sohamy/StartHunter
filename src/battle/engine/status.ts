@@ -7,6 +7,7 @@
 
 import {
   CONSTELLATION_STAGES,
+  CONTRACT_RULES,
   CONTRACT_STAGES,
   INJURY_THRESHOLDS,
 } from '../config/rules';
@@ -14,6 +15,7 @@ import { findStatus, type StatusDefinition, type StatusModifiers } from '../conf
 import type {
   ConstellationStage,
   ContractStage,
+  ContractState,
   HunterState,
   InjuryStage,
   StatusEffect,
@@ -56,13 +58,58 @@ export function contractView(stage: ContractStage): StageView {
   return { stage, label: row.label, labelKo: row.labelKo, tone: row.tone };
 }
 
+/** 계약 안정도 값에서 단계를 끌어낸다 — 값이 곧 단계다. */
+export function contractStageOf(value: number): ContractStage {
+  const rows = Object.entries(CONTRACT_STAGES) as Array<[ContractStage, { minValue: number }]>;
+  const sorted = rows.sort((a, b) => b[1].minValue - a[1].minValue);
+  const matched = sorted.find(([, row]) => value >= row.minValue);
+  return matched ? matched[0] : 'BROKEN';
+}
+
+/** 값을 범위 안으로 자르고 단계를 다시 계산한 계약 상태 */
+export function contractFromValue(value: number): ContractState {
+  const clamped = Math.max(
+    CONTRACT_RULES.minValue,
+    Math.min(CONTRACT_RULES.maxValue, Math.round(value)),
+  );
+  return { value: clamped, stage: contractStageOf(clamped) };
+}
+
+/** 계약 단계가 권능 효과에 곱하는 배율 */
+export function contractPowerMultiplier(stage: ContractStage): number {
+  return CONTRACT_STAGES[stage].powerMultiplier;
+}
+
 /** 성좌 상태에 따라 조정된 최대 행동력 */
 export function constellationMaxAp(baseMaxAp: number, stage: ConstellationStage): number {
   return Math.max(0, baseMaxAp + CONSTELLATION_STAGES[stage].maxApDelta);
 }
 
-export function canManifest(stage: ConstellationStage): boolean {
-  return CONSTELLATION_STAGES[stage].canManifest;
+/** 성좌 상태 단계 순서 — 위에서 아래로 나빠진다 */
+export const CONSTELLATION_STAGE_ORDER: ConstellationStage[] = [
+  'STABLE',
+  'UNSTABLE',
+  'CRACKED',
+  'COLLAPSE',
+  'LOST',
+];
+
+/** 단계를 이만큼 내린다(양수) 또는 올린다(음수). 범위를 넘지 않는다. */
+export function shiftStage(stage: ConstellationStage, steps: number): ConstellationStage {
+  const index = CONSTELLATION_STAGE_ORDER.indexOf(stage);
+  if (index < 0) return stage;
+  const next = Math.max(0, Math.min(CONSTELLATION_STAGE_ORDER.length - 1, index + steps));
+  return CONSTELLATION_STAGE_ORDER[next];
+}
+
+/**
+ * 현신 가능 여부.
+ * 성좌의 존재 상태와 계약 단계 둘 다 통과해야 한다.
+ */
+export function canManifest(stage: ConstellationStage, contractStage?: ContractStage): boolean {
+  if (!CONSTELLATION_STAGES[stage].canManifest) return false;
+  if (contractStage && !CONTRACT_STAGES[contractStage].canManifest) return false;
+  return true;
 }
 
 /* ── 상태이상 ──────────────────────────────────────────
@@ -104,13 +151,17 @@ export function applyStatus(
   defId: string,
   sourceLabel: string,
   scale = 1,
+  durationBonus = 0,
 ): StatusEffect[] {
   const def = findStatus(defId);
   if (!def) return statuses;
 
+  // 권역 특성이 늘리고 헌터의 의지가 깎는다. 부여 자체가 무효가 되지는 않으므로 최소 1 라운드는 남긴다.
+  const duration = Math.max(1, def.duration + durationBonus);
+
   const existing = statuses.find((effect) => effect.defId === defId);
   if (!existing) {
-    return [...statuses, { defId, remainingRounds: def.duration, stacks: 1, sourceLabel, scale }];
+    return [...statuses, { defId, remainingRounds: duration, stacks: 1, sourceLabel, scale }];
   }
 
   return statuses.map((effect) => {
@@ -118,7 +169,7 @@ export function applyStatus(
     return {
       ...effect,
       // 지속시간은 항상 갱신한다 (더 긴 쪽을 유지)
-      remainingRounds: Math.max(effect.remainingRounds, def.duration),
+      remainingRounds: Math.max(effect.remainingRounds, duration),
       stacks: def.stackable ? Math.min(def.maxStacks, effect.stacks + 1) : effect.stacks,
       sourceLabel,
       // 더 강하게 건 쪽을 유지한다

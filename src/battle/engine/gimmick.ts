@@ -7,7 +7,7 @@
  */
 
 import { POINT_BUY } from '../config/characters';
-import { GIMMICK_CHECK, findGimmick } from '../config/gimmicks';
+import { GIMMICK_CHECK, findGimmick, type GimmickApproach } from '../config/gimmicks';
 import { rollDice, type DiceResult } from './dice';
 import type { GimmickCheck, GimmickStage, GimmickState, PairState } from '../types';
 
@@ -20,6 +20,39 @@ export interface CheckPlan {
   dc: number;
   bonus: number;
   breakdown: string[];
+  /** 이 단계에서 인정되는 접근 — 참가자에게 그대로 보여 준다 */
+  approaches: GimmickApproach[];
+  /** 선언이 걸린 접근. 선언이 비었으면 null 이고 보정도 붙지 않는다 */
+  matched: GimmickApproach | null;
+  /** 선언을 썼는데 어느 접근에도 걸리지 않았다 */
+  offApproach: boolean;
+}
+
+/** 이 장치의 이 단계에서 인정되는 접근 */
+export function approachesFor(gimmick: GimmickState | null, stage: GimmickStage): GimmickApproach[] {
+  if (!gimmick) return [];
+  return (findGimmick(gimmick.defId)?.approaches ?? []).filter((row) => row.stage === stage);
+}
+
+/**
+ * 선언이 어느 접근에 걸리는지 찾는다.
+ *
+ * 낱말이 들어 있기만 하면 인정한다 — 문장을 해석하지 않는다.
+ * 보정이 큰 접근을 먼저 본다. 최종 인정은 관리국이 한다.
+ */
+export function matchApproach(
+  gimmick: GimmickState | null,
+  stage: GimmickStage,
+  note: string | null | undefined,
+): GimmickApproach | null {
+  const text = (note ?? '').trim();
+  if (!text) return null;
+
+  return (
+    [...approachesFor(gimmick, stage)]
+      .sort((a, b) => b.bonus - a.bonus)
+      .find((row) => row.keywords.some((word) => text.includes(word))) ?? null
+  );
 }
 
 /**
@@ -33,10 +66,30 @@ export function planCheck(
   gimmick: GimmickState,
   hunterStats: Record<string, number>,
   constellationStats: Record<string, number>,
+  /** 지금까지 적은 선언 — 인정되는 접근에 걸리면 보정이 붙는다 */
+  note?: string | null,
 ): CheckPlan {
   const def = findGimmick(gimmick.defId);
   const breakdown: string[] = [];
   let bonus = 0;
+
+  const approaches = approachesFor(gimmick, stage);
+  const matched = matchApproach(gimmick, stage, note);
+  const wrote = (note ?? '').trim().length > 0;
+  const offApproach = wrote && approaches.length > 0 && !matched;
+
+  /** 접근 보정을 얹어 계획을 마무리한다 — 두 단계가 같은 규칙을 쓴다 */
+  const finish = (dc: number, statBonus: number): CheckPlan => {
+    let total = statBonus;
+    if (matched) {
+      total += matched.bonus;
+      breakdown.push(`접근 「${matched.label}」 → +${matched.bonus}`);
+    } else if (offApproach) {
+      total += GIMMICK_CHECK.offApproachPenalty;
+      breakdown.push(`인정되지 않는 접근 → ${GIMMICK_CHECK.offApproachPenalty}`);
+    }
+    return { stage, dc, bonus: total, breakdown, approaches, matched, offApproach };
+  };
 
   if (stage === 'INSIGHT') {
     const rule = GIMMICK_CHECK.insight;
@@ -49,7 +102,7 @@ export function planCheck(
     breakdown.push(`관찰력 ${sen} → +${senBonus}`);
     breakdown.push(`성좌 관측 ${obs} → +${obsBonus}`);
 
-    return { stage, dc: def?.insightDc ?? 12, bonus, breakdown };
+    return finish(def?.insightDc ?? 12, bonus);
   }
 
   const rule = GIMMICK_CHECK.resolve;
@@ -65,7 +118,7 @@ export function planCheck(
   breakdown.push(`관찰력 ${sen} → +${senBonus}`);
   if (obsBonus > 0) breakdown.push(`성좌 관측 ${obs} → +${obsBonus}`);
 
-  return { stage, dc: def?.resolveDc ?? 13, bonus, breakdown };
+  return finish(def?.resolveDc ?? 13, bonus);
 }
 
 /** 계획대로 주사위를 굴려 판정 결과를 만든다 */
@@ -86,6 +139,8 @@ export function rollCheck(plan: CheckPlan): GimmickCheck | null {
     dc: plan.dc,
     success: critical || total >= plan.dc,
     critical,
+    approachId: plan.matched?.id ?? null,
+    approachLabel: plan.matched?.label ?? null,
   };
 }
 

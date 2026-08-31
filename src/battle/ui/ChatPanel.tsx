@@ -81,6 +81,16 @@ export default function ChatPanel({
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
   const atBottom = useRef(true);
+  /** 소프트 키보드에서는 Enter 가 줄바꿈이어야 한다 — 전송은 버튼이 맡는다 */
+  const [softKeyboard, setSoftKeyboard] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia('(hover: none) and (pointer: coarse)');
+    const apply = () => setSoftKeyboard(query.matches);
+    apply();
+    query.addEventListener('change', apply);
+    return () => query.removeEventListener('change', apply);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -282,8 +292,8 @@ export default function ChatPanel({
           <div className="btn-row">
             <span className="hint">
               <b>{author.role === 'OPERATOR' ? '관리국' : author.name}</b> 으로{' '}
-              {currentView.label} 에 씁니다 · 판정은 <b>/roll 2d6+3</b> · Enter 전송 · Shift+Enter
-              줄바꿈
+              {currentView.label} 에 씁니다 · 판정은 <b>/roll 2d6+3</b> ·{' '}
+              {softKeyboard ? '전송 버튼으로 보냅니다' : 'Enter 전송 · Shift+Enter 줄바꿈'}
             </span>
           </div>
           <div className="chat-send">
@@ -295,6 +305,7 @@ export default function ChatPanel({
               placeholder={currentView.hint}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
+                if (softKeyboard) return;
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
                   void send();

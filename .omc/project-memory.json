@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1787011889867,
+  "lastScanned": 1788160399967,
   "projectRoot": "D:\\PB\\trunk\\StartHunter",
   "techStack": {
     "languages": [
@@ -78,7 +78,7 @@
       "path": "dist",
       "purpose": "Distribution/build output",
       "fileCount": 1,
-      "lastAccessed": 1787011889828,
+      "lastAccessed": 1788160399940,
       "keyFiles": [
         "index.html"
       ]
@@ -87,7 +87,7 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 2,
-      "lastAccessed": 1787011889828,
+      "lastAccessed": 1788160399940,
       "keyFiles": [
         "BATTLE_SYSTEM_REQUIREMENTS.md",
         "SUPABASE_SETUP.md"
@@ -97,21 +97,21 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 0,
-      "lastAccessed": 1787011889828,
+      "lastAccessed": 1788160399944,
       "keyFiles": []
     },
     "supabase": {
       "path": "supabase",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1787011889828,
+      "lastAccessed": 1788160399944,
       "keyFiles": []
     },
     "src\\pages": {
       "path": "src\\pages",
       "purpose": "Page components",
       "fileCount": 1,
-      "lastAccessed": 1787011889829,
+      "lastAccessed": 1788160399946,
       "keyFiles": [
         "index.astro"
       ]
@@ -119,8 +119,8 @@
     "supabase\\migrations": {
       "path": "supabase\\migrations",
       "purpose": "Database migrations",
-      "fileCount": 5,
-      "lastAccessed": 1787011889829,
+      "fileCount": 8,
+      "lastAccessed": 1788160399946,
       "keyFiles": [
         "0001_battle_schema.sql",
         "0002_roster_and_enemies.sql",
@@ -128,6 +128,25 @@
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "C:/Users/User/AppData/Local/Temp/claude/D--PB-trunk-StartHunter/65e5fa76-fe68-42b4-a669-2986369d6c5e/scratchpad/dossier.css",
+      "accessCount": 1,
+      "lastAccessed": 1788161481308,
+      "type": "file"
+    },
+    {
+      "path": "supabase/migrations/0009_sheet_profile_split.sql",
+      "accessCount": 1,
+      "lastAccessed": 1788161573948,
+      "type": "file"
+    },
+    {
+      "path": "C:/Users/User/AppData/Local/Temp/claude/D--PB-trunk-StartHunter/65e5fa76-fe68-42b4-a669-2986369d6c5e/scratchpad/schedule.css",
+      "accessCount": 1,
+      "lastAccessed": 1788161639831,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

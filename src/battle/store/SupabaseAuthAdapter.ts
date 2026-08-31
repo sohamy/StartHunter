@@ -5,6 +5,7 @@
  * 활동명(handle)은 이메일 형태가 아니어도 되게 내부에서 가상 이메일로 변환한다.
  */
 
+import { toProfile } from '../config/characters';
 import { requireSupabase } from './supabaseClient';
 import {
   AuthError,
@@ -69,10 +70,16 @@ interface SheetRow {
   owner: string;
   side: ActorSide;
   name: string;
+  partner_name: string | null;
   class_id: string;
   stats: Record<string, number>;
   skills: CharacterSheet['skills'];
-  concept: string;
+  personality: string | null;
+  traits: string | null;
+  contract_story: string | null;
+  /** 0009 이전에 쓰던 한 칸짜리 서술. 새 칸이 비어 있을 때만 읽는다. */
+  concept?: string | null;
+  portrait: string | null;
   affiliation: CharacterSheet['affiliation'];
   created_at: string;
 }
@@ -82,12 +89,43 @@ function toSheet(row: SheetRow): CharacterSheet {
     id: row.id,
     side: row.side,
     name: row.name,
+    partnerName: row.partner_name ?? '',
     classId: row.class_id,
     stats: row.stats ?? {},
     skills: row.skills ?? [],
-    concept: row.concept ?? '',
+    // 마이그레이션 전에 적힌 시트도 그대로 열린다 — 옛 concept 은 성격 칸으로 읽는다
+    ...toProfile({
+      personality: row.personality ?? undefined,
+      traits: row.traits ?? undefined,
+      contractStory: row.contract_story ?? undefined,
+      concept: row.concept ?? undefined,
+    }),
+    portrait: row.portrait ?? null,
     affiliation: row.affiliation,
     createdAt: row.created_at,
+  };
+}
+
+/**
+ * public_profiles 뷰의 한 행 → 공개 프로필.
+ *
+ * 뷰가 이미 공개분만 담고 있다 — 스탯도, 스킬 수치도 애초에 내려오지 않는다.
+ */
+function toPublicRow(row: Record<string, unknown>): PublicProfile {
+  return {
+    accountId: row.handle as string,
+    side: row.side as ActorSide,
+    name: row.name as string,
+    partnerName: (row.partner_name as string | null) ?? '',
+    classId: row.class_id as string,
+    affiliation: (row.affiliation as PublicProfile['affiliation']) ?? 'GOVERNMENT',
+    portrait: (row.portrait as string | null) ?? null,
+    ...toProfile({
+      personality: (row.personality as string | null) ?? undefined,
+      traits: (row.traits as string | null) ?? undefined,
+      contractStory: (row.contract_story as string | null) ?? undefined,
+    }),
+    skills: (row.public_skills as PublicProfile['skills']) ?? [],
   };
 }
 
@@ -122,10 +160,14 @@ export class SupabaseAuthAdapter implements AuthAdapter {
         owner: data.user.id,
         side: input.sheet.side,
         name: input.sheet.name,
+        partner_name: input.sheet.partnerName,
         class_id: input.sheet.classId,
         stats: input.sheet.stats,
         skills: input.sheet.skills,
-        concept: input.sheet.concept,
+        personality: input.sheet.personality,
+        traits: input.sheet.traits,
+        contract_story: input.sheet.contractStory,
+        portrait: input.sheet.portrait ?? null,
         affiliation: input.sheet.affiliation,
       })
       .select()
@@ -199,18 +241,25 @@ export class SupabaseAuthAdapter implements AuthAdapter {
 
   async listProfiles(side?: ActorSide): Promise<PublicProfile[]> {
     const supabase = requireSupabase();
-    let query = supabase.from('public_profiles').select('account_id, handle, side, name, class_id');
+    // 뷰가 공개분만 담는다 — 스탯과 스킬 수치는 애초에 내려오지 않는다.
+    let query = supabase.from('public_profiles').select('*');
     if (side) query = query.eq('side', side);
 
     const { data, error } = await query;
     if (error || !data) return [];
 
-    return data.map((row) => ({
-      accountId: row.handle as string,
-      side: row.side as ActorSide,
-      name: row.name as string,
-      classId: row.class_id as string,
-    }));
+    return data.map(toPublicRow);
+  }
+
+  /** 한 사람의 공개 프로필 — 페어 상대를 보여줄 때 쓴다. 목록 전체를 내려받지 않는다. */
+  async getPublicProfile(accountId: string): Promise<PublicProfile | null> {
+    const { data } = await requireSupabase()
+      .from('public_profiles')
+      .select('*')
+      .eq('handle', accountId)
+      .maybeSingle();
+
+    return data ? toPublicRow(data) : null;
   }
 
   /**
@@ -245,10 +294,14 @@ export class SupabaseAuthAdapter implements AuthAdapter {
       .update({
         side: sheet.side,
         name: sheet.name,
+        partner_name: sheet.partnerName,
         class_id: sheet.classId,
         stats: sheet.stats,
         skills: sheet.skills,
-        concept: sheet.concept,
+        personality: sheet.personality,
+        traits: sheet.traits,
+        contract_story: sheet.contractStory,
+        portrait: sheet.portrait ?? null,
         affiliation: sheet.affiliation,
       })
       .eq('id', sheet.id);

@@ -11,9 +11,10 @@
  * 라운드 처리는 관리국이 하므로, 화면이 스스로 갱신되지 않으면 진행을 볼 수 없다.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { findClass } from '../config/characters';
+import { describeTraits, findClass } from '../config/characters';
+import { ITEM_CATEGORY_LABELS, findItem as findItemDefinition } from '../config/items';
 import { CURRENT_PHASE, UI_RULES } from '../config/rules';
 import { DEFAULT_RAID_PAIR_COUNT, pairPreset, presetSheet } from '../config/scenario';
 import {
@@ -34,7 +35,14 @@ import {
   rollCheck,
 } from '../engine/gimmick';
 import { newUuid } from '../engine/id';
-import { actionAvailability, setControlMode, submitPairAction } from '../engine/round';
+import { inventoryFor, itemAvailability } from '../engine/items';
+import {
+  actionAvailability,
+  apCostOf,
+  setControlMode,
+  submitPairAction,
+  submittedItemId,
+} from '../engine/round';
 import { actionsFor, findSkillRuntime, resolveActionFor } from '../engine/skills';
 import {
   constellationView,
@@ -45,6 +53,7 @@ import {
 } from '../engine/status';
 import { getAuth, getServerStorage, getStorage, type PublicProfile } from '../store';
 import ChatPanel from './ChatPanel';
+import { Portrait } from './PortraitField';
 import Collapsible from './Collapsible';
 import { ActorSheet } from './SheetView';
 import type {
@@ -55,6 +64,7 @@ import type {
   BattleState,
   CharacterSheet,
   EnemyState,
+  GimmickState,
   PairBond,
   PairState,
   StatusEffect,
@@ -68,6 +78,7 @@ interface SidePatch {
   gimmickNote?: string | null;
   gimmickStage?: string | null;
   gimmickCheck?: unknown;
+  itemId?: string | null;
   submitted?: boolean;
 }
 
@@ -132,6 +143,8 @@ interface ActionListProps {
   target: EnemyState | null;
   selectedId: string | null;
   locked: boolean;
+  /** 이 층의 기믹 — 없으면 기믹 수행이 잠긴다 */
+  gimmick: GimmickState | null;
   onSelect: (actionId: string) => void;
 }
 
@@ -142,12 +155,13 @@ function ActionList({
   target,
   selectedId,
   locked,
+  gimmick,
   onSelect,
 }: ActionListProps) {
   return (
     <ul className="action-list">
       {actions.map((action) => {
-        const availability = actionAvailability(action, pair, Boolean(target));
+        const availability = actionAvailability(action, pair, Boolean(target), gimmick);
         const disabled = locked || !availability.usable;
         const future = action.implementedIn > CURRENT_PHASE;
         const skill = findSkillRuntime(pair, side, action.id);
@@ -178,7 +192,7 @@ function ActionList({
                 {action.label}
                 <small>{action.labelKo}</small>
               </span>
-              <span className="action-cost">AP {action.apCost}</span>
+              <span className="action-cost">AP {apCostOf(action, pair)}</span>
               <span className="action-meta">
                 {skill && skill.cooldown > 0 && <span className="tag">쿨 {skill.cooldown}R</span>}
                 {skill && skill.currentCooldown > 0 && (
@@ -203,6 +217,97 @@ function ActionList({
   );
 }
 
+/**
+ * 아이템 선택.
+ *
+ * 아이템 행동을 고른 다음에 무엇을 쓸지 정한다 —
+ * 행동력 비용과 대상은 행동 정의가 아니라 아이템 정의에서 온다.
+ */
+interface ItemPickerProps {
+  pair: PairState;
+  side: ActorSide;
+  hasTarget: boolean;
+  supportPair: PairState | null;
+  selectedId: string | null;
+  locked: boolean;
+  onSelect: (itemId: string | null) => void;
+}
+
+function ItemPicker({
+  pair,
+  side,
+  hasTarget,
+  supportPair,
+  selectedId,
+  locked,
+  onSelect,
+}: ItemPickerProps) {
+  const rows = inventoryFor(pair, side);
+
+  if (rows.length === 0) {
+    return <p className="hint">가방에 이 주체가 쓸 수 있는 아이템이 없습니다.</p>;
+  }
+
+  return (
+    <ul className="action-list item-list">
+      {rows.map((row) => {
+        const availability = itemAvailability(pair, side, row.item.id, hasTarget, supportPair);
+        const disabled = locked || !availability.usable;
+
+        return (
+          <li key={row.item.id}>
+            <button
+              type="button"
+              className={['action', selectedId === row.item.id ? 'selected' : ''].join(' ').trim()}
+              disabled={disabled}
+              onClick={() => onSelect(selectedId === row.item.id ? null : row.item.id)}
+              title={availability.reason ?? row.item.description}
+            >
+              <span className="action-name">
+                {row.item.name}
+                <small>{row.item.nameKo}</small>
+              </span>
+              <span className="action-cost">AP {row.item.apCost}</span>
+              <span className="action-meta">
+                <span className="tag">{ITEM_CATEGORY_LABELS[row.item.category].labelKo}</span>
+                <span className="tag gold">{row.quantity}개</span>
+                {row.effects.map((effect) => (
+                  <span key={effect} className="tag ok">
+                    {effect}
+                  </span>
+                ))}
+              </span>
+              {!availability.usable && <span className="action-block">{availability.reason}</span>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** 페어 공용 가방 — 전투 화면에서는 보유량만 확인한다 */
+function InventoryList({ pair }: { pair: PairState }) {
+  if (pair.inventory.length === 0) {
+    return <p className="hint">보급품이 없습니다.</p>;
+  }
+  return (
+    <ul className="inventory-list">
+      {pair.inventory.map((stack) => {
+        const item = findItemDefinition(stack.itemId);
+        if (!item) return null;
+        return (
+          <li key={stack.itemId}>
+            <span>{item.nameKo}</span>
+            <span className="tag">{ITEM_CATEGORY_LABELS[item.category].labelKo}</span>
+            <b className="num gold">{stack.quantity}</b>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /* ── 본체 ──────────────────────────────────────────────── */
 
 export default function BattleTerminal() {
@@ -213,11 +318,17 @@ export default function BattleTerminal() {
   const [authState, setAuthState] = useState<'LOADING' | 'GUEST' | 'READY'>('LOADING');
   const [account, setAccount] = useState<Account | null>(null);
   const [partners, setPartners] = useState<PublicProfile[]>([]);
+  /** 활동명 → 사진. 전투 상태에는 사진이 없어 공개 프로필에서 받아 둔다 */
+  const [portraits, setPortraits] = useState<Record<string, string>>({});
   const [partnerId, setPartnerId] = useState('');
   const [setupMode, setSetupMode] = useState<BattleMode>('DUEL');
 
   const [battle, setBattle] = useState<BattleState | null>(null);
   const [gimmickDraft, setGimmickDraft] = useState('');
+  /** 기믹 수행을 고른 순간 선언칸으로 데려간다 — 위아래로 찾아다니지 않게 한다 */
+  const gimmickBox = useRef<HTMLTextAreaElement>(null);
+  /** 확정 바에서 채널로 바로 내려간다 — 대화하려고 화면을 훑지 않게 한다 */
+  const chatBox = useRef<HTMLDivElement>(null);
   /** 제출이 서버에 닿지 않았을 때의 안내 — 조용히 삼키면 안 된다 */
   const [syncError, setSyncError] = useState<string | null>(null);
   /** 경보 닫기는 이 단말에서만 유효하다 (전투 상태는 관리국 소유) */
@@ -262,13 +373,20 @@ export default function BattleTerminal() {
       }
 
       const opposite: ActorSide = found.sheet.side === 'HUNTER' ? 'CONSTELLATION' : 'HUNTER';
-      const profiles = (await auth.listProfiles(opposite)).filter(
-        (profile) => profile.accountId !== found.id,
+      const everyone = await auth.listProfiles();
+      const profiles = everyone.filter(
+        (profile) => profile.side === opposite && profile.accountId !== found.id,
       );
+      const faces: Record<string, string> = {};
+      for (const profile of everyone) {
+        if (profile.portrait) faces[profile.accountId] = profile.portrait;
+      }
+      if (found.sheet.portrait) faces[found.id] = found.sheet.portrait;
       const joined = await findAssignedBattle(found.id);
 
       if (cancelled) return;
       setAccount(found);
+      setPortraits(faces);
       setPartners(profiles);
       setBattle(joined);
       setAuthState('READY');
@@ -607,15 +725,41 @@ export default function BattleTerminal() {
     submission.constellationActionId,
   );
   const comboPreview = previewCombo(hunterAction, constellationAction, target?.statuses ?? []);
+  const supportPair =
+    battle.pairs.find((row) => row.id === submission.supportTargetPairId) ?? null;
   const needsSupportTarget =
-    hunterAction?.kind === 'RESCUE' || hunterAction?.kind === 'PROTECT';
+    hunterAction?.kind === 'RESCUE' ||
+    hunterAction?.kind === 'PROTECT' ||
+    // 되살리는 아이템은 대상 페어를 지정해야 한다
+    (hunterAction?.kind === 'ITEM' &&
+      findItemDefinition(submission.hunterItemId)?.target === 'ALLY');
+
+  // 아이템 행동은 무엇을 쓸지 고르기 전에는 확정할 수 없다
+  const itemReady = (side: ActorSide, action: ActionDefinition | null): boolean => {
+    if (action?.kind !== 'ITEM') return true;
+    return itemAvailability(
+      pair,
+      side,
+      submittedItemId(pair, side),
+      Boolean(target),
+      supportPair,
+    ).usable;
+  };
 
   // 기믹 — 파악(INSIGHT) → 해결(RESOLVE)
   const gimmickStage = availableStage(battle.gimmick, pair);
   const isGimmickAction = hunterAction?.kind === 'GIMMICK';
+  /** 지금 화면에 적혀 있는 선언 — 접근 인정 여부를 실시간으로 보여 주려고 계획에 함께 넘긴다 */
+  const gimmickNote = gimmickDraft || submission.gimmickNote || '';
   const gimmickPlan =
     battle.gimmick && gimmickStage
-      ? planCheck(gimmickStage, battle.gimmick, pair.hunter.stats, pair.constellation.stats)
+      ? planCheck(
+          gimmickStage,
+          battle.gimmick,
+          pair.hunter.stats,
+          pair.constellation.stats,
+          gimmickNote,
+        )
       : null;
   const gimmickNoteOk = declarationValid(gimmickDraft || submission.gimmickNote);
   const downPairs = battle.pairs.filter((row) => row.hunter.hp <= 0);
@@ -635,6 +779,20 @@ export default function BattleTerminal() {
     const next = current === actionId ? null : actionId;
     update(submitPairAction(battle, pair.id, { [key]: next }));
     void pushSide(pair.id, battle.round, side, { actionId: next });
+
+    // 기믹 수행을 고르면 선언칸이 바로 아래에 열린다. 찾아 내려가지 않게 커서까지 옮겨 준다.
+    if (side === 'HUNTER' && next && resolveActionFor(pair, 'HUNTER', next)?.kind === 'GIMMICK') {
+      window.requestAnimationFrame(() => {
+        gimmickBox.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        gimmickBox.current?.focus({ preventScroll: true });
+      });
+    }
+  };
+
+  const selectItem = (side: ActorSide, itemId: string | null) => {
+    const key = side === 'HUNTER' ? 'hunterItemId' : 'constellationItemId';
+    update(submitPairAction(battle, pair.id, { [key]: itemId }));
+    void pushSide(pair.id, battle.round, side, { itemId });
   };
 
   /**
@@ -712,6 +870,8 @@ export default function BattleTerminal() {
     const pushed = submitted.pairs.find((row) => row.id === pair.id)?.submission;
     await pushSide(pair.id, battle.round, mySide, {
       submitted: true,
+      // 선택 시점의 전송이 실패했을 수 있으므로 확정할 때 한 번 더 보낸다
+      itemId: pushed ? submittedItemId({ ...pair, submission: pushed }, mySide) : null,
       ...(mySide === 'HUNTER' && pushed
         ? {
             gimmickNote: pushed.gimmickNote,
@@ -729,6 +889,7 @@ export default function BattleTerminal() {
   };
 
   // 내 쪽 행동만 고르면 확정할 수 있다. 상대는 상대 단말에서 제출한다.
+  const myAction = mySide === 'HUNTER' ? hunterAction : mySide === 'CONSTELLATION' ? constellationAction : null;
   const myActionChosen =
     mySide === 'HUNTER'
       ? Boolean(submission.hunterActionId)
@@ -742,7 +903,8 @@ export default function BattleTerminal() {
     myActionChosen &&
     !(mySide === 'HUNTER' && isDown(pair.hunter)) &&
     // 기믹 수행은 선언을 적어야 확정할 수 있다
-    !(mySide === 'HUNTER' && isGimmickAction && !gimmickNoteOk);
+    !(mySide === 'HUNTER' && isGimmickAction && !gimmickNoteOk) &&
+    itemReady(mySide === 'HUNTER' ? 'HUNTER' : 'CONSTELLATION', myAction);
 
   const visibleAlerts = battle.alerts.filter((item) => !dismissedAlerts.includes(item.id));
   const myPairLabel =
@@ -898,62 +1060,6 @@ export default function BattleTerminal() {
         </div>
       </section>
 
-      {/* ── 기믹 선언 ── */}
-      {battle.gimmick && isGimmickAction && mySide === 'HUNTER' && !mySubmitted && (
-        <section className="panel gimmick-declare">
-          <div className="process-head">
-            <h2 className="panel-title">
-              기믹 {gimmickStage === 'INSIGHT' ? '파악' : '해결'} 선언
-            </h2>
-            <span className="hint">선언과 판정 결과는 채널에 공개되고, 관리국이 최종 인정합니다.</span>
-          </div>
-
-          <p className="gimmick-brief">{gimmickBrief(battle.gimmick).text}</p>
-
-          {gimmickStage === 'INSIGHT' ? (
-            <p className="hint">
-              아직 장치를 파악하지 못했습니다. 무엇을 어떻게 관찰하는지 적으세요 —
-              <b> 관찰력</b>과 성좌의 <b>관측</b>이 판정에 붙습니다.
-            </p>
-          ) : (
-            <p className="hint">
-              장치는 파악되었습니다. 어떻게 처리할지 적으세요 — <b>운</b>과 <b>관찰력</b>이 판정에
-              붙습니다.
-            </p>
-          )}
-
-          {gimmickPlan && (
-            <div className="check-preview">
-              <span className="field-label">판정</span>
-              <b className="num">1d20 + {gimmickPlan.bonus}</b>
-              <span className="dim">vs 목표 {gimmickPlan.dc}</span>
-              {gimmickPlan.breakdown.map((line) => (
-                <span key={line} className="tag">
-                  {line}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <textarea
-            className="ctl input textarea"
-            rows={3}
-            value={gimmickDraft || submission.gimmickNote || ''}
-            placeholder={
-              gimmickStage === 'INSIGHT'
-                ? '예: 문양의 홈을 따라 손끝으로 훑으며 반복되는 배열을 찾는다'
-                : '예: 파악한 순서대로 고정점을 검으로 끊어낸다'
-            }
-            onChange={(event) => setGimmickDraft(event.target.value)}
-          />
-          <p className={`hint ${gimmickNoteOk ? 'ok-text' : 'warn-text'}`}>
-            {gimmickNoteOk
-              ? '확정하면 판정이 굴러갑니다.'
-              : '최소 8자 이상 서술해야 확정할 수 있습니다.'}
-          </p>
-        </section>
-      )}
-
       {/* ── 기믹 ── */}
       {battle.gimmick && (
         <section className={`panel gimmick status-${battle.gimmick.status.toLowerCase()}`}>
@@ -1081,6 +1187,11 @@ export default function BattleTerminal() {
         {/* 헌터 */}
         <article className="panel actor hunter">
           <header className="actor-head">
+            <Portrait
+              src={portraits[pair.hunterAccountId ?? '']}
+              name={pair.hunter.name}
+              size="md"
+            />
             <div>
               <span className="field-label">HUNTER</span>
               <b>{pair.hunter.name}</b>
@@ -1132,6 +1243,16 @@ export default function BattleTerminal() {
             <span className="field-label">EFFECT</span>
             <StatusChips statuses={pair.hunter.statuses} />
           </div>
+          {describeTraits(hunterClass?.traits).length > 0 && (
+            <div className="target-status">
+              <span className="field-label">CLASS</span>
+              {describeTraits(hunterClass?.traits).map((line) => (
+                <span key={line} className="tag ok">
+                  {line}
+                </span>
+              ))}
+            </div>
+          )}
 
           <h3 className="sub-title">행동 선택 · ACTION</h3>
           <ActionList
@@ -1141,8 +1262,24 @@ export default function BattleTerminal() {
             target={target}
             selectedId={submission.hunterActionId}
             locked={hunterLocked}
+            gimmick={battle.gimmick}
             onSelect={(id) => selectAction('HUNTER', id)}
           />
+
+          {hunterAction?.kind === 'ITEM' && (
+            <>
+              <h3 className="sub-title">아이템 선택 · ITEM</h3>
+              <ItemPicker
+                pair={pair}
+                side="HUNTER"
+                hasTarget={Boolean(target)}
+                supportPair={supportPair}
+                selectedId={submission.hunterItemId}
+                locked={hunterLocked}
+                onSelect={(id) => selectItem('HUNTER', id)}
+              />
+            </>
+          )}
 
           {needsSupportTarget && (
             <div className="input-row" style={{ marginTop: 12 }}>
@@ -1231,11 +1368,40 @@ export default function BattleTerminal() {
               {pair.affiliation === 'GOVERNMENT' ? 'GOVERNMENT' : 'PRIVATE GUILD'}
             </span>
           </Field>
+          <p className="hint">
+            포인트는 보급 창구에서만 씁니다 — 전투 중에는 행동력이나 스킬을 살 수 없습니다.
+          </p>
+
+          <h3 className="sub-title">SUPPLY · 보급품</h3>
+          <InventoryList pair={pair} />
+
+          {battle.rewards.filter((row) => row.pairId === pair.id).length > 0 && (
+            <>
+              <h3 className="sub-title">POINT LEDGER</h3>
+              <ul className="inventory-list">
+                {battle.rewards
+                  .filter((row) => row.pairId === pair.id)
+                  .slice(-6)
+                  .map((row) => (
+                    <li key={row.id}>
+                      <span>R{row.round}</span>
+                      <span>{row.label}</span>
+                      <b className="num gold">+{row.points}</b>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
         </article>
 
         {/* 성좌 */}
         <article className="panel actor constellation">
           <header className="actor-head">
+            <Portrait
+              src={portraits[pair.constellationAccountId ?? '']}
+              name={pair.constellation.name}
+              size="md"
+            />
             <div>
               <span className="field-label">CONSTELLATION</span>
               <b>{pair.constellation.name}</b>
@@ -1296,6 +1462,16 @@ export default function BattleTerminal() {
             <span className="field-label">EFFECT</span>
             <StatusChips statuses={pair.constellation.statuses} />
           </div>
+          {describeTraits(constellationClass?.traits).length > 0 && (
+            <div className="target-status">
+              <span className="field-label">DOMAIN</span>
+              {describeTraits(constellationClass?.traits).map((line) => (
+                <span key={line} className="tag ok">
+                  {line}
+                </span>
+              ))}
+            </div>
+          )}
 
           <h3 className="sub-title">권능 선택 · AUTHORITY</h3>
           <ActionList
@@ -1305,14 +1481,128 @@ export default function BattleTerminal() {
             target={target}
             selectedId={submission.constellationActionId}
             locked={constellationLocked}
+            gimmick={battle.gimmick}
             onSelect={(id) => selectAction('CONSTELLATION', id)}
           />
+
+          {constellationAction?.kind === 'ITEM' && (
+            <>
+              <h3 className="sub-title">성유물 선택 · RELIC</h3>
+              <ItemPicker
+                pair={pair}
+                side="CONSTELLATION"
+                hasTarget={Boolean(target)}
+                supportPair={supportPair}
+                selectedId={submission.constellationItemId}
+                locked={constellationLocked}
+                onSelect={(id) => selectItem('CONSTELLATION', id)}
+              />
+            </>
+          )}
         </article>
       </section>
+
+      {/* ── 기믹 선언 ── 확정 버튼 바로 위에 둔다. 행동을 고른 자리에서 그대로 이어 쓰게 된다 ── */}
+      {battle.gimmick && isGimmickAction && mySide === 'HUNTER' && !mySubmitted && (
+        <section className="panel gimmick-declare">
+          <div className="process-head">
+            <h2 className="panel-title">
+              기믹 {gimmickStage === 'INSIGHT' ? '파악' : '해결'} 선언
+            </h2>
+            <span className="hint">선언과 판정 결과는 채널에 공개되고, 관리국이 최종 인정합니다.</span>
+          </div>
+
+          <p className="gimmick-brief">{gimmickBrief(battle.gimmick).text}</p>
+
+          {gimmickStage === 'INSIGHT' ? (
+            <p className="hint">
+              아직 장치를 파악하지 못했습니다. 무엇을 어떻게 관찰하는지 적으세요 —
+              <b> 관찰력</b>과 성좌의 <b>관측</b>이 판정에 붙습니다.
+            </p>
+          ) : (
+            <p className="hint">
+              장치는 파악되었습니다. 어떻게 처리할지 적으세요 — <b>운</b>과 <b>관찰력</b>이 판정에
+              붙습니다.
+            </p>
+          )}
+
+          {/*
+             무엇을 해야 풀리는지 미리 밝힌다.
+             파악 전에는 방법 이름만, 파악한 뒤에는 구체적인 지시까지 보여 준다.
+          */}
+          {gimmickPlan && gimmickPlan.approaches.length > 0 && (
+            <div className="approach-list">
+              <span className="field-label">
+                인정되는 접근 {gimmickStage === 'INSIGHT' ? '· 파악' : '· 해결'}
+              </span>
+              {gimmickPlan.approaches.map((row) => {
+                const on = gimmickPlan.matched?.id === row.id;
+                return (
+                  <div key={row.id} className={`approach ${on ? 'on' : ''}`}>
+                    <b>
+                      {on ? '▸ ' : ''}
+                      {row.label}
+                    </b>
+                    <span className="tag">+{row.bonus}</span>
+                    {battle.gimmick?.identified && <small className="dim">{row.detail}</small>}
+                  </div>
+                );
+              })}
+              <p className={`hint ${gimmickPlan.offApproach ? 'warn-text' : 'dim'}`}>
+                {gimmickPlan.matched
+                  ? `「${gimmickPlan.matched.label}」 로 인정됩니다 (+${gimmickPlan.matched.bonus}).`
+                  : gimmickPlan.offApproach
+                    ? '위 방법 중 어느 것도 아닙니다 — 굴릴 수는 있지만 판정이 크게 불리해집니다.'
+                    : '위 방법 중 하나에 맞춰 적으면 판정에 보정이 붙습니다.'}
+              </p>
+            </div>
+          )}
+
+          {gimmickPlan && (
+            <div className="check-preview">
+              <span className="field-label">판정</span>
+              <b className="num">1d20 + {gimmickPlan.bonus}</b>
+              <span className="dim">vs 목표 {gimmickPlan.dc}</span>
+              {gimmickPlan.breakdown.map((line) => (
+                <span key={line} className="tag">
+                  {line}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <textarea
+            ref={gimmickBox}
+            className="ctl input textarea"
+            rows={3}
+            value={gimmickDraft || submission.gimmickNote || ''}
+            placeholder={
+              gimmickStage === 'INSIGHT'
+                ? '예: 문양의 홈을 따라 손끝으로 훑으며 반복되는 배열을 찾는다'
+                : '예: 파악한 순서대로 고정점을 검으로 끊어낸다'
+            }
+            onChange={(event) => setGimmickDraft(event.target.value)}
+          />
+          <p className={`hint ${gimmickNoteOk ? 'ok-text' : 'warn-text'}`}>
+            {gimmickNoteOk
+              ? '확정하면 판정이 굴러갑니다.'
+              : '최소 8자 이상 서술해야 확정할 수 있습니다.'}
+          </p>
+        </section>
+      )}
 
       {/* ── 행동 확정 ── */}
       {/* dock — 페어 그리드 아래라 매 라운드 오르내리게 된다. 화면 아래에 붙여 둔다. */}
       <section className="panel confirm dock">
+        <div className="dock-jump">
+          <button
+            type="button"
+            className="ctl small"
+            onClick={() => chatBox.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            작전 채널 ↓
+          </button>
+        </div>
         {!engaged ? (
           <p className="confirm-note">
             {battle.status === 'CLEARED' ? '작전 클리어' : '작전 실패'}
@@ -1388,6 +1678,7 @@ export default function BattleTerminal() {
             stats={pair.hunter.stats}
             skills={pair.hunter.skills}
             accountId={pair.hunterAccountId}
+            portrait={portraits[pair.hunterAccountId ?? '']}
             badge={
               mySide === 'HUNTER' ? <span className="tag blue">내 캐릭터</span> : undefined
             }
@@ -1399,6 +1690,7 @@ export default function BattleTerminal() {
             stats={pair.constellation.stats}
             skills={pair.constellation.skills}
             accountId={pair.constellationAccountId}
+            portrait={portraits[pair.constellationAccountId ?? '']}
             badge={
               mySide === 'CONSTELLATION' ? <span className="tag gold">내 캐릭터</span> : undefined
             }
@@ -1418,6 +1710,7 @@ export default function BattleTerminal() {
                     classId={row.hunter.classId}
                     stats={row.hunter.stats}
                     skills={row.hunter.skills}
+                    portrait={portraits[row.hunterAccountId ?? '']}
                     badge={<span className="tag">{row.label}</span>}
                   />,
                   <ActorSheet
@@ -1427,6 +1720,7 @@ export default function BattleTerminal() {
                     classId={row.constellation.classId}
                     stats={row.constellation.stats}
                     skills={row.constellation.skills}
+                    portrait={portraits[row.constellationAccountId ?? '']}
                     badge={<span className="tag">{row.label}</span>}
                   />,
                 ])}
@@ -1532,16 +1826,18 @@ export default function BattleTerminal() {
       </section>
 
       {/* ── 채팅 ── */}
-      <ChatPanel
-        channel={battle.id}
-        title="작전 채널"
-        author={{
-          id: account.id,
-          name: account.sheet.name,
-          role: 'PARTICIPANT',
-          side: account.sheet.side,
-        }}
-      />
+      <div ref={chatBox}>
+        <ChatPanel
+          channel={battle.id}
+          title="작전 채널"
+          author={{
+            id: account.id,
+            name: account.sheet.name,
+            role: 'PARTICIPANT',
+            side: account.sheet.side,
+          }}
+        />
+      </div>
 
       {/* ── 로그 ── */}
       <section className="panel log">

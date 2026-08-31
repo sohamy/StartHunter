@@ -9,6 +9,7 @@
  */
 
 import type {
+  BattleRecord,
   BattleState,
   BattleSummary,
   ChatMessage,
@@ -36,14 +37,29 @@ export interface StorageAdapter {
   listMessages(channel: string, limit?: number): Promise<ChatMessage[]>;
   postMessage(message: ChatMessage): Promise<void>;
   deleteMessage(id: string): Promise<void>;
+
+  /* ── 공략 기록 ── */
+  listRecords(): Promise<BattleRecord[]>;
+  saveRecord(record: BattleRecord): Promise<void>;
+  deleteRecord(id: string): Promise<void>;
+
   /** 전체 데이터를 JSON 문자열로 내보낸다 (운영진 백업용) */
   exportAll(): Promise<string>;
   /** exportAll 로 만든 JSON 을 되돌린다 */
   importAll(json: string): Promise<void>;
 }
 
+/**
+ * 내보내기 봉투.
+ *
+ * 스키마 버전을 함께 담아 구조가 바뀌어도 Import 시 판별할 수 있게 한다.
+ * 예전 파일에는 없는 항목이 있을 수 있으므로 전투 외 항목은 모두 선택 사항으로 둔다.
+ */
 export interface ExportEnvelope {
   schemaVersion: number;
   exportedAt: string;
   battles: BattleState[];
+  bonds?: PairBond[];
+  enemyTemplates?: EnemyTemplate[];
+  records?: BattleRecord[];
 }

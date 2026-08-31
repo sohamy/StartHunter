@@ -7,9 +7,11 @@
  * 실제 인증은 서버 어댑터로 교체해 처리한다.
  */
 
+import { toProfile } from '../config/characters';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 import {
   AuthError,
+  toPublicProfile,
   type AuthAdapter,
   type Credentials,
   type PublicProfile,
@@ -29,10 +31,26 @@ function storage(): Storage {
   throw new AuthError('UNAVAILABLE', '브라우저 저장소를 사용할 수 없습니다.');
 }
 
+/**
+ * 이 브라우저에 남아 있는 옛 시트를 지금 모양으로 맞춘다.
+ * 컨셉 한 칸(concept)만 있던 시절의 시트도 그대로 열려야 한다.
+ */
+function migrateSheet(sheet: CharacterSheet): CharacterSheet {
+  return {
+    ...sheet,
+    partnerName: sheet.partnerName ?? '',
+    ...toProfile(sheet as CharacterSheet & { concept?: string }),
+  };
+}
+
 function readAccounts(): Account[] {
   try {
     const raw = storage().getItem(ACCOUNTS_KEY);
-    return raw ? (JSON.parse(raw) as Account[]) : [];
+    if (!raw) return [];
+    return (JSON.parse(raw) as Account[]).map((account) => ({
+      ...account,
+      sheet: migrateSheet(account.sheet),
+    }));
   } catch (error) {
     if (error instanceof AuthError) throw error;
     return [];
@@ -152,12 +170,12 @@ export class LocalAuthAdapter implements AuthAdapter {
   async listProfiles(side?: ActorSide): Promise<PublicProfile[]> {
     return readAccounts()
       .filter((account) => !side || account.sheet.side === side)
-      .map((account) => ({
-        accountId: account.id,
-        side: account.sheet.side,
-        name: account.sheet.name,
-        classId: account.sheet.classId,
-      }));
+      .map((account) => toPublicProfile(account.id, account.sheet));
+  }
+
+  async getPublicProfile(accountId: string): Promise<PublicProfile | null> {
+    const found = readAccounts().find((account) => account.id === accountId);
+    return found ? toPublicProfile(found.id, found.sheet) : null;
   }
 
   async listSheets(): Promise<SheetRecord[]> {

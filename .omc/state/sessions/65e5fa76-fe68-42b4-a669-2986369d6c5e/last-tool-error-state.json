@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cat >> src/styles/console.css <<'CSS'\\n\\n/* ══════════════════════════════════════════════════════\\n   공개 프로필 (dossier)\\n\\n   한 명당 한 장. 다른 참가자에게 보이는 범위만 담기므로 수치가 없고,\\n   대신 서술을 끝까지 읽게 만드는 ...",
+  "error": "Exit code 2\n/usr/bin/bash: -c: line 232: unexpected EOF while looking for matching `''",
+  "timestamp": "2026-08-31T07:30:26.208Z",
+  "retry_count": 1
+}

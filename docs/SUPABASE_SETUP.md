@@ -18,6 +18,10 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 | `0003_chat.sql` | 채팅(`chat_messages`) |
 | `0004_gimmick_checks.sql` | 기믹 선언 · 판정 칼럼 |
 | `0005_attacks_and_sheet_admin.sql` | 적 커스텀 공격(`enemy_templates.attacks`) · 시트 삭제 정책 |
+| `0006_items_points_records.sql` | 아이템 가방 · 아이템 제출 · 포인트 원장 · 편성 보급품 · 공략 기록(`battle_records`) |
+| `0007_sheet_portrait.sql` | 캐릭터 사진(`sheets.portrait`) · `public_profiles` 뷰에 사진 추가 |
+| `0008_boss_phase_rules.sql` | 보스 페이즈 경계(`enemy_templates.phase_cutoffs`) |
+| `0009_sheet_profile_split.sql` | 컨셉 분할(성격 · 특징 · 계약 경위) · 계약 상대 이름 · `public_profiles` 뷰를 공개 시트 경계로 재정의 |
 
 0001 이 만드는 테이블:
 
@@ -32,8 +36,13 @@ Supabase 대시보드 → **SQL Editor** → **New query** 에
 
 같이 걸리는 것: RLS 정책, 회원가입 시 프로필 자동 생성 트리거, 제출 쪽 보호 트리거, Realtime 구독 등록.
 
-> 이미 0001~0004 를 적용한 프로젝트라면 **0005 만** 실행하면 된다.
+> 이미 0001~0004 를 적용한 프로젝트라면 **0005 부터** 실행하면 된다.
 > 0005 를 적용하지 않으면 적 공격 패턴 저장과 시트 삭제가 실패한다.
+> 0006 을 적용하지 않으면 아이템 · 포인트 원장 · 공략 기록 저장이 실패한다.
+> 0007 을 적용하지 않으면 회원가입에서 사진을 올릴 때 시트 저장이 실패한다.
+> 0008 을 적용하지 않으면 보스 페이즈 경계 저장이 실패한다 (경계를 안 건드리면 지장은 없다).
+> 0009 를 적용하지 않으면 회원가입과 시트 저장이 실패하고, 페어 상대의 공개 시트도 뜨지 않는다.
+> 0009 는 기존 `concept` 에 적힌 글을 **성격** 칸으로 옮긴다 (원본 열은 지우지 않는다).
 
 ## 2. 이메일 확인 끄기 (필수)
 

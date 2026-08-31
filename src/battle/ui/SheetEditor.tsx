@@ -10,11 +10,20 @@
 
 import { useEffect, useState } from 'react';
 
-import { POINT_BUY, classesFor, remainingPoints, statsFor } from '../config/characters';
+import {
+  POINT_BUY,
+  PROFILE_FIELDS,
+  classesFor,
+  describeTraits,
+  findClass,
+  remainingPoints,
+  statsFor,
+} from '../config/characters';
 import { CURRENT_PHASE } from '../config/rules';
 import { SKILL_RULES, blankSkill, skillKindsFor } from '../config/skills';
 import { STATUS_DEFINITIONS } from '../config/status';
 import type { Affiliation, CharacterSheet, SkillDefinition } from '../types';
+import PortraitField from './PortraitField';
 
 export default function SheetEditor({
   sheet,
@@ -70,6 +79,12 @@ export default function SheetEditor({
         <span className="tag warn">편집 중</span>
       </header>
 
+      <PortraitField
+        value={draft.portrait}
+        name={draft.name}
+        onChange={(portrait) => setDraft({ ...draft, portrait })}
+      />
+
       <div className="attack-row">
         <label className="num-field">
           <span className="field-label">{draft.side === 'HUNTER' ? '이름' : '성호'}</span>
@@ -94,6 +109,11 @@ export default function SheetEditor({
               </option>
             ))}
           </select>
+          {describeTraits(findClass(draft.side, draft.classId)?.traits).map((line) => (
+            <small key={line} className="gold">
+              {line}
+            </small>
+          ))}
         </label>
         <label className="num-field">
           <span className="field-label">소속</span>
@@ -287,14 +307,29 @@ export default function SheetEditor({
       </div>
 
       <label className="input-row">
-        <span className="field-label">컨셉</span>
-        <textarea
-          className="ctl input textarea"
-          rows={3}
-          value={draft.concept}
-          onChange={(event) => setDraft({ ...draft, concept: event.target.value })}
+        <span className="field-label">계약 상대</span>
+        <input
+          className="ctl input"
+          value={draft.partnerName}
+          placeholder="공란 가능"
+          onChange={(event) => setDraft({ ...draft, partnerName: event.target.value })}
         />
       </label>
+
+      {PROFILE_FIELDS.map((field) => (
+        <label key={field.key} className="input-row">
+          <span className="field-label">
+            {field.labelKo}
+            <small className="dim"> {(draft[field.key] ?? '').length}/{field.maxChars}</small>
+          </span>
+          <textarea
+            className="ctl input textarea"
+            rows={4}
+            value={draft[field.key] ?? ''}
+            onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })}
+          />
+        </label>
+      ))}
 
       <div className="btn-row">
         <button

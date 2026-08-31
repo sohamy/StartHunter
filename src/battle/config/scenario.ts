@@ -112,6 +112,8 @@ export function emptySubmission(): RoundSubmission {
     gimmickNote: null,
     gimmickStage: null,
     gimmickCheck: null,
+    hunterItemId: null,
+    constellationItemId: null,
     hunterSubmitted: false,
     constellationSubmitted: false,
   };
@@ -132,7 +134,10 @@ export function presetSheet(
     classId: actor.classId,
     stats: actor.stats,
     skills: skillTable[index % skillTable.length] ?? [],
-    concept: '운영 프리셋 캐릭터',
+    partnerName: '',
+    personality: '운영 프리셋 캐릭터',
+    traits: '',
+    contractStory: '',
     affiliation,
     createdAt: '1970-01-01T00:00:00.000Z',
   };

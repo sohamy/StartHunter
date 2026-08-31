@@ -7,6 +7,7 @@
 
 import { SCHEMA_VERSION } from '../config/rules';
 import type {
+  BattleRecord,
   BattleState,
   BattleSummary,
   ChatMessage,
@@ -20,6 +21,7 @@ const INDEX_KEY = 'sh.battle.index';
 const BONDS_KEY = 'sh.roster.bonds';
 const ENEMIES_KEY = 'sh.roster.enemies';
 const CHAT_KEY = 'sh.chat.messages';
+const RECORDS_KEY = 'sh.records.battles';
 
 interface IndexRow extends BattleSummary {}
 
@@ -120,12 +122,36 @@ export class LocalStorageAdapter implements StorageAdapter {
       if (state) battles.push(state);
     }
 
+    // 편성 · 적 세팅 · 공략 기록까지 함께 담는다 — 전투만 백업하면 복구가 되지 않는다.
     const envelope: ExportEnvelope = {
       schemaVersion: SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
       battles,
+      bonds: await this.listBonds(),
+      enemyTemplates: await this.listEnemyTemplates(),
+      records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
+  }
+
+  /* ── 공략 기록 ── */
+
+  async listRecords(): Promise<BattleRecord[]> {
+    return readJson<BattleRecord[]>(RECORDS_KEY, [])
+      .slice()
+      .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+  }
+
+  async saveRecord(record: BattleRecord): Promise<void> {
+    const rows = readJson<BattleRecord[]>(RECORDS_KEY, []).filter((row) => row.id !== record.id);
+    writeJson(RECORDS_KEY, [...rows, record]);
+  }
+
+  async deleteRecord(id: string): Promise<void> {
+    writeJson(
+      RECORDS_KEY,
+      readJson<BattleRecord[]>(RECORDS_KEY, []).filter((row) => row.id !== id),
+    );
   }
 
   /* ── 영구 편성 ── */
@@ -196,6 +222,15 @@ export class LocalStorageAdapter implements StorageAdapter {
     }
     for (const state of envelope.battles) {
       await this.saveBattle(state);
+    }
+    for (const bond of envelope.bonds ?? []) {
+      await this.saveBond(bond);
+    }
+    for (const template of envelope.enemyTemplates ?? []) {
+      await this.saveEnemyTemplate(template);
+    }
+    for (const record of envelope.records ?? []) {
+      await this.saveRecord(record);
     }
   }
 }

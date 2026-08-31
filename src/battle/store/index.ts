@@ -55,7 +55,7 @@ export function setAuth(next: AuthAdapter): void {
   authAdapter = next;
 }
 
-export { AuthError } from './AuthAdapter';
+export { AuthError, toPublicProfile } from './AuthAdapter';
 export type {
   AuthAdapter,
   Credentials,
