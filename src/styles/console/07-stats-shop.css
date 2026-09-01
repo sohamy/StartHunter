@@ -15,7 +15,7 @@
 .stat-panel-chart { display: grid; justify-items: center; gap: 6px; }
 .stat-panel-cap {
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .1em;
   color: var(--c-faint);
 }
@@ -42,10 +42,11 @@
   filter: drop-shadow(0 0 5px var(--radar-2));
 }
 .radar-label {
-  fill: var(--c-faint);
+  fill: var(--c-dim);
   font-family: var(--c-mono);
-  font-size: 10px;
-  letter-spacing: .12em;
+  /* 도형이 158px 로 줄어드는 카드가 있다 — 10px 로 두면 그 화면에서 8px 로 떨어진다 */
+  font-size: 11.5px;
+  letter-spacing: .1em;
 }
 
 /* ── 게이지 ─────────────────────────────────────────── */
@@ -99,7 +100,7 @@
 .derived-tiles i {
   font-style: normal;
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .16em;
   color: var(--c-faint);
 }
@@ -143,7 +144,7 @@
 .inventory-grid .slot-name { font-size: 0.875rem; font-weight: 600; padding-right: 30px; }
 .inventory-grid .slot-cat {
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .1em;
   color: var(--c-faint);
 }
@@ -221,8 +222,10 @@
   max-width: 260px;
   background: transparent;
   border-color: transparent;
+  /* 고칠 수 있는 칸이라는 것을 밑줄 한 겹으로만 알린다 — 눌러 보고 알게 하지 않는다 */
+  border-bottom-color: var(--c-line-2);
 }
-.bond-name:hover, .bond-name:focus { border-color: var(--c-line-2); background: rgba(255, 255, 255, .03); }
+.bond-name:hover, .bond-name:focus { border-color: var(--c-line-3); background: rgba(255, 255, 255, .04); }
 
 
 /* ══ 보급 상점 진열대 ═════════════════════════════════

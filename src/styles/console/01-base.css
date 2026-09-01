@@ -8,8 +8,16 @@
   --c-bg-2: #080b12;
   --c-panel: #0b0f18;
   --c-panel-2: #0f141f;
-  --c-line: rgba(140, 168, 205, .26);
-  --c-line-2: rgba(150, 180, 220, .52);
+  /* 칸막이 — 내용을 나누기만 한다 */
+  --c-line: rgba(140, 168, 205, .34);
+  /*
+     누를 수 있는 것의 테두리.
+     판(#0b0f18) 위에서 3.2:1 로 뜬다 — 예전 .26 은 1.6:1 이라, 행동 목록 · 선택 카드 ·
+     탭처럼 **누르라고 있는 것들의 경계가 사실상 보이지 않았다.**
+  */
+  --c-line-2: rgba(150, 180, 220, .58);
+  /* 손이 얹힌 것 — 앞의 둘과 확실히 갈린다 */
+  --c-line-3: rgba(205, 228, 255, .88);
   --c-text: #eaf0f8;
   --c-dim: #a3b1c6;
   --c-faint: #8593a8;
@@ -225,7 +233,7 @@ body.console-body::before {
   transition: background .2s ease, color .2s ease, border-color .2s ease;
 }
 .ctl:hover:not(:disabled) { background: rgba(79, 214, 196, .12); border-color: var(--c-ok); }
-.ctl:disabled { opacity: .4; cursor: not-allowed; }
+.ctl:disabled { opacity: .58; cursor: not-allowed; }
 .ctl.small { padding: 5px 10px; font-size: 0.6875rem; }
 .ctl.on { color: var(--c-violet); border-color: rgba(164, 140, 255, .6); background: rgba(164, 140, 255, .12); }
 .ctl.primary { color: var(--c-ok); border-color: var(--c-ok); background: rgba(79, 214, 196, .12); }

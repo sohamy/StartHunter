@@ -34,7 +34,7 @@
   display: grid;
   gap: 1px;
   padding: 6px 10px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   background: rgba(255, 255, 255, .02);
   color: var(--c-dim);
   font: inherit;
@@ -94,6 +94,16 @@ ul.notice li + li { margin-top: 4px; }
   cursor: text;
 }
 select.ctl.input { cursor: pointer; }
+/*
+   placeholder 에 실제 안내문이 들어간다 — 「2자 이상」 「예: 서윤」 같은 것들.
+   브라우저 기본값에 맡기면 파이어폭스가 글자색의 54% 로 깎아 읽기 어려워진다.
+   색과 불투명도를 직접 못 박는다.
+*/
+.ctl.input::placeholder,
+.ctl.textarea::placeholder {
+  color: var(--c-faint);
+  opacity: 1;
+}
 .ctl.input:focus { outline: 1px solid var(--c-ok); outline-offset: -1px; }
 .ctl.textarea { resize: vertical; line-height: 1.7; }
 
@@ -144,7 +154,7 @@ input[type='range']::-moz-range-thumb {
   gap: 6px;
   align-content: start;
   padding: 16px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   background: rgba(255, 255, 255, .02);
   color: var(--c-text);
   text-align: left;
@@ -152,7 +162,7 @@ input[type='range']::-moz-range-thumb {
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease;
 }
-.role-card:hover, .class-card:hover { border-color: var(--c-line-2); background: rgba(255, 255, 255, .05); }
+.role-card:hover, .class-card:hover { border-color: var(--c-line-3); background: rgba(255, 255, 255, .07); }
 .role-card.selected, .class-card.selected {
   border-color: var(--c-ok);
   background: rgba(79, 214, 196, .10);
@@ -299,6 +309,6 @@ input[type='range']::-moz-range-thumb {
 .schedule-cell b { font-weight: 600; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .schedule-cell.cond { border-left: 2px solid var(--c-gold); }
 .schedule-cell.warn b { color: var(--c-warn); }
-.schedule-cell.empty { opacity: .45; }
+.schedule-cell.empty { opacity: .62; }
 .schedule-cell.empty b { color: var(--c-dim); }
 .sheet-card.editing { border-left-color: var(--c-warn); }

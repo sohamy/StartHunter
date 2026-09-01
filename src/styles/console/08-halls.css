@@ -153,7 +153,7 @@
   border: 1px solid var(--c-line);
   background: rgba(255, 255, 255, .02);
 }
-.wheel-admin-list li.off { opacity: .55; }
+.wheel-admin-list li.off { opacity: .72; }
 .wheel-admin-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 
 .wheel-draft {
@@ -205,7 +205,7 @@
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   border-left: 2px solid var(--c-line-2);
   background: rgba(255, 255, 255, .02);
   color: var(--c-text);
@@ -214,7 +214,7 @@
   cursor: pointer;
   transition: background .18s ease, border-color .18s ease;
 }
-.board-row:hover { background: rgba(255, 255, 255, .06); border-color: var(--c-line-2); }
+.board-row:hover { background: rgba(255, 255, 255, .07); border-color: var(--c-line-3); }
 .board-row.hunter { border-left-color: var(--c-blue); }
 .board-row.constellation { border-left-color: var(--c-gold); }
 
@@ -319,7 +319,7 @@
 .term-nav-link b { font-size: 0.8125rem; font-weight: 600; }
 .term-nav-link small {
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .16em;
   color: var(--c-faint);
 }
@@ -378,7 +378,7 @@
 .card-facts > div { display: grid; gap: 2px; min-width: 0; }
 .card-facts dt {
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .16em;
   color: var(--c-faint);
 }
@@ -459,8 +459,8 @@
 }
 .pair-side.hunter { border-left-color: var(--c-blue); }
 .pair-side.constellation { border-left-color: var(--c-gold); }
-.pair-side.open { cursor: pointer; transition: background .18s ease, border-color .18s ease; }
-.pair-side.open:hover { background: rgba(255, 255, 255, .07); border-color: var(--c-line-2); }
+.pair-side.open { cursor: pointer; border-color: var(--c-line-2); transition: background .18s ease, border-color .18s ease; }
+.pair-side.open:hover { background: rgba(255, 255, 255, .08); border-color: var(--c-line-3); }
 .pair-side-text { display: grid; gap: 1px; min-width: 0; }
 .pair-side-text b { font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pair-side-text small { font-size: 0.71875rem; color: var(--c-faint); }

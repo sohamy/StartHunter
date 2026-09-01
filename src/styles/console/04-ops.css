@@ -197,7 +197,7 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .tab {
   padding: 12px 20px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   border-bottom: none;
   background: rgba(255, 255, 255, .02);
   color: var(--c-dim);
@@ -266,7 +266,7 @@ a.ctl { text-decoration: none; display: inline-block; }
   display: grid;
   gap: 10px;
 }
-.bond-card.dim-card { opacity: .55; border-left-color: var(--c-offline); }
+.bond-card.dim-card { opacity: .72; border-left-color: var(--c-offline); }
 .bond-head { display: flex; align-items: center; gap: 8px; }
 .bond-head b { font-family: var(--c-mono); letter-spacing: .1em; }
 .bond-body {
@@ -299,14 +299,14 @@ a.ctl { text-decoration: none; display: inline-block; }
   display: grid;
   gap: 3px;
   padding: 12px 14px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   background: rgba(255, 255, 255, .02);
   color: var(--c-text);
   text-align: left;
   font: inherit;
   cursor: pointer;
 }
-.pick-card:hover { border-color: var(--c-line-2); }
+.pick-card:hover { border-color: var(--c-line-3); }
 .pick-card.on {
   border-color: var(--c-ok);
   background: rgba(95, 224, 205, .12);

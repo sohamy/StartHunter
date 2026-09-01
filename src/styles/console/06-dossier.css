@@ -284,7 +284,7 @@
 .dossier-part-title i {
   font-style: normal;
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .2em;
   color: var(--c-faint);
 }
@@ -319,7 +319,7 @@
   margin: 0;
   padding-top: 13px;
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .14em;
   color: var(--c-faint);
   text-transform: uppercase;
@@ -483,7 +483,7 @@
   content: '✦';
   position: absolute;
   color: rgba(230, 197, 131, .65);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   line-height: 1;
 }
 .dossier.constellation .dossier-frame::before { top: -6px; left: -6px; }
@@ -623,7 +623,7 @@
 .profile-part-title i {
   font-style: normal;
   font-family: var(--c-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   letter-spacing: .18em;
   color: var(--c-faint);
 }

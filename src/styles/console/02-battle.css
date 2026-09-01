@@ -67,7 +67,7 @@
   text-shadow: 0 0 18px rgba(255, 111, 124, .5);
 }
 .target.aim { outline: 1px solid var(--c-ok); outline-offset: -1px; }
-.target.dead { opacity: .45; }
+.target.dead { opacity: .62; }
 .target-head { display: grid; gap: 2px; }
 .target-head .grade { font-family: var(--c-mono); font-size: 0.6875rem; letter-spacing: .2em; color: var(--c-faint); }
 .target-head b { font-size: 1.1875rem; letter-spacing: -.01em; }
@@ -109,21 +109,22 @@
   align-items: center;
   gap: 4px 10px;
   padding: 10px 12px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   background: rgba(255, 255, 255, .02);
   color: var(--c-text);
   text-align: left;
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease;
 }
-.action:hover:not(:disabled) { border-color: var(--c-line-2); background: rgba(255, 255, 255, .05); }
+.action:hover:not(:disabled) { border-color: var(--c-line-3); background: rgba(255, 255, 255, .07); }
 .action.selected {
   border-color: var(--c-ok);
   background: rgba(79, 214, 196, .12);
   box-shadow: inset 2px 0 0 var(--c-ok);
 }
-.action:disabled { cursor: not-allowed; opacity: .55; }
-.action.future { opacity: .35; }
+.action:disabled { cursor: not-allowed; opacity: .7; }
+/* 다음 라운드에 열리는 수 — 지금 못 누를 뿐, 무엇인지는 읽어야 고를 계획을 세운다 */
+.action.future { opacity: .62; }
 .action-name { font-family: var(--c-mono); font-size: 0.8125rem; letter-spacing: .08em; }
 .action-name small { display: block; font-family: var(--c-sans); font-size: 0.71875rem; letter-spacing: 0; color: var(--c-dim); }
 .action-cost { font-family: var(--c-mono); font-size: 0.71875rem; color: var(--c-dim); white-space: nowrap; }
@@ -185,11 +186,11 @@
   font-family: var(--c-mono);
   color: var(--c-gold);
   letter-spacing: -1px;
-  opacity: .8;
+  opacity: .9;
   animation: flicker 4s steps(6) infinite;
 }
 .measure small { font-family: var(--c-mono); font-size: 0.6875rem; letter-spacing: .2em; }
-@keyframes flicker { 0%, 100% { opacity: .8; } 45% { opacity: .35; } 50% { opacity: .9; } }
+@keyframes flicker { 0%, 100% { opacity: .9; } 45% { opacity: .62; } 50% { opacity: 1; } }
 
 /* ── 확정 ────────────────────────────────────────────── */
 .confirm { padding: 14px 20px; }
@@ -229,7 +230,7 @@
   transition: transform .7s ease;
 }
 .confirm-btn:hover:not(:disabled)::after { transform: translateX(100%); }
-.confirm-btn:disabled { border-color: var(--c-line); background: rgba(255, 255, 255, .03); opacity: .6; cursor: not-allowed; }
+.confirm-btn:disabled { border-color: var(--c-line); background: rgba(255, 255, 255, .03); opacity: .72; cursor: not-allowed; }
 .confirm-btn small { font-family: var(--c-sans); letter-spacing: 0; font-size: 0.71875rem; color: var(--c-faint); }
 .confirm-done, .confirm-note {
   display: flex;
@@ -256,14 +257,14 @@
   display: grid;
   gap: 6px;
   padding: 12px 14px;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-line-2);
   background: rgba(255, 255, 255, .02);
   color: var(--c-text);
   text-align: left;
   font: inherit;
   cursor: pointer;
 }
-.roster-card:hover { border-color: var(--c-line-2); }
+.roster-card:hover { border-color: var(--c-line-3); }
 .roster-card.current { border-color: var(--c-ok); box-shadow: inset 2px 0 0 var(--c-ok); }
 .roster-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .roster-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.71875rem; color: var(--c-dim); }
@@ -303,7 +304,7 @@
   grid-template-columns: 78px 1fr;
   gap: 10px;
   padding: 5px 8px;
-  border-bottom: 1px solid rgba(140, 168, 205, .10);
+  border-bottom: 1px solid rgba(140, 168, 205, .20);
 }
 .log-list li:nth-child(odd) { background: rgba(255, 255, 255, .015); }
 .log-list li:first-child { background: rgba(95, 224, 205, .07); }

@@ -11,7 +11,8 @@
   --line-2: rgba(255, 255, 255, .20);
   --text: #f3f2fa;
   --muted: #aaa8bf;
-  --dim: #7d7b93;
+  /* 조용한 글자도 본문 위에서 6:1 은 되어야 읽힌다 — 예전 #7d7b93 은 4.3:1 이었다 */
+  --dim: #9391a9;
   --violet: #a48cff;
   --gold: #e6c583;
   --blue: #7fb0ff;
@@ -295,7 +296,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 255, 255, .03);
-  color: var(--dim);
+  color: var(--muted);
   font-size: 0.6875rem; letter-spacing: .16em;
 }
 .badge.violet { color: var(--violet); border-color: rgba(164, 140, 255, .35); background: rgba(164, 140, 255, .08); }

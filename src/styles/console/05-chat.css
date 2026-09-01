@@ -33,16 +33,23 @@
 /* 대사 안의 인용은 눈에 띄게 */
 .chat-line.kind-talk .chat-body { color: var(--c-text); }
 .chat-line.kind-ooc .chat-body { color: var(--c-faint); font-size: 0.8125rem; }
+/*
+   예전에는 opacity 0 으로 숨겨 두고 hover 에서만 띄웠다.
+   손가락으로 쓰는 화면에는 hover 가 없어 아예 누를 수 없었고,
+   키보드로 넘어온 사람은 **보이지 않는 단추에 초점이 얹혔다.**
+   옅게 두되 늘 있게 한다.
+*/
 .chat-del {
   background: none;
   border: none;
   color: var(--c-faint);
   cursor: pointer;
-  opacity: 0;
+  opacity: .5;
   padding: 0 4px;
-  transition: opacity .15s ease;
+  transition: opacity .15s ease, color .15s ease;
 }
-.chat-line:hover .chat-del { opacity: 1; }
+.chat-line:hover .chat-del,
+.chat-del:focus-visible { opacity: 1; }
 .chat-del:hover { color: var(--c-critical); }
 
 .chat-input { display: grid; gap: 8px; }
