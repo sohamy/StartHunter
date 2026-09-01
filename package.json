@@ -6,7 +6,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "astro sync && tsc --noEmit",
     "verify:battle": "esbuild src/battle/__verify.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/verify-battle.mjs --log-level=warning && node node_modules/.cache/verify-battle.mjs"
   },
   "dependencies": {
