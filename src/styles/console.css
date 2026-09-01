@@ -2564,3 +2564,222 @@ a.ctl { text-decoration: none; display: inline-block; }
   font-family: var(--c-mono);
   font-size: 0.75rem;
 }
+
+
+/* ══ 창구에 선 사람 ═══════════════════════════════════
+   보급 상점과 도박장이 함께 쓴다. 사진 대신 명패에 한 글자를 새긴다 —
+   어떤 배포 환경에서도 빠지지 않고, 두 창구를 색으로 가른다. */
+.panel.hall { padding-top: 14px; padding-bottom: 14px; }
+
+.npc {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.npc-plate {
+  flex: none;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--c-line-2);
+  background: linear-gradient(160deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .015));
+  font-family: var(--c-serif);
+  font-size: 1.5rem;
+  color: var(--c-gold);
+  letter-spacing: 0;
+}
+.npc-closed .npc-plate { color: var(--c-offline); border-color: var(--c-line); }
+.npc-ok .npc-plate { color: var(--c-ok); }
+.npc-bad .npc-plate { color: var(--c-danger); }
+
+.npc-body { display: grid; gap: 4px; min-width: 0; }
+.npc-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.npc-name { font-size: 1.0625rem; }
+.npc-code {
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .14em;
+  color: var(--c-faint);
+}
+.npc-title { font-size: 0.75rem; color: var(--c-dim); }
+.npc-line {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--c-line-2);
+  color: var(--c-text);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.npc-closed .npc-line { color: var(--c-dim); border-left-color: var(--c-line); }
+
+
+/* ══ 운명 도박장 ══════════════════════════════════════
+   원반은 확률 그대로 그린다 — 넓은 칸이 잘 걸리는 칸이다.
+   그림과 표가 어긋나면 화면이 거짓말을 하게 된다. */
+.panel.wheel-panel::before { background: var(--c-violet); }
+
+.wallet-line { margin: 6px 0 0; font-size: 0.9375rem; }
+.wheel-pick { max-width: 280px; }
+
+.wheel-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  margin-top: 14px;
+}
+@media (max-width: 720px) {
+  .wheel-stage { grid-template-columns: minmax(0, 1fr); }
+}
+
+.wheel-box { position: relative; width: 100%; max-width: 320px; margin: 0 auto; }
+.wheel-svg { display: block; width: 100%; height: auto; }
+
+/* 바늘 — 원반은 돌아도 이것은 12시에 붙박여 있다 */
+.wheel-needle {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 18px solid var(--c-gold);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6));
+}
+
+.wheel-slice { stroke: rgba(5, 7, 12, .85); stroke-width: 1; }
+.wheel-slice.tier-dud { fill: #2a3140; }
+.wheel-slice.tier-low { fill: #3d4a63; }
+.wheel-slice.tier-mid { fill: #5a5182; }
+.wheel-slice.tier-top { fill: #8a6f3a; }
+
+.wheel-label {
+  fill: var(--c-text);
+  font-family: var(--c-sans);
+  font-size: 8px;
+  font-weight: 600;
+}
+.wheel-hub {
+  fill: var(--c-panel-2);
+  stroke: var(--c-line-2);
+  stroke-width: 1.5;
+}
+
+.wheel-side { display: grid; gap: 12px; align-content: center; min-width: 0; }
+.wheel-go { justify-self: start; padding: 12px 22px; font-size: 1rem; }
+.wheel-idle { margin: 0; font-size: 0.8125rem; }
+.wheel-ev { margin: 0; font-size: 0.75rem; }
+
+.wheel-result {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.wheel-result.win { border-color: rgba(230, 197, 131, .5); background: rgba(230, 197, 131, .07); }
+.wheel-result-label { font-size: 1.25rem; line-height: 1.2; }
+
+/* 칸 목록 — 원반에서 읽기 어려운 확률을 숫자로 다시 적는다 */
+.slot-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 4px; }
+.slot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 64px minmax(60px, 120px);
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--c-line);
+  border-left-width: 3px;
+  background: rgba(255, 255, 255, .015);
+  font-size: 0.8125rem;
+}
+.slot-row.tier-dud { border-left-color: #2a3140; }
+.slot-row.tier-low { border-left-color: #3d4a63; }
+.slot-row.tier-mid { border-left-color: #5a5182; }
+.slot-row.tier-top { border-left-color: var(--c-gold); }
+.slot-row.hit { background: rgba(230, 197, 131, .1); border-color: rgba(230, 197, 131, .45); }
+.slot-payout { text-align: right; color: var(--c-gold); }
+.slot-chance { text-align: right; color: var(--c-dim); }
+.slot-bar { display: block; height: 5px; background: rgba(255, 255, 255, .05); }
+.slot-bar > i { display: block; height: 100%; background: var(--c-violet); }
+@media (max-width: 560px) {
+  .slot-row { grid-template-columns: minmax(0, 1fr) 72px 56px; }
+  .slot-bar { display: none; }
+}
+
+/* 전광판 — 누가 무엇에 걸렸는지만 흘려 보여 준다 */
+.spin-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.spin-board li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-left: 2px solid var(--c-line);
+  background: rgba(255, 255, 255, .015);
+  font-size: 0.8125rem;
+}
+.spin-board li.win { border-left-color: var(--c-gold); }
+.spin-board li > span:last-child { text-align: right; }
+.spin-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spin-slot { color: var(--c-dim); }
+@media (max-width: 560px) {
+  .spin-board li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px; }
+  .spin-board li > .dim { display: none; }
+}
+
+
+/* ══ 원반 편집 (운영진) ═══════════════════════════════ */
+.wheel-editor { display: grid; gap: 12px; }
+
+.wheel-admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wheel-admin-list li {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.wheel-admin-list li.off { opacity: .55; }
+.wheel-admin-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+.wheel-draft {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .025);
+}
+
+.slot-editor { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.slot-editor li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 100px 58px 40px;
+  align-items: end;
+  gap: 8px;
+}
+.slot-editor .slot-field { display: grid; gap: 4px; min-width: 0; }
+.slot-editor .slot-chance { padding-bottom: 8px; }
+@media (max-width: 720px) {
+  .slot-editor li { grid-template-columns: minmax(0, 1fr) 1fr; }
+  .slot-editor .slot-chance { padding-bottom: 0; }
+}
+
+/* 손익 미리보기 — 원반을 열기 전에 관리국이 얼마를 남기는지 본다 */
+.wheel-ledger {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.wheel-ledger > div { display: grid; gap: 2px; }
+.wheel-ledger b { font-size: 1.125rem; }

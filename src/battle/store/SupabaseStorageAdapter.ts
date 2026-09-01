@@ -22,6 +22,8 @@ import type {
   ChatMessage,
   EnemyTemplate,
   PairBond,
+  RouletteSpin,
+  RouletteWheel,
   ShopItemRecord,
   PairState,
   RoundSubmission,
@@ -465,6 +467,66 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throw new Error(`상점 삭제 실패: ${error.message}`);
   }
 
+  /* ── 룰렛 원반 ── */
+
+  async listRouletteWheels(): Promise<RouletteWheel[]> {
+    const { data } = await requireSupabase().from('roulette_wheels').select('*').order('sort');
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      name: (row.name as string) ?? '',
+      description: (row.description as string) ?? '',
+      entryFee: (row.entry_fee as number) ?? 0,
+      slots: (row.slots as RouletteWheel['slots']) ?? [],
+      active: Boolean(row.active),
+      sort: (row.sort as number) ?? 0,
+    }));
+  }
+
+  async saveRouletteWheel(wheel: RouletteWheel): Promise<void> {
+    const { error } = await requireSupabase().from('roulette_wheels').upsert({
+      id: wheel.id,
+      name: wheel.name,
+      description: wheel.description,
+      entry_fee: wheel.entryFee,
+      slots: wheel.slots,
+      active: wheel.active,
+      sort: wheel.sort,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(`원반 저장 실패: ${error.message}`);
+  }
+
+  async deleteRouletteWheel(id: string): Promise<void> {
+    const { error } = await requireSupabase().from('roulette_wheels').delete().eq('id', id);
+    if (error) throw new Error(`원반 삭제 실패: ${error.message}`);
+  }
+
+  /**
+   * 전광판 — 뷰(`roulette_board`)를 읽는다.
+   * 표를 직접 읽으면 RLS 가 자기 기록만 주므로, 남이 딴 것은 뷰로만 보인다.
+   */
+  async listRouletteSpins(limit = 50): Promise<RouletteSpin[]> {
+    const { data } = await requireSupabase()
+      .from('roulette_board')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      wheelId: (row.wheel_id as string | null) ?? null,
+      wheelName: (row.wheel_name as string) ?? '',
+      spinnerName: (row.spinner_name as string) ?? '',
+      slotIndex: (row.slot_index as number) ?? 0,
+      label: (row.label as string) ?? '',
+      payout: (row.payout as number) ?? 0,
+      fee: (row.fee as number) ?? 0,
+      net: (row.net as number) ?? 0,
+      at: (row.created_at as string) ?? new Date().toISOString(),
+    }));
+  }
+
   /* ── 채팅 ── */
 
   async listMessages(channel: string, limit = 200): Promise<ChatMessage[]> {
@@ -569,6 +631,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       bonds: await this.listBonds(),
       enemyTemplates: await this.listEnemyTemplates(),
       shopItems: await this.listShopItems(),
+      rouletteWheels: await this.listRouletteWheels(),
       records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
@@ -587,6 +650,9 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     }
     for (const row of envelope.shopItems ?? []) {
       await this.saveShopItem(row);
+    }
+    for (const wheel of envelope.rouletteWheels ?? []) {
+      await this.saveRouletteWheel(wheel);
     }
     for (const record of envelope.records ?? []) {
       await this.saveRecord(record);

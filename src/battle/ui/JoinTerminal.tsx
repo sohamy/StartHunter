@@ -93,6 +93,11 @@ function shopUrl(): string {
   return `${base}/battle/shop/`;
 }
 
+function rouletteUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/roulette/`;
+}
+
 function controlUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return `${base}/battle/control/`;
@@ -798,11 +803,19 @@ export default function JoinTerminal() {
             <a href={shopUrl()}>보급 상점</a>에서 합니다. 다만 전투에 배치된 동안에는 창구가
             닫힙니다.
           </p>
+          <p className="hint" style={{ marginTop: 8 }}>
+            소지금을 걸고 싶다면 <a href={rouletteUrl()}>운명 도박장</a>이 따로 있습니다 — 참가비를
+            내고 원반을 돌려, 걸린 칸에 적힌 만큼 받습니다. 칸과 확률은 그 화면에 그대로
+            적혀 있습니다.
+          </p>
 
           <h3 className="sub-title">
             SHOP · 보급 가격표
             <a className="ctl small" href={shopUrl()} style={{ marginLeft: 10 }}>
               상점 열기
+            </a>
+            <a className="ctl small" href={rouletteUrl()} style={{ marginLeft: 6 }}>
+              도박장
             </a>
           </h3>
           <ul className="shop-list">

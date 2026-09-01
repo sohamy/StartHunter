@@ -14,9 +14,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ITEM_CATEGORY_LABELS, describeItem, findItem, statGainOf, statLabel } from '../config/items';
+import { SHOP_NPC } from '../config/npc';
 import { shopRows } from '../config/shop';
 import { REFUND_RATIO } from '../engine/shop';
-import { getAuth, getStorage, loadShopCatalog } from '../store';
+import { getAuth, loadShopCatalog } from '../store';
+import { findDeployment } from './deployment';
+import NpcCard from './NpcCard';
 import { SupplyBlock } from './SheetView';
 import type { Account, BattleState, ItemStack } from '../types';
 
@@ -34,22 +37,9 @@ function battleUrl(): string {
   return `${base}/battle/`;
 }
 
-/**
- * 이 계정이 지금 어느 전투에 배치돼 있는지.
- * 끝난 전투는 세지 않는다 — 정산이 끝나면 다시 살 수 있어야 한다.
- */
-async function findDeployment(accountId: string): Promise<BattleState | null> {
-  const storage = getStorage();
-  for (const summary of await storage.listBattles()) {
-    if (summary.status === 'CLEARED' || summary.status === 'FAILED') continue;
-    const candidate = await storage.loadBattle(summary.id);
-    if (!candidate) continue;
-    const mine = candidate.pairs.some(
-      (pair) => pair.hunterAccountId === accountId || pair.constellationAccountId === accountId,
-    );
-    if (mine) return candidate;
-  }
-  return null;
+function rouletteUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/roulette/`;
 }
 
 export default function ShopTerminal() {
@@ -250,6 +240,9 @@ export default function ShopTerminal() {
           <span>SUPPLY DEPOT · 보급 상점</span>
         </div>
         <div className="btn-row">
+          <a className="ctl" href={rouletteUrl()}>
+            도박장
+          </a>
           <a className="ctl" href={joinUrl()}>
             내 시트
           </a>
@@ -258,6 +251,15 @@ export default function ShopTerminal() {
           </a>
         </div>
       </header>
+
+      {/* 창구에 사람이 하나 서 있다 — 판정에는 관여하지 않고 사정만 말해 준다 */}
+      <section className="panel hall">
+        <NpcCard
+          npc={SHOP_NPC}
+          mood={deployed ? 'CLOSED' : error ? 'BAD' : message ? 'OK' : 'IDLE'}
+          seed={(sheet?.inventory ?? []).length + (sheet?.points ?? 0)}
+        />
+      </section>
 
       {sheet ? (
         <section className="panel">

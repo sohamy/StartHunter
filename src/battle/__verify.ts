@@ -52,6 +52,15 @@ import {
   setControlMode,
   submitPairAction,
 } from './engine/round';
+import {
+  chanceOf,
+  expectedNet,
+  expectedPayout,
+  pickSlot,
+  spin,
+  totalWeight,
+  wheelProblem,
+} from './engine/roulette';
 import { giftRoom, purchase, refund, useSupply, withPurchase, type Wallet } from './engine/shop';
 import { skillToAction, toRuntime } from './engine/skills';
 import {
@@ -1736,6 +1745,71 @@ check(
   settle({ ...record, pairs: [{ ...record.pairs[0], label: 'PAIR 99' }] }, [bond], settleTargets)
     .rows.length === 0,
 );
+
+/* -- 룰렛 --------------------------------------------
+   확률은 무게를 전체 합으로 나눈 값이다. 뽑기는 서버(roulette_spin)와
+   같은 방식으로 돈다 — 누적 무게가 굴린 값을 넘어서는 첫 칸이 당첨이다. */
+const wheel = {
+  id: 'w1',
+  name: '시험 원반',
+  description: '',
+  entryFee: 50,
+  slots: [
+    { label: '꽝', payout: 0, weight: 50 },
+    { label: '100 P', payout: 100, weight: 30 },
+    { label: '400 P', payout: 400, weight: 20 },
+  ],
+  active: true,
+  sort: 0,
+};
+
+check('무게 합', totalWeight(wheel.slots) === 100);
+check('확률은 무게 / 전체', Math.abs(chanceOf(wheel.slots, 1) - 0.3) < 1e-9);
+check('평균 지급', Math.abs(expectedPayout(wheel.slots) - 110) < 1e-9);
+check('참가비를 뺀 평균 손익', Math.abs(expectedNet(wheel) - 60) < 1e-9);
+
+// 경계 — 굴린 값이 칸의 시작과 같으면 그 칸이고, 끝과 같으면 다음 칸이다
+check('첫 칸의 시작', pickSlot(wheel.slots, 0) === 0);
+check('첫 칸의 끝 직전', pickSlot(wheel.slots, 0.4999) === 0);
+check('둘째 칸의 시작', pickSlot(wheel.slots, 0.5) === 1);
+check('마지막 칸', pickSlot(wheel.slots, 0.99) === 2);
+check(
+  '무게 0 인 칸은 걸리지 않는다',
+  pickSlot(
+    [
+      { label: 'a', payout: 0, weight: 0 },
+      { label: 'b', payout: 0, weight: 1 },
+    ],
+    0,
+  ) === 1,
+);
+
+// 뽑은 칸이 무게에 맞게 나오는지 — 굴림값을 고르게 훑어 센다
+const tally = [0, 0, 0];
+for (let step = 0; step < 1000; step += 1) tally[pickSlot(wheel.slots, step / 1000)] += 1;
+check('무게대로 갈린다', tally[0] === 500 && tally[1] === 300 && tally[2] === 200, tally.join('/'));
+
+const wonSpin = spin(wheel, 200, () => 0.9);
+check(
+  '걸린 칸의 값을 받는다',
+  wonSpin.ok === true &&
+    wonSpin.outcome?.label === '400 P' &&
+    wonSpin.outcome?.net === 350 &&
+    wonSpin.outcome?.points === 550,
+);
+const lostSpin = spin(wheel, 200, () => 0);
+check(
+  '꽝은 참가비만 빠진다',
+  lostSpin.ok === true && lostSpin.outcome?.payout === 0 && lostSpin.outcome?.points === 150,
+);
+check('참가비가 모자라면 못 돌린다', spin(wheel, 10, () => 0).ok === false);
+check('닫힌 원반은 못 돌린다', spin({ ...wheel, active: false }, 500, () => 0).ok === false);
+check(
+  '무게가 전부 0 이면 열 수 없다',
+  wheelProblem({ name: 'x', slots: [{ label: 'a', payout: 0, weight: 0 }] }) !== null,
+);
+check('칸이 없으면 열 수 없다', wheelProblem({ name: 'x', slots: [] }) !== null);
+check('제대로 짠 원반은 통과한다', wheelProblem(wheel) === null);
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
 if (failures > 0) {

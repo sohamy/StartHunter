@@ -9,7 +9,9 @@
 
 import { toProfile } from '../config/characters';
 import { addItem, quantityOf } from '../engine/items';
+import { spin } from '../engine/roulette';
 import { giftRoom, purchase, refund, useSupply } from '../engine/shop';
+import { LocalStorageAdapter, appendRouletteSpin } from './LocalStorageAdapter';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 import {
   AuthError,
@@ -22,6 +24,7 @@ import {
   type GiftInput,
   type GiftResult,
   type GiftTarget,
+  type SpinOutcome,
   type TradeKind,
   type TradeResult,
   type UseSupplyOutcome,
@@ -297,6 +300,51 @@ export class LocalAuthAdapter implements AuthAdapter {
     };
     writeAccounts(accounts);
     return { statBonus: result.statBonus, inventory: result.inventory };
+  }
+
+  /**
+   * 룰렛 — 로컬 모드에는 서버가 없으므로 이 자리에서 뽑는다.
+   *
+   * 서버 모드에서는 이 길로 오지 않는다. 혼자 확인해 보는 경로이므로
+   * 뽑기를 브라우저가 하는 것이 문제가 되지 않는다 (같은 브라우저에 소지금도 있다).
+   */
+  async spinRoulette(wheelId: string): Promise<SpinOutcome> {
+    const session = await this.currentSession();
+    if (!session) throw new AuthError('NOT_FOUND', '접속 상태가 아닙니다.');
+
+    const accounts = readAccounts();
+    const index = accounts.findIndex((account) => account.id === session.accountId);
+    if (index < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+
+    const wheel = (await new LocalStorageAdapter().listRouletteWheels()).find(
+      (row) => row.id === wheelId,
+    );
+    if (!wheel) throw new AuthError('NOT_FOUND', '지금 돌릴 수 없는 원반입니다.');
+
+    const sheet = migrateSheet(accounts[index].sheet);
+    const result = spin(wheel, sheet.points ?? 0);
+    if (!result.ok || !result.outcome) {
+      throw new AuthError('INVALID_INPUT', result.reason ?? '돌리지 못했습니다.');
+    }
+
+    const outcome = result.outcome;
+    accounts[index] = { ...accounts[index], sheet: { ...sheet, points: outcome.points } };
+    writeAccounts(accounts);
+
+    appendRouletteSpin({
+      id: `spin-${Date.now().toString(36)}`,
+      wheelId: wheel.id,
+      wheelName: wheel.name,
+      spinnerName: sheet.name,
+      slotIndex: outcome.slotIndex,
+      label: outcome.label,
+      payout: outcome.payout,
+      fee: outcome.fee,
+      net: outcome.net,
+      at: new Date().toISOString(),
+    });
+
+    return outcome;
   }
 
   async listSheets(): Promise<SheetRecord[]> {

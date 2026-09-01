@@ -110,6 +110,56 @@ export interface ShopItemRecord {
   item: ItemDefinition | null;
 }
 
+/**
+ * 룰렛 원반의 칸 하나.
+ *
+ * 확률을 % 로 적지 않고 **무게**로 적는다 — 칸을 더하거나 빼도
+ * 나머지 칸끼리의 비율이 흐트러지지 않고, 합이 100 이 아닐 때를 걱정할 일도 없다.
+ * 보이는 확률은 언제나 `weight / 전체 무게` 로 계산한다.
+ */
+export interface RouletteSlot {
+  /** 원반에 적히는 글자 */
+  label: string;
+  /** 걸리면 받는 소지금. 0 이면 꽝이다 */
+  payout: number;
+  /** 뽑힐 무게. 0 이면 원반에 남아 있어도 걸리지 않는다 */
+  weight: number;
+}
+
+/**
+ * 룰렛 원반 하나 — 운영진이 작전실에서 만든다.
+ *
+ * 상점과 달리 코드에 기본 목록을 두지 않는다. 칸도 확률도 참가비도
+ * 회차마다 달라지는 값이라, 코드에 심어 두면 고칠 때마다 배포해야 하기 때문이다.
+ */
+export interface RouletteWheel {
+  id: string;
+  name: string;
+  description: string;
+  /** 한 번 돌리는 값 */
+  entryFee: number;
+  slots: RouletteSlot[];
+  active: boolean;
+  /** 진열 순서. 작을수록 앞 */
+  sort: number;
+}
+
+/** 한 번 돌린 기록 — 전광판과 운영진 확인에 쓴다 */
+export interface RouletteSpin {
+  id: string;
+  wheelId: string | null;
+  wheelName: string;
+  /** 돌린 사람의 캐릭터 이름 */
+  spinnerName: string;
+  slotIndex: number;
+  label: string;
+  payout: number;
+  fee: number;
+  /** 참가비를 뺀 손익. 양수면 딴 것이고 음수면 잃은 것이다 */
+  net: number;
+  at: string;
+}
+
 /** 보유 아이템 — 개인 가방과 전투 중 공용 가방이 같은 모양을 쓴다 */
 export interface ItemStack {
   itemId: string;

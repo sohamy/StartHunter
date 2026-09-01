@@ -13,6 +13,8 @@ import type {
   ChatMessage,
   EnemyTemplate,
   PairBond,
+  RouletteSpin,
+  RouletteWheel,
   ShopItemRecord,
 } from '../types';
 import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
@@ -21,6 +23,8 @@ const KEY_PREFIX = 'sh.battle.';
 const INDEX_KEY = 'sh.battle.index';
 const BONDS_KEY = 'sh.roster.bonds';
 const SHOP_KEY = 'sh.shop.items';
+const WHEELS_KEY = 'sh.roulette.wheels';
+const SPINS_KEY = 'sh.roulette.spins';
 const ENEMIES_KEY = 'sh.roster.enemies';
 const CHAT_KEY = 'sh.chat.messages';
 const RECORDS_KEY = 'sh.records.battles';
@@ -48,6 +52,22 @@ function hasStorage(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * 룰렛 회전 기록 — 최근 것이 앞에 온다.
+ *
+ * 서버 모드에서는 `roulette_spin()` 이 표에 직접 남긴다.
+ * 로컬 모드에는 서버가 없으므로 계정 어댑터가 돌린 뒤 이 자리에 적는다 —
+ * 그래서 이 두 함수만 모듈 밖으로 낸다.
+ */
+export function readRouletteSpins(): RouletteSpin[] {
+  return readJson<RouletteSpin[]>(SPINS_KEY, []);
+}
+
+/** 한 줄 적는다. 로컬은 확인용이라 최근 200회만 남긴다 */
+export function appendRouletteSpin(spin: RouletteSpin): void {
+  writeJson(SPINS_KEY, [spin, ...readRouletteSpins()].slice(0, 200));
 }
 
 function readIndex(): IndexRow[] {
@@ -132,6 +152,7 @@ export class LocalStorageAdapter implements StorageAdapter {
       bonds: await this.listBonds(),
       enemyTemplates: await this.listEnemyTemplates(),
       shopItems: await this.listShopItems(),
+      rouletteWheels: await this.listRouletteWheels(),
       records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
@@ -211,6 +232,28 @@ export class LocalStorageAdapter implements StorageAdapter {
     );
   }
 
+  /* ── 룰렛 원반 ── */
+
+  async listRouletteWheels(): Promise<RouletteWheel[]> {
+    return readJson<RouletteWheel[]>(WHEELS_KEY, []).sort((a, b) => a.sort - b.sort);
+  }
+
+  async saveRouletteWheel(wheel: RouletteWheel): Promise<void> {
+    const rows = (await this.listRouletteWheels()).filter((row) => row.id !== wheel.id);
+    writeJson(WHEELS_KEY, [...rows, wheel]);
+  }
+
+  async deleteRouletteWheel(id: string): Promise<void> {
+    writeJson(
+      WHEELS_KEY,
+      (await this.listRouletteWheels()).filter((row) => row.id !== id),
+    );
+  }
+
+  async listRouletteSpins(limit = 50): Promise<RouletteSpin[]> {
+    return readRouletteSpins().slice(0, limit);
+  }
+
   /* ── 채팅 ── */
 
   async listMessages(channel: string, limit = 200): Promise<ChatMessage[]> {
@@ -252,6 +295,9 @@ export class LocalStorageAdapter implements StorageAdapter {
     }
     for (const row of envelope.shopItems ?? []) {
       await this.saveShopItem(row);
+    }
+    for (const wheel of envelope.rouletteWheels ?? []) {
+      await this.saveRouletteWheel(wheel);
     }
     for (const record of envelope.records ?? []) {
       await this.saveRecord(record);

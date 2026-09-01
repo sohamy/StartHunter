@@ -18,6 +18,7 @@ import {
   type GiftInput,
   type GiftResult,
   type GiftTarget,
+  type SpinOutcome,
   type TradeKind,
   type TradeResult,
   type UseSupplyOutcome,
@@ -430,6 +431,30 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     return {
       statBonus: (row.stat_bonus as UseSupplyOutcome['statBonus']) ?? {},
       inventory: (row.inventory as UseSupplyOutcome['inventory']) ?? [],
+    };
+  }
+
+  /**
+   * 룰렛 — 서버 함수에 맡긴다.
+   *
+   * 참가비 · 칸 · 확률은 roulette_wheels 를 서버가 직접 보고,
+   * **어느 칸에 걸렸는지도 서버가 뽑는다.** 브라우저가 보내는 것은 어느 원반을 돌릴지뿐이다.
+   */
+  async spinRoulette(wheelId: string): Promise<SpinOutcome> {
+    const { data, error } = await requireSupabase().rpc('roulette_spin', { p_wheel_id: wheelId });
+
+    if (error) throw new AuthError('INVALID_INPUT', error.message);
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new AuthError('UNAVAILABLE', '원반이 응답하지 않았습니다.');
+
+    return {
+      slotIndex: (row.slot_index as number) ?? 0,
+      label: (row.label as string) ?? '',
+      payout: (row.payout as number) ?? 0,
+      fee: (row.fee as number) ?? 0,
+      net: (row.net as number) ?? 0,
+      points: (row.points as number) ?? 0,
     };
   }
 

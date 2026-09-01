@@ -56,6 +56,7 @@ import {
   type SheetRecord,
 } from '../store';
 import AttackEditor from './AttackEditor';
+import RouletteEditor from './RouletteEditor';
 import ShopEditor from './ShopEditor';
 import ChatPanel from './ChatPanel';
 import Collapsible from './Collapsible';
@@ -67,6 +68,7 @@ import type {
   BattleState,
   BattleSummary,
   CharacterSheet,
+  RouletteWheel,
   ShopItemRecord,
   ConstellationStage,
   ContractStage,
@@ -78,7 +80,15 @@ import type {
   StatusHolder,
 } from '../types';
 
-type Tab = 'ROSTER' | 'SHEET' | 'SHOP' | 'ENCOUNTER' | 'OPERATION' | 'LOG' | 'ARCHIVE';
+type Tab =
+  | 'ROSTER'
+  | 'SHEET'
+  | 'SHOP'
+  | 'ROULETTE'
+  | 'ENCOUNTER'
+  | 'OPERATION'
+  | 'LOG'
+  | 'ARCHIVE';
 type PairFilter = 'ALL' | 'GOVERNMENT' | 'GUILD' | 'INJURED' | 'DOWN' | 'NOT_SUBMITTED';
 type SheetFilter = 'ALL' | 'HUNTER' | 'CONSTELLATION' | 'UNPAIRED';
 
@@ -478,6 +488,7 @@ export default function ControlTerminal() {
   const [sheetFilter, setSheetFilter] = useState<SheetFilter>('ALL');
   const [sheetLayout, setSheetLayout] = useState<SheetLayout>('DETAIL');
   const [shopItems, setShopItems] = useState<ShopItemRecord[]>([]);
+  const [wheels, setWheels] = useState<RouletteWheel[]>([]);
   const [sheetQuery, setSheetQuery] = useState('');
   const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
   /** 소지금 지급 대상 — 페어 id 마다 기억한다. BOTH 는 두 사람이 각자 받는다. */
@@ -507,16 +518,25 @@ export default function ControlTerminal() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [profileRows, sheetRows, bondRows, templateRows, battleRows, recordRows, shopRecords] =
-        await Promise.all([
-          auth.listProfiles(),
-          auth.listSheets(),
-          storage.listBonds(),
-          storage.listEnemyTemplates(),
-          storage.listBattles(),
-          storage.listRecords(),
-          storage.listShopItems(),
-        ]);
+      const [
+        profileRows,
+        sheetRows,
+        bondRows,
+        templateRows,
+        battleRows,
+        recordRows,
+        shopRecords,
+        wheelRows,
+      ] = await Promise.all([
+        auth.listProfiles(),
+        auth.listSheets(),
+        storage.listBonds(),
+        storage.listEnemyTemplates(),
+        storage.listBattles(),
+        storage.listRecords(),
+        storage.listShopItems(),
+        storage.listRouletteWheels(),
+      ]);
       setProfiles(profileRows);
       setSheets(sheetRows);
       setBonds(bondRows);
@@ -526,6 +546,7 @@ export default function ControlTerminal() {
       // 진열을 config 에 실어야 상점 · 창구 · 전투 판정이 같은 목록을 본다
       applyShopCatalog(shopRecords);
       setShopItems(shopRecords);
+      setWheels(wheelRows);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -1110,6 +1131,24 @@ export default function ControlTerminal() {
     });
   };
 
+  /* ── 룰렛 원반 ───────────────────────────────────── */
+
+  const saveWheel = async (wheel: RouletteWheel) => {
+    await guard(async () => {
+      await storage.saveRouletteWheel(wheel);
+      await refresh();
+      setMessage(`원반을 반영했습니다 — ${wheel.name}`);
+    });
+  };
+
+  const removeWheel = async (id: string) => {
+    await guard(async () => {
+      await storage.deleteRouletteWheel(id);
+      await refresh();
+      setMessage('원반을 지웠습니다.');
+    });
+  };
+
   /* ── 보급 창구 ───────────────────────────────────── */
 
   /** 소지금과 가방은 개인 것이라, 창구도 사람 단위로 연다 */
@@ -1552,6 +1591,7 @@ export default function ControlTerminal() {
             ['ROSTER', `편성 · ${activeBonds.length}`],
             ['SHEET', `참가자 시트 · ${sheets.length}`],
             ['SHOP', `상점 · ${shopRows().length}`],
+            ['ROULETTE', `도박장 · ${wheels.length}`],
             ['ENCOUNTER', `적 세팅 · ${templates.length}`],
             ['OPERATION', battle ? `전투 · ROUND ${battle.round}` : '전투'],
             ['LOG', '로그'],
@@ -2174,6 +2214,30 @@ export default function ControlTerminal() {
             busy={busy}
             onSave={(record) => void saveShopRow(record)}
             onDelete={(itemId) => void removeShopRow(itemId)}
+          />
+        </section>
+      )}
+
+      {/* ══════════ 도박장 ══════════ */}
+      {tab === 'ROULETTE' && (
+        <section className="panel">
+          <div className="process-head">
+            <h2 className="panel-title">룰렛 원반 · {wheels.length}</h2>
+            <button type="button" className="ctl small" onClick={() => void refresh()}>
+              새로 고침
+            </button>
+          </div>
+          <p className="hint" style={{ marginBottom: 14 }}>
+            여기서 연 원반은 도박장(<code>/battle/roulette/</code>)에 바로 뜹니다. 상점과는 다른
+            화면입니다. 참가비를 받고 돌려서, 걸린 칸에 적힌 만큼 소지금을 지급합니다 —
+            <b> 어느 칸에 걸리는지는 서버가 뽑습니다.</b> 참가자 화면은 정해진 결과를 따라 돌 뿐이라
+            브라우저를 고쳐도 결과는 바뀌지 않습니다.
+          </p>
+          <RouletteEditor
+            wheels={wheels}
+            busy={busy}
+            onSave={(wheel) => void saveWheel(wheel)}
+            onDelete={(id) => void removeWheel(id)}
           />
         </section>
       )}

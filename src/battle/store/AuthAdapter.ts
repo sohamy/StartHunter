@@ -128,6 +128,23 @@ export interface GiftTarget {
   side: ActorSide;
 }
 
+/**
+ * 룰렛을 한 번 돌린 결과.
+ *
+ * 어느 칸에 걸렸는지도 **서버가** 정한다 — 브라우저가 뽑아 보내면
+ * 원하는 칸을 적어 보낼 수 있기 때문이다. 화면의 회전 연출은 이 결과를 따라 돈다.
+ */
+export interface SpinOutcome {
+  slotIndex: number;
+  label: string;
+  payout: number;
+  fee: number;
+  /** 참가비를 뺀 손익 */
+  net: number;
+  /** 돌리고 난 뒤의 소지금 */
+  points: number;
+}
+
 /** 강화 아이템을 쓴 뒤의 시트 */
 export interface UseSupplyOutcome {
   statBonus: StatBlock;
@@ -196,6 +213,13 @@ export interface AuthAdapter {
    * 가방에서 하나 빠지고 시트의 statBonus 가 오른다. 판정은 서버(`use_supply`)가 한다.
    */
   useSupply(itemId: string): Promise<UseSupplyOutcome>;
+  /**
+   * 룰렛을 한 번 돌린다 — 참가비를 내고 걸린 칸의 값을 받는다.
+   *
+   * 참가비도 확률도 어느 칸에 걸렸는지도 서버(`roulette_spin`)가 정한다.
+   * 전투에 배치된 동안에는 상점과 같은 이유로 닫힌다.
+   */
+  spinRoulette(wheelId: string): Promise<SpinOutcome>;
   /** 운영진용 — 참가자 시트를 지운다. 편성 기록(PairBond)은 남는다. */
   deleteSheet(sheetId: string): Promise<void>;
   deleteAccount(accountId: string): Promise<void>;
