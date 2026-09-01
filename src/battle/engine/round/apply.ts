@@ -8,12 +8,9 @@
 import { findGimmick } from '../../config/gimmicks';
 import { AP_RULES, CONTRACT_RULES, LAST_STAND_RULES, RESCUE_RULES } from '../../config/rules';
 import type {
-  AlertLevel,
-  BattleAlert,
   BattleState,
   GimmickState,
   HunterState,
-  LogEntry,
   PairState,
   RewardEntry,
   RoundPreview,
@@ -22,6 +19,7 @@ import { clearSubmissions } from '../battle';
 import { evaluatePhase, nextPatternLabel } from '../enemy';
 import { consumeItem, quantityOf, removeStatuses } from '../items';
 import { appendLog, createLogEntry } from '../log';
+import { createJournal } from './journal';
 import { applyGrants, clearRewards, grantFor, toEntries, type RewardGrant } from '../rewards';
 import { buildRoleplayText } from '../roleplay';
 import { consumeSkill, tickCooldowns } from '../skills';
@@ -62,24 +60,8 @@ function strikeHunter(hunter: HunterState, damage: number): StrikeResult {
 
 export function applyRound(state: BattleState, preview: RoundPreview): BattleState {
   const now = new Date();
-  const entries: LogEntry[] = [];
-  const alerts: BattleAlert[] = [];
-  let alertSeq = 0;
-
-  const log = (text: string, detail?: string, pairId: string | null = null) => {
-    entries.push(createLogEntry({ round: preview.round, text, detail, pairId }, now));
-  };
-  const alert = (level: AlertLevel, title: string, message: string) => {
-    alertSeq += 1;
-    alerts.push({
-      id: `${now.getTime()}-${alertSeq}`,
-      level,
-      title,
-      message,
-      round: preview.round,
-    });
-    log(`${level} — ${title}`, message);
-  };
+  /* 무엇이 있었는지 적는 일은 계산과 다른 종류의 일이다 — 기록장에 맡긴다 */
+  const { log, alert, push, entries, alerts } = createJournal(preview.round, now);
 
   // 이번 라운드에 지급되는 포인트. 원장에 남겨야 근거가 사라지지 않는다.
   const grants: RewardGrant[] = [];
@@ -87,13 +69,9 @@ export function applyRound(state: BattleState, preview: RoundPreview): BattleSta
   log(`ROUND ${String(preview.round).padStart(2, '0')} PROCESSING`);
 
   // 연출 로그 — 처리 전 상태를 기준으로 만들고, 운영진이 이후 수정한다
-  entries.push(
+  push(
     createLogEntry(
-      {
-        round: preview.round,
-        channel: 'ROLEPLAY',
-        text: buildRoleplayText(state, preview),
-      },
+      { round: preview.round, channel: 'ROLEPLAY', text: buildRoleplayText(state, preview) },
       now,
     ),
   );
