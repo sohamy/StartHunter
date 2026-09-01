@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { formatDice, rollDice } from '../engine/dice';
 import { newUuid } from '../engine/id';
-import { getStorage, getServerStorage } from '../store';
+import { getStorage } from '../store';
 import type { ActorSide, ChatKind, ChatMessage } from '../types';
 
 export interface ChatAuthor {
@@ -72,7 +72,6 @@ export default function ChatPanel({
   title?: string;
 }) {
   const storage = useMemo(() => getStorage(), []);
-  const serverStorage = useMemo(() => getServerStorage(), []);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -103,14 +102,8 @@ export default function ChatPanel({
 
   useEffect(() => {
     void load();
-
-    // 서버 모드는 Realtime, 로컬 모드는 폴링
-    if (serverStorage) {
-      return serverStorage.subscribeChat(channel, () => void load());
-    }
-    const timer = window.setInterval(() => void load(), 3000);
-    return () => window.clearInterval(timer);
-  }, [channel, load, serverStorage]);
+    return storage.subscribeChat(channel, () => void load());
+  }, [channel, load, storage]);
 
   // 새 글이 오면 아래로 붙인다 — 위를 읽고 있을 때는 건드리지 않는다
   useEffect(() => {

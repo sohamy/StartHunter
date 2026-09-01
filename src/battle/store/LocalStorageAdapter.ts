@@ -302,6 +302,33 @@ export class LocalStorageAdapter implements StorageAdapter {
     );
   }
 
+  /* ── 실시간 ── */
+
+  /**
+   * 로컬 저장소는 **다른 탭**이 값을 바꿀 때 storage 이벤트를 띄운다.
+   * 같은 탭에서 바꾼 것은 오지 않지만, 그쪽은 이미 알고 있으므로 문제가 되지 않는다.
+   *
+   * 폴링이 필요 없다 — 값이 바뀐 순간에 온다.
+   */
+  private watch(matches: (key: string) => boolean, onChange: () => void): () => void {
+    if (typeof window === 'undefined') return () => {};
+    const listener = (event: StorageEvent) => {
+      // key 가 null 이면 저장소 전체가 비워진 것이다 (clear)
+      if (event.key === null || matches(event.key)) onChange();
+    };
+    window.addEventListener('storage', listener);
+    return () => window.removeEventListener('storage', listener);
+  }
+
+  subscribe(battleId: string, onChange: () => void): () => void {
+    return this.watch((key) => key === KEY_PREFIX + battleId, onChange);
+  }
+
+  subscribeChat(_channel: string, onMessage: () => void): () => void {
+    // 채널을 가리지 않고 한 칸에 모아 두므로 칸이 바뀌면 알린다 — 거르는 일은 부르는 쪽이 한다
+    return this.watch((key) => key === CHAT_KEY, onMessage);
+  }
+
   async importAll(json: string): Promise<void> {
     const envelope = JSON.parse(json) as ExportEnvelope;
     if (!Array.isArray(envelope.battles)) {

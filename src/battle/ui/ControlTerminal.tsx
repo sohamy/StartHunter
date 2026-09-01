@@ -19,7 +19,6 @@ import {
   AuthError,
   getAuth,
   getServerAuth,
-  getServerStorage,
   getStorage,
   isServerMode,
   type PublicProfile,
@@ -66,7 +65,6 @@ type Tab =
 
 export default function ControlTerminal() {
   const storage = useMemo(() => getStorage(), []);
-  const serverStorage = useMemo(() => getServerStorage(), []);
   const auth = useMemo(() => getAuth(), []);
   const serverAuth = useMemo(() => getServerAuth(), []);
 
@@ -237,15 +235,9 @@ export default function ControlTerminal() {
   /** 제출이 들어오는 것을 실시간으로 본다 — 새로고침을 눌러야 보이면 운영이 불가능하다 */
   useEffect(() => {
     const id = battle?.id;
-    if (!id || !serverStorage) return;
-
-    const stop = serverStorage.subscribe(id, () => void syncSubmissions(id));
-    const timer = window.setInterval(() => void syncSubmissions(id), 10000);
-    return () => {
-      stop();
-      window.clearInterval(timer);
-    };
-  }, [battle?.id, serverStorage, syncSubmissions]);
+    if (!id) return;
+    return storage.subscribe(id, () => void syncSubmissions(id));
+  }, [battle?.id, storage, syncSubmissions]);
 
   /** 새로고침 후에도 진행 중인 전투를 다시 찾아 열지 않아도 되게 한다 */
   const autoOpened = useRef(false);

@@ -161,6 +161,9 @@ function toPublicRow(row: Record<string, unknown>): PublicProfile {
 }
 
 export class SupabaseAuthAdapter implements AuthAdapter {
+  /** Supabase Auth 가 강제하는 값이다 — 여기서 낮춰도 서버가 거절한다 */
+  readonly minPasswordLength = 6;
+
   async register(input: RegisterInput): Promise<Account> {
     const supabase = requireSupabase();
     const handle = input.id.trim();
@@ -168,8 +171,11 @@ export class SupabaseAuthAdapter implements AuthAdapter {
     if (handle.length < 2) {
       throw new AuthError('INVALID_INPUT', '활동명은 2자 이상 입력하세요.');
     }
-    if (input.password.length < 6) {
-      throw new AuthError('INVALID_INPUT', '비밀번호는 6자 이상 입력하세요.');
+    if (input.password.length < this.minPasswordLength) {
+      throw new AuthError(
+        'INVALID_INPUT',
+        `비밀번호는 ${this.minPasswordLength}자 이상 입력하세요.`,
+      );
     }
 
     const { data, error } = await supabase.auth.signUp({

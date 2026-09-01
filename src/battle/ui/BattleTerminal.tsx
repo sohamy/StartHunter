@@ -433,16 +433,10 @@ export default function BattleTerminal() {
    */
   useEffect(() => {
     const id = battle?.id;
-    if (!id || !serverStorage) return;
-
-    const stop = serverStorage.subscribe(id, () => void reload(id));
-    // Realtime 이 끊겨도 진행이 멈추지 않도록 주기적으로도 확인한다
-    const timer = window.setInterval(() => void reload(id), 15000);
-    return () => {
-      stop();
-      window.clearInterval(timer);
-    };
-  }, [battle?.id, reload, serverStorage]);
+    if (!id) return;
+    // 어떻게 알아내는지(Realtime · storage 이벤트 · 안전망 폴링)는 어댑터가 정한다
+    return storage.subscribe(id, () => void reload(id));
+  }, [battle?.id, reload, storage]);
 
   /** 배정 대기 중에는 편성과 전투가 준비됐는지 스스로 확인한다 */
   const checkAssignment = useCallback(async () => {

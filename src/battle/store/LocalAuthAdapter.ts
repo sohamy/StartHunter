@@ -111,13 +111,19 @@ function newSheetId(side: ActorSide): string {
 }
 
 export class LocalAuthAdapter implements AuthAdapter {
+  /** 브라우저에만 남는 계정이라 서버보다 느슨하게 둔다 */
+  readonly minPasswordLength = 4;
+
   async register(input: RegisterInput): Promise<Account> {
     const id = input.id.trim();
     if (id.length < 2) {
       throw new AuthError('INVALID_INPUT', '활동명은 2자 이상 입력하세요.');
     }
-    if (input.password.length < 4) {
-      throw new AuthError('INVALID_INPUT', '비밀번호는 4자 이상 입력하세요.');
+    if (input.password.length < this.minPasswordLength) {
+      throw new AuthError(
+        'INVALID_INPUT',
+        `비밀번호는 ${this.minPasswordLength}자 이상 입력하세요.`,
+      );
     }
 
     const accounts = readAccounts();

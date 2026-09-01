@@ -99,6 +99,14 @@ function toSubmission(row: SubmissionRow | undefined): RoundSubmission {
 /** 활동명과 계정 uuid 를 구분한다 */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Realtime 이 끊겨도 진행이 멈추지 않게 하는 그물.
+ *
+ * 예전에는 화면마다 setInterval 을 따로 박아 3초 · 10초 · 15초로 갈려 있었다.
+ * 무엇을 보든 같은 주기여야 한다 — 실시간이 주된 길이고 이쪽은 보험이다.
+ */
+const REALTIME_SAFETY_NET_MS = 15000;
+
 export class SupabaseStorageAdapter implements StorageAdapter {
   /**
    * 계정 식별자 변환표.
@@ -616,9 +624,10 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throw new Error(`삭제 실패: ${error.message}`);
   }
 
-  /** 채팅 실시간 구독 */
+  /** 채팅 실시간 구독 — 안전망 폴링을 함께 건다 */
   subscribeChat(channel: string, onMessage: () => void): () => void {
     const supabase = requireSupabase();
+    const timer = window.setInterval(onMessage, REALTIME_SAFETY_NET_MS);
     const realtime = supabase
       .channel(`chat:${channel}`)
       .on(
@@ -629,6 +638,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .subscribe();
 
     return () => {
+      window.clearInterval(timer);
       void supabase.removeChannel(realtime);
     };
   }
@@ -747,9 +757,10 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throw new Error(`공략 기록 삭제 실패: ${error.message}`);
   }
 
-  /** 전투 상태 변경을 실시간으로 구독한다 */
+  /** 전투 상태 변경을 실시간으로 구독한다 — 안전망 폴링을 함께 건다 */
   subscribe(battleId: string, onChange: () => void): () => void {
     const supabase = requireSupabase();
+    const timer = window.setInterval(onChange, REALTIME_SAFETY_NET_MS);
     const channel = supabase
       .channel(`battle:${battleId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'battles', filter: `id=eq.${battleId}` }, onChange)
@@ -759,6 +770,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       .subscribe();
 
     return () => {
+      window.clearInterval(timer);
       void supabase.removeChannel(channel);
     };
   }

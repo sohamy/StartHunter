@@ -169,6 +169,15 @@ export class AuthError extends Error {
 }
 
 export interface AuthAdapter {
+  /**
+   * 비밀번호 최소 길이.
+   *
+   * 구현이 정한다 — 서버 구현은 Supabase Auth 가 6자를 강제하고, 로컬 구현은 4자다.
+   * 이 값이 없던 동안 등록 화면은 `isServerMode() ? 6 : 4` 로 백엔드 종류를 직접
+   * 되물었다. 화면이 알아야 할 것은 「몇 자냐」이지 「어느 백엔드냐」가 아니다.
+   */
+  readonly minPasswordLength: number;
+
   register(input: RegisterInput): Promise<Account>;
   login(credentials: Credentials): Promise<Session>;
   logout(): Promise<void>;

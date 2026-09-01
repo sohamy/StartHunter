@@ -549,7 +549,7 @@ export default function JoinTerminal() {
     draft.side === 'CONSTELLATION' ? deriveConstellation(previewSheet) : null;
 
   /** 서버 모드는 Supabase 정책을 따른다 — 로컬 모드보다 길다 */
-  const minPassword = isServerMode() ? 6 : 4;
+  const minPassword = auth.minPasswordLength;
 
   /**
    * 지금 등록을 막고 있는 것들.

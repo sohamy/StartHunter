@@ -81,6 +81,22 @@ export interface StorageAdapter {
    */
   clearRouletteSpins(): Promise<void>;
 
+  /* ── 실시간 ── */
+  /**
+   * 전투가 바뀌면 알린다. 돌려받은 함수를 부르면 그만 듣는다.
+   *
+   * **어떻게 알아내는지는 어댑터가 정한다** — 서버 구현은 Realtime 에 안전망 폴링을
+   * 겹치고, 로컬 구현은 다른 탭이 저장할 때 뜨는 storage 이벤트를 듣는다.
+   *
+   * 예전에는 이 메서드가 서버 구현에만 있어서, 화면마다 구체 어댑터를 꺼내 보고
+   * setInterval 을 손으로 박았다. 그 결과 같은 목적의 주기가 3초 · 10초 · 15초로
+   * 갈렸고, 백엔드가 무엇인지를 화면이 알아야 했다.
+   */
+  subscribe(battleId: string, onChange: () => void): () => void;
+
+  /** 채널에 글이 오가면 알린다. 규칙은 subscribe 와 같다. */
+  subscribeChat(channel: string, onMessage: () => void): () => void;
+
   /* ── 채팅 ── */
   listMessages(channel: string, limit?: number): Promise<ChatMessage[]>;
   postMessage(message: ChatMessage): Promise<void>;
