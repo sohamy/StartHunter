@@ -56,6 +56,7 @@ import ChatPanel from './ChatPanel';
 import { Portrait } from './PortraitField';
 import Collapsible from './Collapsible';
 import { ActorSheet } from './SheetView';
+import TerminalNav from './TerminalNav';
 import type {
   ActionDefinition,
   Account,
@@ -549,6 +550,7 @@ export default function BattleTerminal() {
   if (authState === 'GUEST' || !account) {
     return (
       <div className="console">
+        <TerminalNav current="battle" />
         <header className="console-head">
           <div className="agency">
             <b>HUNTER MANAGEMENT AGENCY</b>
@@ -580,6 +582,10 @@ export default function BattleTerminal() {
   if (!battle) {
     return (
       <div className="console">
+        <TerminalNav
+          current="battle"
+          who={{ name: account.sheet.name, side: account.sheet.side }}
+        />
         <header className="console-head">
           <div className="agency">
             <b>HUNTER MANAGEMENT AGENCY</b>
@@ -953,6 +959,11 @@ export default function BattleTerminal() {
 
   return (
     <div className="console">
+      <TerminalNav
+        current="battle"
+        who={{ name: account.sheet.name, side: account.sheet.side }}
+      />
+
       {/* ── 경보 ── */}
       {visibleAlerts.length > 0 && (
         <section className="alert-stack">
@@ -1019,19 +1030,6 @@ export default function BattleTerminal() {
           <span className={`tag ${account.sheet.side === 'HUNTER' ? 'blue' : 'gold'}`}>
             {account.sheet.side} · {account.sheet.name}
           </span>
-          <a className="ctl small" href={joinUrl()}>
-            내 시트
-          </a>
-          <button
-            type="button"
-            className="ctl small"
-            onClick={async () => {
-              await auth.logout();
-              window.location.href = joinUrl();
-            }}
-          >
-            로그아웃
-          </button>
         </div>
         <div className="session-row">
           <span className="field-label">보는 페어</span>

@@ -11,14 +11,11 @@
 import { useEffect, useState } from 'react';
 
 import { getAuth, getStorage, loadShopCatalog, type PublicProfile } from '../store';
-import { PublicSheetCard } from './SheetView';
+import { ProfileCard, PublicSheetCard } from './SheetView';
+import Collapsible from './Collapsible';
+import TerminalNav from './TerminalNav';
 
 type Phase = 'LOADING' | 'READY' | 'NO_ID' | 'NOT_FOUND';
-
-function joinUrl(): string {
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  return `${base}/battle/join/`;
-}
 
 function homeUrl(): string {
   return import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
@@ -100,23 +97,16 @@ export default function PublicSheetTerminal() {
 
   return (
     <div className="console">
+      <TerminalNav current="public-sheet" />
       <header className="console-head">
         <div className="agency">
           <b>HUNTER MANAGEMENT AGENCY</b>
           <span>PUBLIC SHEET · 공개 시트</span>
         </div>
-        <div className="btn-row">
-          {/* 처음 온 사람도 있다 — 등록 입구를 함께 둔다 */}
-          <a className="ctl" href={homeUrl()}>
-            세계관 소개
-          </a>
-          <a className="ctl" href={boardUrl()}>
-            명부 게시판
-          </a>
-          <a className="ctl" href={joinUrl()}>
-            내 시트 · 참가 신청
-          </a>
-        </div>
+        {/* 명부에서 들어오지 않고 링크로 바로 온 사람도 있다 — 목록으로 가는 길을 둔다 */}
+        <a className="ctl" href={boardUrl()}>
+          ← 명부 게시판
+        </a>
       </header>
 
       {phase === 'READY' && profile && (
@@ -126,13 +116,19 @@ export default function PublicSheetTerminal() {
             {squad && <span className="tag ok" style={{ marginLeft: 10 }}>{squad}</span>}
           </h2>
           <p className="hint" style={{ marginBottom: 14 }}>
-            참가자가 제출한 시트 전문입니다.
+            프로필 카드입니다. 제출한 시트 전문은 카드 아래에서 펼칩니다.
           </p>
-          <PublicSheetCard
-            profile={profile}
-            partnerName={bondedName}
-            supply={{ points: profile.points, inventory: profile.inventory }}
-          />
+          <ProfileCard profile={profile} squad={squad} partnerName={bondedName} />
+
+          <div style={{ marginTop: 12 }}>
+            <Collapsible label="시트 전문 — 성격 · 특징 · 계약 경위 · 스킬 · 스탯 · 보급">
+              <PublicSheetCard
+                profile={profile}
+                partnerName={bondedName}
+                supply={{ points: profile.points, inventory: profile.inventory }}
+              />
+            </Collapsible>
+          </div>
         </section>
       )}
 

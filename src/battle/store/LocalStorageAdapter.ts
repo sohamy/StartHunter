@@ -17,7 +17,7 @@ import type {
   RouletteWheel,
   ShopItemRecord,
 } from '../types';
-import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
+import type { ExportEnvelope, PublicPair, StorageAdapter } from './StorageAdapter';
 
 const KEY_PREFIX = 'sh.battle.';
 const INDEX_KEY = 'sh.battle.index';
@@ -184,6 +184,23 @@ export class LocalStorageAdapter implements StorageAdapter {
     return readJson<PairBond[]>(BONDS_KEY, []);
   }
 
+  /** 로컬 모드에는 권한이 없다 — 활성 편성만 걸러 같은 모양으로 준다 */
+  async listPublicPairs(): Promise<PublicPair[]> {
+    return (await this.listBonds())
+      .filter((bond) => bond.active)
+      .map((bond) => ({
+        id: bond.id,
+        label: bond.label,
+        hunterHandle: bond.hunterAccountId,
+        constellationHandle: bond.constellationAccountId,
+        hunterName: bond.hunterName,
+        constellationName: bond.constellationName,
+        affiliation: bond.affiliation,
+        createdAt: bond.createdAt,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'ko'));
+  }
+
   async saveBond(bond: PairBond): Promise<void> {
     const rows = (await this.listBonds()).filter((row) => row.id !== bond.id);
     writeJson(BONDS_KEY, [...rows, bond]);
@@ -248,6 +265,17 @@ export class LocalStorageAdapter implements StorageAdapter {
       WHEELS_KEY,
       (await this.listRouletteWheels()).filter((row) => row.id !== id),
     );
+  }
+
+  async deleteRouletteSpin(id: string): Promise<void> {
+    writeJson(
+      SPINS_KEY,
+      readRouletteSpins().filter((row) => row.id !== id),
+    );
+  }
+
+  async clearRouletteSpins(): Promise<void> {
+    writeJson(SPINS_KEY, []);
   }
 
   async listRouletteSpins(limit = 50): Promise<RouletteSpin[]> {

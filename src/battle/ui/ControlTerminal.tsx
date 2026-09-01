@@ -56,6 +56,7 @@ import {
   type SheetRecord,
 } from '../store';
 import AttackEditor from './AttackEditor';
+import TerminalNav from './TerminalNav';
 import RouletteEditor from './RouletteEditor';
 import ShopEditor from './ShopEditor';
 import ChatPanel from './ChatPanel';
@@ -68,6 +69,7 @@ import type {
   BattleState,
   BattleSummary,
   CharacterSheet,
+  RouletteSpin,
   RouletteWheel,
   ShopItemRecord,
   ConstellationStage,
@@ -489,6 +491,8 @@ export default function ControlTerminal() {
   const [sheetLayout, setSheetLayout] = useState<SheetLayout>('DETAIL');
   const [shopItems, setShopItems] = useState<ShopItemRecord[]>([]);
   const [wheels, setWheels] = useState<RouletteWheel[]>([]);
+  /** 회전 기록 — 운영진이 전광판을 정리할 수 있어야 한다 */
+  const [spins, setSpins] = useState<RouletteSpin[]>([]);
   const [sheetQuery, setSheetQuery] = useState('');
   const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
   /** 소지금 지급 대상 — 페어 id 마다 기억한다. BOTH 는 두 사람이 각자 받는다. */
@@ -527,6 +531,7 @@ export default function ControlTerminal() {
         recordRows,
         shopRecords,
         wheelRows,
+        spinRows,
       ] = await Promise.all([
         auth.listProfiles(),
         auth.listSheets(),
@@ -536,6 +541,7 @@ export default function ControlTerminal() {
         storage.listRecords(),
         storage.listShopItems(),
         storage.listRouletteWheels(),
+        storage.listRouletteSpins(200),
       ]);
       setProfiles(profileRows);
       setSheets(sheetRows);
@@ -547,6 +553,7 @@ export default function ControlTerminal() {
       applyShopCatalog(shopRecords);
       setShopItems(shopRecords);
       setWheels(wheelRows);
+      setSpins(spinRows);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -728,6 +735,7 @@ export default function ControlTerminal() {
   if (access === 'DENIED') {
     return (
       <div className="console">
+        <TerminalNav current="control" />
         <header className="console-head">
           <div className="agency">
             <b>HUNTER MANAGEMENT AGENCY</b>
@@ -1149,6 +1157,30 @@ export default function ControlTerminal() {
     });
   };
 
+  /**
+   * 회전 기록 지우기.
+   *
+   * 기록은 전광판이지 정산 근거가 아니다 — 소지금은 돌릴 때 이미 옮겨졌으므로
+   * 지워도 지갑은 그대로다. 회차가 끝나면 전광판을 비우는 용도로 쓴다.
+   */
+  const removeSpin = async (spin: RouletteSpin) => {
+    if (!confirmed(`${spin.spinnerName} 의 회전 기록 한 줄을 지웁니다.`)) return;
+    await guard(async () => {
+      await storage.deleteRouletteSpin(spin.id);
+      await refresh();
+      setMessage('회전 기록을 지웠습니다.');
+    });
+  };
+
+  const clearSpins = async () => {
+    if (!confirmed(`회전 기록 ${spins.length}건을 모두 지웁니다. 소지금은 그대로입니다.`)) return;
+    await guard(async () => {
+      await storage.clearRouletteSpins();
+      await refresh();
+      setMessage('회전 기록을 비웠습니다.');
+    });
+  };
+
   /* ── 보급 창구 ───────────────────────────────────── */
 
   /** 소지금과 가방은 개인 것이라, 창구도 사람 단위로 연다 */
@@ -1545,6 +1577,7 @@ export default function ControlTerminal() {
 
   return (
     <div className="console wide">
+      <TerminalNav current="control" />
       <header className="console-head">
         <div className="agency">
           <b>HUNTER MANAGEMENT AGENCY</b>
@@ -2239,6 +2272,65 @@ export default function ControlTerminal() {
             onSave={(wheel) => void saveWheel(wheel)}
             onDelete={(id) => void removeWheel(id)}
           />
+
+          {/* ── 회전 기록 ── */}
+          <div className="process-head" style={{ marginTop: 22 }}>
+            <h3 className="sub-title">회전 기록 · {spins.length}</h3>
+            <button
+              type="button"
+              className="ctl small"
+              disabled={busy || spins.length === 0}
+              onClick={() => void clearSpins()}
+            >
+              전부 비우기
+            </button>
+          </div>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            도박장 전광판에 뜨는 줄입니다. 지워도 <b>소지금은 그대로입니다</b> — 기록은 정산
+            근거가 아니라 게시물입니다. 회차가 끝나면 비워서 새 회차를 시작하세요.
+          </p>
+          {spins.length === 0 ? (
+            <p className="hint">아직 돌린 기록이 없습니다.</p>
+          ) : (
+            <div className="preview">
+              <table className="preview-table">
+                <thead>
+                  <tr>
+                    <th>시각</th>
+                    <th>돌린 사람</th>
+                    <th>원반</th>
+                    <th>걸린 칸</th>
+                    <th>손익</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {spins.map((spin) => (
+                    <tr key={spin.id}>
+                      <td className="dim">{new Date(spin.at).toLocaleString('ko-KR')}</td>
+                      <td>{spin.spinnerName}</td>
+                      <td className="dim">{spin.wheelName}</td>
+                      <td>{spin.label}</td>
+                      <td className={`num ${spin.net > 0 ? 'gold' : 'dim'}`}>
+                        {spin.net > 0 ? '+' : ''}
+                        {spin.net} P
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="ctl small"
+                          disabled={busy}
+                          onClick={() => void removeSpin(spin)}
+                        >
+                          지우기
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 

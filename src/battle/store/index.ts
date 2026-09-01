@@ -78,4 +78,4 @@ export type {
   RegisterInput,
   SheetRecord,
 } from './AuthAdapter';
-export type { StorageAdapter } from './StorageAdapter';
+export type { PublicPair, StorageAdapter } from './StorageAdapter';

@@ -36,8 +36,17 @@ import {
   toPublicProfile,
   type PublicProfile,
 } from '../store';
+import Collapsible from './Collapsible';
 import PortraitField, { Portrait } from './PortraitField';
-import { ProfileBlock, PublicSheetCard, StatPanel, SupplyBlock, type Supply } from './SheetView';
+import {
+  ProfileBlock,
+  ProfileCard,
+  PublicSheetCard,
+  StatPanel,
+  SupplyBlock,
+  type Supply,
+} from './SheetView';
+import TerminalNav from './TerminalNav';
 import type {
   Account,
   ActorSide,
@@ -101,11 +110,6 @@ function rouletteUrl(): string {
 function controlUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return `${base}/battle/control/`;
-}
-
-function boardUrl(): string {
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  return `${base}/battle/board/`;
 }
 
 /**
@@ -646,17 +650,14 @@ export default function JoinTerminal() {
 
     return (
       <div className="console">
+        {/* 로그아웃은 내비게이션이 들고 있다 — 같은 버튼을 두 곳에 두지 않는다 */}
+        <TerminalNav current="sheet" who={{ name: sheet.name, side: sheet.side }} />
         <header className="console-head">
           <div className="agency">
             <b>HUNTER MANAGEMENT AGENCY</b>
             <span>CONTRACT REGISTRY</span>
           </div>
-          <div className="btn-row">
-            <span className="tag ok">AUTHENTICATED</span>
-            <button type="button" className="ctl" onClick={logout}>
-              LOG OUT
-            </button>
-          </div>
+          <span className="tag ok">AUTHENTICATED</span>
         </header>
 
         {message && <p className="notice ok">{message}</p>}
@@ -799,14 +800,20 @@ export default function JoinTerminal() {
           <section className="panel">
             <h2 className="panel-title">CONTRACTED PAIR · 계약 상대</h2>
             <p className="hint" style={{ marginBottom: 12 }}>
-              관리국이 맺어 준 상대의 시트입니다.
+              관리국이 맺어 준 상대입니다. 프로필 카드가 먼저 보이고, 시트 전문은 아래에서
+              펼칩니다.
             </p>
             {/* 상대의 지갑은 상대의 것이다 — 카드가 주인의 값을 그린다 */}
-            <PublicSheetCard
+            <ProfileCard
               profile={partnerProfile}
+              squad={bond?.label ?? null}
               partnerName={sheet.name}
-              badge={bond ? <span className="tag ok">{bond.label}</span> : undefined}
             />
+            <div style={{ marginTop: 12 }}>
+              <Collapsible label="상대의 시트 전문">
+                <PublicSheetCard profile={partnerProfile} partnerName={sheet.name} />
+              </Collapsible>
+            </div>
           </section>
         )}
 
@@ -883,16 +890,13 @@ export default function JoinTerminal() {
   /* ── 로그인 / 등록 화면 ───────────────────────────── */
   return (
     <div className="console">
+      <TerminalNav current="sheet" />
       <header className="console-head">
         <div className="agency">
           <b>HUNTER MANAGEMENT AGENCY</b>
           <span>CONTRACT REGISTRY · 계약자 등록</span>
         </div>
         <div className="btn-row">
-          {/* 남의 시트를 먼저 둘러보고 싶은 사람도 있다 */}
-          <a className="ctl" href={boardUrl()}>
-            명부 게시판
-          </a>
           <button
             type="button"
             className={`ctl ${mode === 'LOGIN' ? 'on' : ''}`}

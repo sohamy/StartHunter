@@ -21,6 +21,7 @@ import { getAuth, loadShopCatalog } from '../store';
 import { findDeployment } from './deployment';
 import NpcCard from './NpcCard';
 import { SupplyBlock } from './SheetView';
+import TerminalNav from './TerminalNav';
 import type { Account, BattleState, ItemStack } from '../types';
 
 type GiftKind = 'POINTS' | 'ITEM';
@@ -30,16 +31,6 @@ type Phase = 'LOADING' | 'READY' | 'GUEST';
 function joinUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return `${base}/battle/join/`;
-}
-
-function battleUrl(): string {
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  return `${base}/battle/`;
-}
-
-function rouletteUrl(): string {
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  return `${base}/battle/roulette/`;
 }
 
 export default function ShopTerminal() {
@@ -234,22 +225,18 @@ export default function ShopTerminal() {
 
   return (
     <div className="console">
+      <TerminalNav
+        current="shop"
+        who={sheet ? { name: sheet.name, side: sheet.side } : null}
+      />
       <header className="console-head">
         <div className="agency">
           <b>HUNTER MANAGEMENT AGENCY</b>
           <span>SUPPLY DEPOT · 보급 상점</span>
         </div>
-        <div className="btn-row">
-          <a className="ctl" href={rouletteUrl()}>
-            도박장
-          </a>
-          <a className="ctl" href={joinUrl()}>
-            내 시트
-          </a>
-          <a className="ctl" href={battleUrl()}>
-            전투 단말
-          </a>
-        </div>
+        <span className={`tag ${deployed ? 'critical' : 'ok'}`}>
+          {deployed ? '창구 닫음 — 전투 배치 중' : '창구 열림'}
+        </span>
       </header>
 
       {/* 창구에 사람이 하나 서 있다 — 판정에는 관여하지 않고 사정만 말해 준다 */}

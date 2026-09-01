@@ -21,7 +21,7 @@ import { findSkillKind } from '../config/skills';
 import { STATUS_DEFINITIONS } from '../config/status';
 import { deriveConstellation, deriveHunter } from '../engine/character';
 import { Portrait } from './PortraitField';
-import type { PublicProfile } from '../store';
+import type { PublicPair, PublicProfile } from '../store';
 import type {
   ActorSide,
   Affiliation,
@@ -538,6 +538,199 @@ export function SheetDetail({
       <div className="sheet-block">
         <span className="field-label">보급 · 포인트</span>
         <SupplyBlock supply={purse} />
+      </div>
+    </article>
+  );
+}
+
+/* ── 요약 카드 ──────────────────────────────────────────
+   시트 전문(PublicSheetCard)은 서류다 — 한 사람을 처음 볼 때 읽기에는 너무 길다.
+   명함처럼 한눈에 들어오는 장을 따로 둔다. 전문은 접어 두고 원할 때 펼친다. */
+
+/** 서술 한 덩어리를 카드에 실을 만큼만 줄인다 — 줄바꿈은 한 칸으로 눕힌다 */
+function blurbOf(profile: SheetProfile, limit = 96): string {
+  const source = [profile.personality, profile.traits, profile.contractStory]
+    .map((text) => (text ?? '').trim())
+    .find((text) => text.length > 0);
+  if (!source) return '';
+
+  const flat = source.replace(/\s+/g, ' ').trim();
+  if (flat.length <= limit) return flat;
+  // 문장이 끝나는 자리에서 자르면 말이 잘린 티가 덜 난다
+  const cut = flat.slice(0, limit);
+  const stop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('다 '), cut.lastIndexOf('다.'));
+  return `${(stop > limit * 0.5 ? cut.slice(0, stop + 1) : cut).trim()}…`;
+}
+
+/**
+ * 프로필 카드 — 한 사람을 카드 한 장으로 요약한다.
+ *
+ * 사진 · 이름 · 클래스 · 소속 · 페어 · 한 줄 소개 · 스탯 한 줄 · 기술 이름까지만 싣는다.
+ * 수치 환산과 서술 전문은 담지 않는다 — 그것은 시트 전문(PublicSheetCard)의 몫이다.
+ * 서식(모서리 괄호 · 도장 · 바탕)은 전문과 같은 것을 쓰되 크기만 줄인다.
+ */
+export function ProfileCard({
+  profile,
+  squad,
+  partnerName,
+  action,
+}: {
+  profile: PublicProfile;
+  /** 관리국이 확정한 편성 라벨 — 있으면 태그로 붙는다 */
+  squad?: string | null;
+  /** 편성 쪽 상대 이름 — 참가자가 적어 둔 값보다 우선한다 */
+  partnerName?: string | null;
+  /** 카드 아래에 붙일 버튼 (시트 전문 보기 등) */
+  action?: ReactNode;
+}) {
+  const hunter = profile.side === 'HUNTER';
+  const classDef = findClass(profile.side, profile.classId);
+  const partner = (partnerName ?? '').trim() || profile.partnerName.trim();
+  const blurb = blurbOf(profile);
+  const skills = profile.skills ?? [];
+
+  return (
+    <article className={`dossier card ${hunter ? 'hunter' : 'constellation'}`}>
+      <span className="dossier-frame" aria-hidden="true" />
+
+      <header className="dossier-top">
+        <span className="dossier-stamp">{hunter ? 'HUNTER FILE' : 'STELLAR RECORD'}</span>
+        <span className="dossier-serial">@{profile.accountId}</span>
+      </header>
+
+      <div className="dossier-id">
+        <Portrait src={profile.portrait} name={profile.name} size="md" />
+        <div className="dossier-titles">
+          <span className="dossier-eyebrow">
+            {classDef ? classDef.label : hunter ? 'UNCLASSIFIED' : 'UNCHARTED'}
+          </span>
+          <b className="dossier-name">{profile.name || '(이름 없음)'}</b>
+          <span className="dossier-sub">
+            {classDef ? classDef.labelKo : '미지정'} · {sideLabel(profile.side)}
+          </span>
+          <div className="dossier-tags">
+            <span className={`tag ${hunter ? 'blue' : 'gold'}`}>
+              {affiliationLabel(profile.affiliation)}
+            </span>
+            {squad && <span className="tag ok">{squad}</span>}
+          </div>
+        </div>
+      </div>
+
+      {blurb ? (
+        <p className="card-blurb">{blurb}</p>
+      ) : (
+        <p className="card-blurb dim">적어 둔 설정이 아직 없습니다.</p>
+      )}
+
+      <dl className="card-facts">
+        <div>
+          <dt>페어명</dt>
+          <dd className={profile.pairName.trim() ? '' : 'dim'}>
+            {profile.pairName.trim() || '미정'}
+          </dd>
+        </div>
+        <div>
+          <dt>계약 상대</dt>
+          <dd className={partner ? '' : 'dim'}>{partner || '미정'}</dd>
+        </div>
+      </dl>
+
+      <StatLine side={profile.side} stats={profile.stats} />
+
+      {skills.length > 0 && (
+        <div className="card-chips">
+          {/* 이름만 늘어놓는다 — 수치는 전문에서 읽는다 */}
+          {skills.slice(0, 4).map((skill) => (
+            <span className="chip-tag" key={skill.id}>
+              {skill.name || '(이름 없음)'}
+            </span>
+          ))}
+          {skills.length > 4 && <span className="chip-tag dim">+{skills.length - 4}</span>}
+        </div>
+      )}
+
+      {action && <footer className="card-foot">{action}</footer>}
+    </article>
+  );
+}
+
+/**
+ * 편성 카드 — 한 장에 두 사람이 실린다.
+ *
+ * 누가 누구와 짝인지는 커뮤니티가 함께 읽는 정보다. 그래서 이 카드는 **누구나** 본다
+ * (0020 · public_pairs). 사진과 클래스는 명부에서 이미 읽어 둔 프로필에서 가져오고,
+ * 프로필을 못 찾으면 편성에 적힌 이름만으로도 카드가 선다.
+ */
+export function PairCard({
+  pair,
+  hunter,
+  constellation,
+  onOpen,
+}: {
+  pair: PublicPair;
+  hunter?: PublicProfile | null;
+  constellation?: PublicProfile | null;
+  /** 한쪽을 누르면 그 사람의 글로 넘어간다. 활동명이 없으면 누를 수 없다. */
+  onOpen?: (handle: string) => void;
+}) {
+  const sides: Array<{
+    key: ActorSide;
+    handle: string | null;
+    name: string;
+    profile: PublicProfile | null | undefined;
+  }> = [
+    { key: 'HUNTER', handle: pair.hunterHandle, name: pair.hunterName, profile: hunter },
+    {
+      key: 'CONSTELLATION',
+      handle: pair.constellationHandle,
+      name: pair.constellationName,
+      profile: constellation,
+    },
+  ];
+
+  return (
+    <article className="pair-card">
+      <header className="pair-card-top">
+        <b>{pair.label}</b>
+        <span className={`tag ${pair.affiliation === 'GOVERNMENT' ? 'blue' : 'gold'}`}>
+          {affiliationLabel(pair.affiliation)}
+        </span>
+      </header>
+
+      <div className="pair-card-body">
+        {sides.map((side, index) => {
+          const profile = side.profile ?? null;
+          const classDef = profile ? findClass(profile.side, profile.classId) : null;
+          const name = (profile?.name ?? '').trim() || side.name.trim() || '자리 비어 있음';
+          const openable = !!side.handle && !!onOpen;
+          const Tag = openable ? 'button' : 'div';
+
+          return (
+            <div className="pair-card-cell" key={side.key}>
+              {/* 두 사람 사이의 × — 계약이 걸린 자리다 */}
+              {index === 1 && <span className="pair-card-x" aria-hidden="true">×</span>}
+              <Tag
+                {...(openable
+                  ? { type: 'button' as const, onClick: () => onOpen!(side.handle as string) }
+                  : {})}
+                className={`pair-side ${side.key === 'HUNTER' ? 'hunter' : 'constellation'} ${
+                  openable ? 'open' : ''
+                }`}
+              >
+                <Portrait src={profile?.portrait} name={name} size="sm" />
+                <span className="pair-side-text">
+                  <b>{name}</b>
+                  <small>
+                    {sideLabel(side.key)}
+                    {classDef ? ` · ${classDef.labelKo}` : ''}
+                  </small>
+                  {side.handle && <small className="dim">@{side.handle}</small>}
+                </span>
+              </Tag>
+            </div>
+          );
+        })}
       </div>
     </article>
   );

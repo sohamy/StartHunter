@@ -11,10 +11,24 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { affiliationLabel, PublicSheetCard, sideLabel } from './SheetView';
+import {
+  affiliationLabel,
+  PairCard,
+  ProfileCard,
+  PublicSheetCard,
+  sideLabel,
+} from './SheetView';
+import Collapsible from './Collapsible';
+import TerminalNav from './TerminalNav';
 import { Portrait } from './PortraitField';
 import { findClass } from '../config/characters';
-import { getAuth, getStorage, loadShopCatalog, type PublicProfile } from '../store';
+import {
+  getAuth,
+  getStorage,
+  loadShopCatalog,
+  type PublicPair,
+  type PublicProfile,
+} from '../store';
 import type { ActorSide, Affiliation } from '../types';
 
 /** 게시판 갈래 하나 — 목록을 무엇으로 걸러 내는지까지 여기에 적어 둔다 */
@@ -23,6 +37,8 @@ interface BoardDef {
   label: string;
   labelKo: string;
   note: string;
+  /** 사람을 세우는 갈래인지, 편성을 세우는 갈래인지 */
+  kind: 'PROFILE' | 'PAIR';
   accepts: (profile: PublicProfile) => boolean;
 }
 
@@ -32,13 +48,24 @@ const BOARDS: BoardDef[] = [
     label: 'ALL',
     labelKo: '전체 명부',
     note: '등록을 마친 계약자 전원입니다.',
+    kind: 'PROFILE',
     accepts: () => true,
+  },
+  {
+    id: 'pairs',
+    label: 'PAIR',
+    labelKo: '편성 페어',
+    note: '관리국이 확정한 편성입니다. 한쪽을 누르면 그 사람의 카드로 넘어갑니다.',
+    kind: 'PAIR',
+    // 이 갈래는 사람이 아니라 편성을 세운다
+    accepts: () => false,
   },
   {
     id: 'hunter',
     label: 'HUNTER',
     labelKo: '헌터 명부',
     note: '탑에 직접 오르는 쪽입니다.',
+    kind: 'PROFILE',
     accepts: (profile) => profile.side === 'HUNTER',
   },
   {
@@ -46,6 +73,7 @@ const BOARDS: BoardDef[] = [
     label: 'CONSTELLATION',
     labelKo: '성좌 명부',
     note: '헌터와 계약을 맺고 권능을 내리는 쪽입니다.',
+    kind: 'PROFILE',
     accepts: (profile) => profile.side === 'CONSTELLATION',
   },
   {
@@ -53,6 +81,7 @@ const BOARDS: BoardDef[] = [
     label: 'GOVERNMENT',
     labelKo: '관리국 소속',
     note: '관리국 소속으로 등록한 계약자입니다.',
+    kind: 'PROFILE',
     accepts: (profile) => profile.affiliation === 'GOVERNMENT',
   },
   {
@@ -60,6 +89,7 @@ const BOARDS: BoardDef[] = [
     label: 'GUILD',
     labelKo: '민간 길드 소속',
     note: '민간 길드 소속으로 등록한 계약자입니다.',
+    kind: 'PROFILE',
     accepts: (profile) => profile.affiliation === 'PRIVATE_GUILD',
   },
 ];
@@ -76,10 +106,6 @@ function baseUrl(): string {
 
 function homeUrl(): string {
   return baseUrl() || '/';
-}
-
-function joinUrl(): string {
-  return `${baseUrl()}/battle/join/`;
 }
 
 /** 한 사람만 담은 공개 시트 주소 — 커뮤니티에 그대로 붙이는 용도다 */
@@ -158,6 +184,8 @@ export default function BoardTerminal() {
   const [failed, setFailed] = useState(false);
   const [profiles, setProfiles] = useState<PublicProfile[]>([]);
   const [bonds, setBonds] = useState<Record<string, BondInfo>>({});
+  /** 공개 편성 — 로그인하지 않아도 읽힌다 (0020) */
+  const [pairs, setPairs] = useState<PublicPair[]>([]);
   const [route, setRoute] = useState<Route>({ boardId: DEFAULT_BOARD.id, handle: '' });
   const [query, setQuery] = useState('');
 
@@ -177,7 +205,15 @@ export default function BoardTerminal() {
       }
       if (!cancelled) setLoading(false);
 
-      // 편성은 로그인한 사람만 읽는다. 못 읽으면 시트에 적힌 값으로 간다.
+      // 편성 카드는 누구나 본다 — 뷰(public_pairs)로 읽는다
+      try {
+        const rows = await getStorage().listPublicPairs();
+        if (!cancelled) setPairs(rows);
+      } catch {
+        /* 편성 조회 실패는 무시한다 — 명부는 그대로 선다 */
+      }
+
+      // 편성 라벨은 로그인한 사람만 읽는다. 못 읽으면 시트에 적힌 값으로 간다.
       try {
         const rows = await getStorage().listBonds();
         if (cancelled) return;
@@ -215,12 +251,32 @@ export default function BoardTerminal() {
 
   const board = findBoard(route.boardId);
 
-  /** 갈래별 인원 — 탭에 그대로 붙인다 */
+  /** 갈래별 개수 — 탭에 그대로 붙인다 */
   const counts = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const def of BOARDS) map[def.id] = profiles.filter(def.accepts).length;
+    for (const def of BOARDS) {
+      map[def.id] = def.kind === 'PAIR' ? pairs.length : profiles.filter(def.accepts).length;
+    }
+    return map;
+  }, [profiles, pairs]);
+
+  /** 활동명 → 프로필 — 편성 카드에 사진과 클래스를 붙이는 데 쓴다 */
+  const byHandle = useMemo(() => {
+    const map: Record<string, PublicProfile> = {};
+    for (const profile of profiles) map[profile.accountId] = profile;
     return map;
   }, [profiles]);
+
+  const listedPairs = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return pairs;
+    return pairs.filter((pair) =>
+      [pair.label, pair.hunterName, pair.constellationName, pair.hunterHandle, pair.constellationHandle]
+        .join(' ')
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [pairs, query]);
 
   const listed = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -242,7 +298,9 @@ export default function BoardTerminal() {
   };
 
   const openPost = (handle: string) => {
-    go({ boardId: board.id, handle }, true);
+    // 편성 갈래에는 사람 목록이 없다 — 사람을 열 때는 전체 명부로 옮겨야
+    // 이전 글 · 다음 글이 이어진다
+    go({ boardId: board.kind === 'PAIR' ? DEFAULT_BOARD.id : board.id, handle }, true);
     window.scrollTo({ top: 0 });
   };
 
@@ -263,19 +321,13 @@ export default function BoardTerminal() {
 
   return (
     <div className="console">
+      <TerminalNav current="roster" />
       <header className="console-head">
         <div className="agency">
           <b>HUNTER MANAGEMENT AGENCY</b>
           <span>PUBLIC ROSTER · 명부 게시판</span>
         </div>
-        <div className="btn-row">
-          <a className="ctl" href={homeUrl()}>
-            세계관 소개
-          </a>
-          <a className="ctl" href={joinUrl()}>
-            내 시트 · 참가 신청
-          </a>
-        </div>
+        <span className="tag">{profiles.length}명 등록</span>
       </header>
 
       {failed && (
@@ -287,7 +339,8 @@ export default function BoardTerminal() {
       <section className="panel">
         <h2 className="panel-title">게시판 목록</h2>
         <p className="hint">
-          갈래를 고르면 그 명부만 남습니다. 한 줄을 누르면 제출한 시트 전문이 열립니다.
+          갈래를 고르면 그 목록만 남습니다. 한 줄을 누르면 프로필 카드가 열리고, 시트 전문은
+          카드 아래에서 펼칩니다.
         </p>
         <div className="board-tabs">
           {BOARDS.map((def) => (
@@ -299,7 +352,8 @@ export default function BoardTerminal() {
             >
               <span>{def.labelKo}</span>
               <small>
-                {def.label} · {counts[def.id] ?? 0}명
+                {def.label} · {counts[def.id] ?? 0}
+                {def.kind === 'PAIR' ? '조' : '명'}
               </small>
             </button>
           ))}
@@ -322,7 +376,7 @@ export default function BoardTerminal() {
                 )}
               </h2>
               <p className="hint" style={{ margin: 0 }}>
-                @{opened.accountId} · 참가자가 제출한 시트 전문입니다.
+                @{opened.accountId} · 프로필 카드입니다. 시트 전문은 아래에서 펼칩니다.
               </p>
             </div>
             <div className="btn-row">
@@ -335,11 +389,22 @@ export default function BoardTerminal() {
             </div>
           </div>
 
-          <PublicSheetCard
+          <ProfileCard
             profile={opened}
+            squad={bonds[opened.accountId]?.label ?? null}
             partnerName={bonds[opened.accountId]?.partnerName ?? null}
-            supply={{ points: opened.points, inventory: opened.inventory }}
           />
+
+          {/* 전문은 서류다 — 읽겠다고 한 사람에게만 펼친다 */}
+          <div style={{ marginTop: 12 }}>
+            <Collapsible label="시트 전문 — 성격 · 특징 · 계약 경위 · 스킬 · 스탯 · 보급">
+              <PublicSheetCard
+                profile={opened}
+                partnerName={bonds[opened.accountId]?.partnerName ?? null}
+                supply={{ points: opened.points, inventory: opened.inventory }}
+              />
+            </Collapsible>
+          </div>
 
           {/* 목록으로 돌아가지 않고도 옆 글로 넘어가게 한다 */}
           <div className="board-nav">
@@ -373,7 +438,7 @@ export default function BoardTerminal() {
           <h2 className="panel-title">
             {board.labelKo}
             <span className="tag" style={{ marginLeft: 10 }}>
-              {listed.length}명
+              {board.kind === 'PAIR' ? `${listedPairs.length}조` : `${listed.length}명`}
             </span>
           </h2>
           <p className="hint">{board.note}</p>
@@ -382,11 +447,37 @@ export default function BoardTerminal() {
             className="ctl input sheet-search"
             type="search"
             value={query}
-            placeholder="이름 · 활동명 · 페어명 · 클래스 검색"
+            placeholder={
+              board.kind === 'PAIR'
+                ? '페어 라벨 · 두 사람의 이름 검색'
+                : '이름 · 활동명 · 페어명 · 클래스 검색'
+            }
             onChange={(event) => setQuery(event.target.value)}
           />
 
-          {listed.length === 0 ? (
+          {board.kind === 'PAIR' ? (
+            listedPairs.length === 0 ? (
+              <p className="hint">
+                {pairs.length === 0
+                  ? '아직 확정된 편성이 없습니다. 편성은 관리국이 진행합니다.'
+                  : '검색 조건에 맞는 편성이 없습니다.'}
+              </p>
+            ) : (
+              <div className="card-grid">
+                {listedPairs.map((pair) => (
+                  <PairCard
+                    key={pair.id}
+                    pair={pair}
+                    hunter={pair.hunterHandle ? byHandle[pair.hunterHandle] : null}
+                    constellation={
+                      pair.constellationHandle ? byHandle[pair.constellationHandle] : null
+                    }
+                    onOpen={openPost}
+                  />
+                ))}
+              </div>
+            )
+          ) : listed.length === 0 ? (
             <p className="hint">
               {profiles.length === 0
                 ? '아직 등록된 캐릭터가 없습니다.'

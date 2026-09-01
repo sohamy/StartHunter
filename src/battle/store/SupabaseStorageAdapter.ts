@@ -13,7 +13,7 @@
 
 import { SCHEMA_VERSION } from '../config/rules';
 import { requireSupabase } from './supabaseClient';
-import type { ExportEnvelope, StorageAdapter } from './StorageAdapter';
+import type { ExportEnvelope, PublicPair, StorageAdapter } from './StorageAdapter';
 import type {
   ActorSide,
   BattleRecord,
@@ -372,6 +372,25 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     }));
   }
 
+  /**
+   * 공개 편성 — 뷰(`public_pairs`)를 읽는다.
+   * pair_bonds 는 로그인한 사람에게만 열리므로, 누구나 보는 명부는 이 뷰로만 채운다.
+   */
+  async listPublicPairs(): Promise<PublicPair[]> {
+    const { data } = await requireSupabase().from('public_pairs').select('*').order('label');
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      label: (row.label as string) ?? '',
+      hunterHandle: (row.hunter_handle as string | null) ?? null,
+      constellationHandle: (row.constellation_handle as string | null) ?? null,
+      hunterName: (row.hunter_name as string) ?? '',
+      constellationName: (row.constellation_name as string) ?? '',
+      affiliation: row.affiliation as PublicPair['affiliation'],
+      createdAt: (row.created_at as string) ?? new Date().toISOString(),
+    }));
+  }
+
   async saveBond(bond: PairBond): Promise<void> {
     const { error } = await requireSupabase().from('pair_bonds').upsert({
       id: bond.id,
@@ -500,6 +519,24 @@ export class SupabaseStorageAdapter implements StorageAdapter {
   async deleteRouletteWheel(id: string): Promise<void> {
     const { error } = await requireSupabase().from('roulette_wheels').delete().eq('id', id);
     if (error) throw new Error(`원반 삭제 실패: ${error.message}`);
+  }
+
+  /**
+   * 회전 기록 한 줄을 지운다 — 운영진만 통과한다 (0019 · spins operator delete).
+   * 뷰가 아니라 원본 표를 지운다. 지워도 소지금은 그대로다 — 기록은 전광판일 뿐이다.
+   */
+  async deleteRouletteSpin(id: string): Promise<void> {
+    const { error } = await requireSupabase().from('roulette_spins').delete().eq('id', id);
+    if (error) throw new Error(`회전 기록 삭제 실패: ${error.message}`);
+  }
+
+  async clearRouletteSpins(): Promise<void> {
+    // 조건 없는 delete 는 거절되므로 언제나 참인 조건을 하나 준다
+    const { error } = await requireSupabase()
+      .from('roulette_spins')
+      .delete()
+      .gte('created_at', '1970-01-01');
+    if (error) throw new Error(`회전 기록 비우기 실패: ${error.message}`);
   }
 
   /**

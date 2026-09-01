@@ -19,6 +19,7 @@ import { chanceOf, chanceText, expectedNet, totalWeight } from '../engine/roulet
 import { getAuth, getStorage } from '../store';
 import { findDeployment } from './deployment';
 import NpcCard from './NpcCard';
+import TerminalNav from './TerminalNav';
 import type { Account, BattleState, RouletteSlot, RouletteSpin, RouletteWheel } from '../types';
 import type { SpinOutcome } from '../store/AuthAdapter';
 
@@ -63,6 +64,35 @@ function wedgePath(start: number, end: number, radius: number): string {
   const [x2, y2] = pointAt(end, radius);
   const large = end - start > 180 ? 1 : 0;
   return `M 100 100 L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${radius} ${radius} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+}
+
+/**
+ * 칸 이름을 원반에 어떻게 앉힐지 — 칸의 폭(각도)이 정한다.
+ *
+ * 이름을 원 둘레 방향(가로)으로 눕히면 좁은 칸에서 옆 칸 글자와 겹친다.
+ * 그래서 **반지름 방향**으로 세워 적는다 — 글자가 차지하는 둘레 폭이 글자 높이만큼으로
+ * 줄어들어, 칸이 좁아도 서로 밀지 않는다. 그래도 모자라는 아주 좁은 칸은 이름을 비운다
+ * (밑의 칸 목록에 이름 · 배당 · 확률이 그대로 적혀 있다).
+ */
+interface LabelPlan {
+  /** 글자 크기 (viewBox 200 기준) */
+  size: number;
+  /** 글자가 시작하는 반지름 — 좁은 칸은 바깥으로 밀어 둘레를 넓게 쓴다 */
+  from: number;
+  /** 넘치는 이름은 잘라 낸다 */
+  maxChars: number;
+}
+
+function labelPlan(span: number): LabelPlan | null {
+  if (span >= 24) return { size: 9, from: 30, maxChars: 8 };
+  if (span >= 13) return { size: 8, from: 36, maxChars: 7 };
+  if (span >= 7) return { size: 7, from: 46, maxChars: 5 };
+  return null;
+}
+
+function clipLabel(label: string, maxChars: number): string {
+  const text = label.trim();
+  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
 }
 
 /** 무게에 비례한 각도 — 그림과 확률이 어긋나면 화면이 거짓말을 하게 된다 */
@@ -211,19 +241,18 @@ export default function RouletteTerminal() {
 
   return (
     <div className="console">
+      <TerminalNav
+        current="roulette"
+        who={sheet ? { name: sheet.name, side: sheet.side } : null}
+      />
       <header className="console-head">
         <div className="agency">
           <b>FORTUNE HALL</b>
           <span>운명 도박장 · 별자리 회전반</span>
         </div>
-        <div className="btn-row">
-          <a className="ctl" href={shopUrl()}>
-            보급 상점
-          </a>
-          <a className="ctl" href={joinUrl()}>
-            내 시트
-          </a>
-        </div>
+        <span className={`tag ${closed ? 'critical' : 'ok'}`}>
+          {closed ? '문 닫음 — 전투 배치 중' : '문 열림'}
+        </span>
       </header>
 
       <section className="panel hall">
@@ -328,6 +357,24 @@ export default function RouletteTerminal() {
                 role="img"
                 aria-label={`${wheel.name} 원반`}
               >
+                <defs>
+                  {/* 놋쇠 테 — 위쪽이 밝고 아래쪽이 어두워 원반이 세워져 있는 것처럼 보인다 */}
+                  <linearGradient id="wheel-rim" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f0d79b" />
+                    <stop offset="45%" stopColor="#8d7238" />
+                    <stop offset="100%" stopColor="#5d4a22" />
+                  </linearGradient>
+                  {/* 가운데는 그대로 두고 테두리만 어둡게 깔아 두께를 만든다 */}
+                  <radialGradient id="wheel-shade" cx="50%" cy="42%" r="62%">
+                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0.14" />
+                    <stop offset="62%" stopColor="#ffffff" stopOpacity="0" />
+                    <stop offset="100%" stopColor="#000000" stopOpacity="0.42" />
+                  </radialGradient>
+                </defs>
+
+                <circle className="wheel-rim" cx="100" cy="100" r="98" />
+                <circle className="wheel-rim-inner" cx="100" cy="100" r="93" />
+
                 <g
                   style={{
                     transform: `rotate(${rotation}deg)`,
@@ -338,35 +385,57 @@ export default function RouletteTerminal() {
                   }}
                 >
                   {wheel.slots.length === 1 ? (
-                    <circle className="wheel-slice tier-top" cx="100" cy="100" r="92" />
+                    <circle className="wheel-slice tier-top" cx="100" cy="100" r="90" />
                   ) : (
                     wheel.slots.map((slot, index) => (
                       <path
                         key={`${slot.label}-${index}`}
-                        className={`wheel-slice tier-${tierOf(slot, fee)}`}
-                        d={wedgePath(arcs[index].start, arcs[index].end, 92)}
+                        className={`wheel-slice tier-${tierOf(slot, fee)} ${
+                          index % 2 ? 'alt' : ''
+                        } ${result?.slotIndex === index && !spinning ? 'hit' : ''}`}
+                        d={wedgePath(arcs[index].start, arcs[index].end, 90)}
                       />
                     ))
                   )}
+
+                  {/* 칸 경계마다 못을 박는다 — 회전이 눈에 보이게 하는 표식이다 */}
+                  {wheel.slots.length > 1 &&
+                    arcs.map((arc, index) => {
+                      const [x, y] = pointAt(arc.start, 84);
+                      return <circle key={`peg-${index}`} className="wheel-peg" cx={x} cy={y} r="1.8" />;
+                    })}
+
                   {wheel.slots.map((slot, index) => {
-                    const mid = arcs[index].mid;
-                    const flip = mid > 90 && mid < 270;
+                    const arc = arcs[index];
+                    const plan = labelPlan(arc.end - arc.start);
+                    if (!plan) return null;
+                    // 반지름 방향으로 세워 적는다 — 가운데에서 바깥으로 읽는다
+                    const y = 100 - plan.from;
                     return (
                       <text
                         key={`label-${index}`}
                         className="wheel-label"
                         x={100}
-                        y={flip ? 158 : 42}
-                        transform={`rotate(${flip ? mid + 180 : mid} 100 100)`}
-                        textAnchor="middle"
+                        y={y}
+                        fontSize={plan.size}
+                        transform={`rotate(${arc.mid} 100 100) rotate(-90 100 ${y})`}
+                        textAnchor="start"
                         dominantBaseline="central"
                       >
-                        {slot.label}
+                        {clipLabel(slot.label, plan.maxChars)}
                       </text>
                     );
                   })}
                 </g>
-                <circle className="wheel-hub" cx="100" cy="100" r="15" />
+
+                {/* 그림자는 원반과 함께 돌지 않는다 — 빛은 늘 같은 곳에서 온다 */}
+                <circle className="wheel-shade" cx="100" cy="100" r="90" />
+
+                <circle className="wheel-hub" cx="100" cy="100" r="16" />
+                <circle className="wheel-hub-ring" cx="100" cy="100" r="11" />
+                <text className="wheel-hub-mark" x="100" y="100" textAnchor="middle" dominantBaseline="central">
+                  ✦
+                </text>
               </svg>
             </div>
 

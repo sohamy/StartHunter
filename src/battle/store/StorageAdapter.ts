@@ -20,6 +20,24 @@ import type {
   PairBond,
 } from '../types';
 
+/**
+ * 공개 편성 한 줄 — 누가 누구와 짝인지.
+ *
+ * PairBond 와 달리 비로그인도 읽는다 (0020 · public_pairs). 활성 편성만 담고,
+ * 옛 공용 지갑 칸은 담지 않는다 — 소지금과 가방은 사람마다 따로다.
+ */
+export interface PublicPair {
+  id: string;
+  label: string;
+  /** 활동명. 편성 한쪽이 아직 비어 있을 수 있다 */
+  hunterHandle: string | null;
+  constellationHandle: string | null;
+  hunterName: string;
+  constellationName: string;
+  affiliation: PairBond['affiliation'];
+  createdAt: string;
+}
+
 export interface StorageAdapter {
   loadBattle(id: string): Promise<BattleState | null>;
   saveBattle(state: BattleState): Promise<void>;
@@ -28,6 +46,11 @@ export interface StorageAdapter {
 
   /* ── 영구 편성 ── */
   listBonds(): Promise<PairBond[]>;
+  /**
+   * 공개 편성 — 명부 게시판이 쓴다. **로그인하지 않아도** 읽힌다.
+   * listBonds 는 로그인한 사람에게만 열리므로, 누구나 보는 화면은 이쪽을 쓴다.
+   */
+  listPublicPairs(): Promise<PublicPair[]>;
   saveBond(bond: PairBond): Promise<void>;
   deleteBond(id: string): Promise<void>;
 
@@ -50,6 +73,13 @@ export interface StorageAdapter {
    * 소지금은 담기지 않는다 (전광판은 남의 지갑을 보여 주는 곳이 아니다).
    */
   listRouletteSpins(limit?: number): Promise<RouletteSpin[]>;
+  /** 회전 기록 한 줄을 지운다 — 운영진만 된다 (0019 · spins operator delete) */
+  deleteRouletteSpin(id: string): Promise<void>;
+  /**
+   * 회전 기록을 전부 지운다 — 운영진만 된다.
+   * 소지금은 건드리지 않는다. 기록은 정산 근거가 아니라 전광판이므로 지워도 지갑은 그대로다.
+   */
+  clearRouletteSpins(): Promise<void>;
 
   /* ── 채팅 ── */
   listMessages(channel: string, limit?: number): Promise<ChatMessage[]>;
