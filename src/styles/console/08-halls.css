@@ -1,0 +1,471 @@
+/* ══ 운명 도박장 ══════════════════════════════════════
+   원반은 확률 그대로 그린다 — 넓은 칸이 잘 걸리는 칸이다.
+   그림과 표가 어긋나면 화면이 거짓말을 하게 된다. */
+.panel.wheel-panel::before { background: var(--c-violet); }
+
+.wallet-line { margin: 6px 0 0; font-size: 0.9375rem; }
+.wheel-pick { max-width: 280px; }
+
+.wheel-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  margin-top: 14px;
+}
+@media (max-width: 720px) {
+  .wheel-stage { grid-template-columns: minmax(0, 1fr); }
+}
+
+.wheel-box { position: relative; width: 100%; max-width: 320px; margin: 0 auto; }
+.wheel-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, .55));
+}
+
+/* 바늘 — 원반은 돌아도 이것은 12시에 붙박여 있다 */
+.wheel-needle {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 18px solid var(--c-gold);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6));
+}
+
+/* 테 — 원반이 판에 박혀 있는 것처럼 보이게 하는 놋쇠 두 겹 */
+.wheel-rim { fill: url(#wheel-rim); }
+.wheel-rim-inner { fill: #0a0e16; stroke: rgba(230, 197, 131, .35); stroke-width: 1; }
+
+.wheel-slice { stroke: rgba(5, 7, 12, .85); stroke-width: 1; }
+.wheel-slice.tier-dud { fill: #2a3140; }
+.wheel-slice.tier-low { fill: #3d4a63; }
+.wheel-slice.tier-mid { fill: #5a5182; }
+.wheel-slice.tier-top { fill: #8a6f3a; }
+/* 같은 등급이 나란히 오면 경계가 보이지 않는다 — 한 칸씩 밝기를 달리 준다 */
+.wheel-slice.alt { filter: brightness(1.18); }
+/* 걸린 칸 — 멈춘 뒤에만 켠다 */
+.wheel-slice.hit { stroke: var(--c-gold); stroke-width: 1.6; filter: brightness(1.5); }
+
+/* 칸 경계의 못 */
+.wheel-peg { fill: rgba(255, 255, 255, .55); }
+
+/* 두께와 빛 — 원반과 함께 돌지 않는다 */
+.wheel-shade { fill: url(#wheel-shade); pointer-events: none; }
+
+.wheel-label {
+  fill: #f4f8ff;
+  font-family: var(--c-sans);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  /* 어두운 칸과 밝은 칸에 같은 글자가 얹힌다 — 테두리를 깔아 어느 쪽에서도 읽히게 한다 */
+  stroke: rgba(5, 7, 12, .85);
+  stroke-width: 2.2px;
+  paint-order: stroke fill;
+}
+.wheel-hub {
+  fill: var(--c-panel-2);
+  stroke: url(#wheel-rim);
+  stroke-width: 2.5;
+}
+.wheel-hub-ring { fill: none; stroke: rgba(230, 197, 131, .45); stroke-width: 1; }
+.wheel-hub-mark { fill: var(--c-gold); font-size: 9px; }
+
+.wheel-side { display: grid; gap: 12px; align-content: center; min-width: 0; }
+.wheel-go { justify-self: start; padding: 12px 22px; font-size: 1rem; }
+.wheel-idle { margin: 0; font-size: 0.8125rem; }
+.wheel-ev { margin: 0; font-size: 0.75rem; }
+
+.wheel-result {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.wheel-result.win { border-color: rgba(230, 197, 131, .5); background: rgba(230, 197, 131, .07); }
+.wheel-result-label { font-size: 1.25rem; line-height: 1.2; }
+
+/* 칸 목록 — 원반에서 읽기 어려운 확률을 숫자로 다시 적는다 */
+.slot-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 4px; }
+.slot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 64px minmax(60px, 120px);
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--c-line);
+  border-left-width: 3px;
+  background: rgba(255, 255, 255, .015);
+  font-size: 0.8125rem;
+}
+.slot-row.tier-dud { border-left-color: #2a3140; }
+.slot-row.tier-low { border-left-color: #3d4a63; }
+.slot-row.tier-mid { border-left-color: #5a5182; }
+.slot-row.tier-top { border-left-color: var(--c-gold); }
+.slot-row.hit { background: rgba(230, 197, 131, .1); border-color: rgba(230, 197, 131, .45); }
+.slot-payout { text-align: right; color: var(--c-gold); }
+.slot-chance { text-align: right; color: var(--c-dim); }
+.slot-bar { display: block; height: 5px; background: rgba(255, 255, 255, .05); }
+.slot-bar > i { display: block; height: 100%; background: var(--c-violet); }
+@media (max-width: 560px) {
+  .slot-row { grid-template-columns: minmax(0, 1fr) 72px 56px; }
+  .slot-bar { display: none; }
+}
+
+/* 전광판 — 누가 무엇에 걸렸는지만 흘려 보여 준다 */
+.spin-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.spin-board li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-left: 2px solid var(--c-line);
+  background: rgba(255, 255, 255, .015);
+  font-size: 0.8125rem;
+}
+.spin-board li.win { border-left-color: var(--c-gold); }
+.spin-board li > span:last-child { text-align: right; }
+.spin-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spin-slot { color: var(--c-dim); }
+@media (max-width: 560px) {
+  .spin-board li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px; }
+  .spin-board li > .dim { display: none; }
+}
+
+
+/* ══ 원반 편집 (운영진) ═══════════════════════════════ */
+.wheel-editor { display: grid; gap: 12px; }
+
+.wheel-admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wheel-admin-list li {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.wheel-admin-list li.off { opacity: .55; }
+.wheel-admin-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+.wheel-draft {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .025);
+}
+
+.slot-editor { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.slot-editor li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 100px 58px 40px;
+  align-items: end;
+  gap: 8px;
+}
+.slot-editor .slot-field { display: grid; gap: 4px; min-width: 0; }
+.slot-editor .slot-chance { padding-bottom: 8px; }
+@media (max-width: 720px) {
+  .slot-editor li { grid-template-columns: minmax(0, 1fr) 1fr; }
+  .slot-editor .slot-chance { padding-bottom: 0; }
+}
+
+/* 손익 미리보기 — 원반을 열기 전에 관리국이 얼마를 남기는지 본다 */
+.wheel-ledger {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.wheel-ledger > div { display: grid; gap: 2px; }
+.wheel-ledger b { font-size: 1.125rem; }
+
+
+/* ══ 명부 게시판 ══════════════════════════════════════ */
+.board-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.board-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+/* 한 줄이 곧 게시글 링크다 — 줄 전체를 누를 수 있게 button 을 깔아 둔다 */
+.board-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease;
+}
+.board-row:hover { background: rgba(255, 255, 255, .06); border-color: var(--c-line-2); }
+.board-row.hunter { border-left-color: var(--c-blue); }
+.board-row.constellation { border-left-color: var(--c-gold); }
+
+.board-no {
+  font-family: var(--c-mono);
+  font-size: 0.75rem;
+  letter-spacing: .1em;
+  color: var(--c-faint);
+}
+.board-main { display: grid; gap: 3px; min-width: 0; }
+.board-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.board-title b { font-size: 0.9375rem; }
+.board-meta {
+  display: flex;
+  gap: 4px 14px;
+  flex-wrap: wrap;
+  font-size: 0.78125rem;
+  color: var(--c-dim);
+}
+.board-handle { font-family: var(--c-mono); font-size: 0.71875rem; }
+
+@media (max-width: 620px) {
+  .board-row { grid-template-columns: 28px auto minmax(0, 1fr); }
+  .board-handle { display: none; }
+}
+
+/* 글 머리 — 제목과 목록 복귀 버튼을 양 끝에 둔다 */
+.board-post-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.board-crumb {
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .18em;
+  color: var(--c-faint);
+}
+
+.board-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.board-nav .ctl { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* ══ 단말 공통 내비게이션 ═════════════════════════════
+   화면마다 링크가 제각각이면 갈 곳을 찾으려고 되돌아 나와야 한다.
+   갈 수 있는 곳을 한 줄로 모아 위에 붙여 둔다. */
+.term-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin: 0 0 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-line);
+  background: rgba(8, 11, 18, .92);
+  backdrop-filter: blur(8px);
+}
+.term-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  flex: none;
+  font-family: var(--c-serif);
+  font-size: 0.8125rem;
+  letter-spacing: .18em;
+  color: var(--c-gold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* 좁은 화면에서는 줄이 넘치므로 가로로 밀어서 본다 */
+.term-nav-links {
+  display: flex;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.term-nav-link {
+  display: grid;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  color: var(--c-dim);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.term-nav-link b { font-size: 0.8125rem; font-weight: 600; }
+.term-nav-link small {
+  font-family: var(--c-mono);
+  font-size: 0.625rem;
+  letter-spacing: .16em;
+  color: var(--c-faint);
+}
+.term-nav-link:hover { background: rgba(255, 255, 255, .06); color: var(--c-text); }
+/* 지금 보고 있는 곳 — 눌러도 제자리이므로 링크처럼 반응하지 않게 둔다 */
+.term-nav-link.on {
+  border-color: rgba(164, 140, 255, .5);
+  background: rgba(164, 140, 255, .14);
+  color: var(--c-text);
+}
+.term-nav-link.on small { color: var(--c-violet); }
+/* 운영자 항목은 참가자 항목과 섞이지 않게 색을 달리 준다 */
+.term-nav-link.staff b { color: var(--c-warn); }
+.term-nav-link.staff.on { border-color: rgba(240, 207, 104, .5); background: rgba(240, 207, 104, .12); }
+
+.term-nav-side { display: flex; align-items: center; gap: 8px; flex: none; }
+.term-nav-who { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; }
+.term-nav-who b { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 860px) {
+  .term-nav { flex-wrap: wrap; gap: 6px; }
+  .term-nav-brand { padding: 0 4px; }
+  .term-nav-links { order: 3; flex-basis: 100%; }
+  .term-nav-side { margin-left: auto; }
+  .term-nav-who { display: none; }
+}
+
+
+/* ══ 요약 카드 ════════════════════════════════════════
+   전문(.dossier)과 같은 서식을 쓰되, 명함처럼 작게 접는다.
+   한 사람을 처음 볼 때 읽는 장이므로 여백과 글자를 한 단 줄인다. */
+.dossier.card {
+  gap: 12px;
+  padding: 18px 20px 14px;
+}
+.dossier.card .dossier-name { font-size: 1.25rem; }
+.dossier.card .dossier-id { gap: 14px; }
+
+.card-blurb {
+  margin: 0;
+  color: var(--c-dim);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.card-blurb.dim { color: var(--c-faint); font-style: italic; }
+
+.card-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 18px;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
+}
+.card-facts > div { display: grid; gap: 2px; min-width: 0; }
+.card-facts dt {
+  font-family: var(--c-mono);
+  font-size: 0.625rem;
+  letter-spacing: .16em;
+  color: var(--c-faint);
+}
+.card-facts dd { margin: 0; font-size: 0.875rem; word-break: break-word; }
+
+.card-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip-tag {
+  padding: 3px 9px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .03);
+  font-size: 0.75rem;
+  color: var(--c-dim);
+}
+.card-foot { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 카드를 격자로 늘어놓는 자리 — 명부 · 페어 목록이 함께 쓴다 */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+  gap: 14px;
+}
+
+
+/* ══ 편성 카드 ════════════════════════════════════════
+   한 장에 두 사람이 실린다 — 계약이 한 쌍이라는 것이 카드 모양에서 보여야 한다. */
+.pair-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-line);
+  background:
+    linear-gradient(135deg, rgba(127, 176, 255, .07), transparent 45%),
+    linear-gradient(315deg, rgba(230, 197, 131, .07), transparent 45%),
+    rgba(255, 255, 255, .02);
+}
+.pair-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pair-card-top b {
+  font-family: var(--c-mono);
+  font-size: 0.8125rem;
+  letter-spacing: .16em;
+  color: var(--c-text);
+}
+
+.pair-card-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pair-card-cell { position: relative; min-width: 0; }
+
+/* 두 사람 사이의 × — 칸 경계에 걸쳐 놓는다 */
+.pair-card-x {
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  color: var(--c-gold);
+  font-family: var(--c-serif);
+  font-size: 0.875rem;
+}
+
+.pair-side {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--c-line);
+  border-left-width: 2px;
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-text);
+  font: inherit;
+  text-align: left;
+  min-width: 0;
+}
+.pair-side.hunter { border-left-color: var(--c-blue); }
+.pair-side.constellation { border-left-color: var(--c-gold); }
+.pair-side.open { cursor: pointer; transition: background .18s ease, border-color .18s ease; }
+.pair-side.open:hover { background: rgba(255, 255, 255, .07); border-color: var(--c-line-2); }
+.pair-side-text { display: grid; gap: 1px; min-width: 0; }
+.pair-side-text b { font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pair-side-text small { font-size: 0.71875rem; color: var(--c-faint); }
+
+@media (max-width: 560px) {
+  .pair-card-body { grid-template-columns: minmax(0, 1fr); }
+  .pair-card-x { top: -4px; left: 50%; }
+}

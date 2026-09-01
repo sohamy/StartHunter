@@ -1,0 +1,304 @@
+/* ── 스킬 편집기 ─────────────────────────────────────── */
+.skill-editor { display: grid; gap: 12px; }
+.skill-card {
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-gold);
+  background: rgba(255, 255, 255, .02);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+.skill-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+/* 그리드 칸을 넘치지 않게 한다 — select 의 min-width 가 옆 칸을 침범하던 문제 */
+.skill-grid > * { min-width: 0; }
+.skill-grid select.ctl,
+.skill-grid .ctl.input {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+/* 라벨 높이를 고정해 슬라이더와 드롭다운의 밑단을 맞춘다 */
+.skill-grid .input-row > .field-label {
+  min-height: 15px;
+  display: block;
+}
+.skill-grid input[type='range'] { accent-color: var(--c-ok); }
+.status-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn {
+  display: grid;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-dim);
+  font: inherit;
+  font-size: 0.71875rem;
+  cursor: pointer;
+  text-align: left;
+}
+.chip-btn small { font-size: 0.6875rem; color: var(--c-faint); }
+.chip-btn.on {
+  border-color: var(--c-ok);
+  background: rgba(95, 224, 205, .14);
+  color: var(--c-text);
+}
+.skill-summary { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.skill-summary li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-line);
+}
+.skill-summary li { font-size: 0.875rem; }
+.skill-summary b { font-family: var(--c-mono); letter-spacing: .06em; font-size: 0.9375rem; }
+.skill-summary small { font-size: 0.8125rem; }
+
+/* ── 알림 ────────────────────────────────────────────── */
+.notice {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .03);
+  font-size: 0.78125rem;
+  line-height: 1.65;
+}
+/* 알림 안의 닫기 버튼 — 문장에 붙어 버리지 않게 띄운다 */
+.notice .ctl.small { margin-left: 10px; vertical-align: middle; }
+.notice.ok { border-color: rgba(79, 214, 196, .45); color: var(--c-ok); }
+.notice.warn { border-color: rgba(232, 197, 90, .40); color: var(--c-warn); background: rgba(232, 197, 90, .06); }
+.notice.error { border-color: rgba(239, 95, 107, .5); color: var(--c-critical); background: rgba(239, 95, 107, .07); }
+/* 알림을 목록으로 쓰는 경우 — 등록 실패 사유처럼 여러 줄이 된다 */
+ul.notice { list-style: none; }
+ul.notice li + li { margin-top: 4px; }
+
+/* ── 입력 폼 ─────────────────────────────────────────── */
+.form { display: grid; gap: 12px; }
+.input-row { display: grid; gap: 6px; min-width: 0; }
+.input-row > .btn-row { margin-top: 2px; }
+.ctl.input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  font-family: var(--c-sans);
+  font-size: 0.875rem;
+  letter-spacing: 0;
+  padding: 11px 13px;
+  cursor: text;
+}
+select.ctl.input { cursor: pointer; }
+.ctl.input:focus { outline: 1px solid var(--c-ok); outline-offset: -1px; }
+.ctl.textarea { resize: vertical; line-height: 1.7; }
+
+/* ── 범위 입력 ───────────────────────────────────────── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  background: rgba(140, 168, 205, .3);
+  border: 1px solid var(--c-line);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -6px;
+  background: var(--c-ok);
+  border: 1px solid #05070c;
+  box-shadow: 0 0 8px rgba(95, 224, 205, .5);
+}
+input[type='range']::-moz-range-track {
+  height: 4px;
+  background: rgba(140, 168, 205, .3);
+  border: 1px solid var(--c-line);
+}
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
+  background: var(--c-ok);
+  border: 1px solid #05070c;
+}
+
+/* ── 역할 / 클래스 선택 ─────────────────────────────── */
+.role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.role-card, .class-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease;
+}
+.role-card:hover, .class-card:hover { border-color: var(--c-line-2); background: rgba(255, 255, 255, .05); }
+.role-card.selected, .class-card.selected {
+  border-color: var(--c-ok);
+  background: rgba(79, 214, 196, .10);
+  box-shadow: inset 2px 0 0 var(--c-ok);
+}
+.role-card b { font-family: var(--c-mono); letter-spacing: .18em; font-size: 0.8125rem; }
+.role-card > span { color: var(--c-gold); font-size: 0.75rem; }
+.role-card p, .class-card p { margin: 0; font-size: 0.78125rem; line-height: 1.6; }
+
+.class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.class-head { display: flex; align-items: baseline; gap: 8px; }
+.class-head b { font-family: var(--c-mono); font-size: 0.75rem; letter-spacing: .14em; }
+.class-bonus { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.class-bonus li { font-family: var(--c-mono); font-size: 0.6875rem; color: var(--c-ok); }
+.class-focus { color: var(--c-faint); font-size: 0.71875rem; }
+
+/* ── 스탯 배분 ───────────────────────────────────────── */
+.points {
+  margin-left: 10px;
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  color: var(--c-warn);
+  letter-spacing: .08em;
+}
+.points.ok { color: var(--c-ok); }
+.points.over { color: var(--c-critical); }
+
+.stat-list { display: grid; gap: 4px; }
+.stat-row {
+  display: grid;
+  grid-template-columns: 96px 116px 1fr;
+  grid-template-areas: 'name ctl track' 'name ctl effect';
+  align-items: center;
+  gap: 2px 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--c-line);
+}
+.stat-name { grid-area: name; display: grid; }
+.stat-name b { font-family: var(--c-mono); font-size: 0.75rem; letter-spacing: .16em; }
+.stat-name span { font-size: 0.71875rem; color: var(--c-dim); }
+.stat-ctl { grid-area: ctl; display: flex; align-items: center; gap: 8px; }
+.stat-value { min-width: 22px; text-align: center; font-size: 0.9375rem; }
+.stat-track { grid-area: track; display: flex; gap: 4px; align-self: end; }
+.stat-track i { width: 20px; height: 6px; border: 1px solid var(--c-line-2); }
+.stat-track i.on { background: var(--c-ok); border-color: var(--c-ok); }
+.stat-effect {
+  grid-area: effect;
+  margin: 0;
+  font-size: 0.71875rem;
+  color: var(--c-faint);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── 시트 조회 ───────────────────────────────────────── */
+.sheet-view { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+/* 스탯 창은 한 줄을 다 쓴다 — 좁게 접히면 레이더가 뭉갠다 */
+.sheet-view-wide { grid-column: 1 / -1; }
+.stat-summary { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.stat-summary li { display: flex; align-items: baseline; gap: 8px; }
+.stat-summary li .num { font-size: 0.9375rem; }
+.stat-summary.derived { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.concept-text { margin: 0; color: var(--c-dim); font-size: 0.8125rem; white-space: pre-wrap; }
+
+/* ── 진행 단계 안내 ──────────────────────────────────── */
+.progress-steps { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.progress-steps li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  border-left: 3px solid var(--c-offline);
+  background: rgba(255, 255, 255, .02);
+}
+.progress-steps li.done { border-left-color: var(--c-ok); }
+.progress-steps li.now { border-left-color: var(--c-warn); }
+.progress-steps b { font-size: 0.84375rem; font-weight: 600; }
+
+/* ── 적 공격 패턴 편집 ───────────────────────────────── */
+.attack-editor { display: grid; gap: 12px; }
+.attack-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.attack-card {
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-danger);
+  background: rgba(255, 255, 255, .02);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+.attack-head { display: flex; align-items: center; gap: 8px; }
+.attack-head input { flex: 1; min-width: 0; }
+/* 한 줄에 여러 입력을 두되 좁아지면 자연히 접힌다 */
+.attack-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+.attack-row .num-field { min-width: 0; }
+.attack-row small { font-size: 0.71875rem; }
+
+/* 페이즈 경계 — 공격 목록보다 위에 두어 먼저 정하게 한다 */
+.phase-plan {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-warn);
+  background: rgba(255, 255, 255, .02);
+}
+
+/* 라운드별 예상 패턴 — 저장 전에 눈으로 확인한다 */
+.pattern-schedule { display: grid; gap: 6px; }
+.schedule-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.schedule-phase {
+  display: grid;
+  gap: 2px;
+  min-width: 92px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--c-line-2);
+  font-size: 0.75rem;
+  font-family: var(--c-mono);
+}
+.schedule-phase small { color: var(--c-dim); font-size: 0.6875rem; }
+.schedule-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  font-size: 0.75rem;
+  overflow: hidden;
+}
+.schedule-cell i { color: var(--c-dim); font-style: normal; font-size: 0.6875rem; }
+.schedule-cell b { font-weight: 600; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.schedule-cell.cond { border-left: 2px solid var(--c-gold); }
+.schedule-cell.warn b { color: var(--c-warn); }
+.schedule-cell.empty { opacity: .45; }
+.schedule-cell.empty b { color: var(--c-dim); }
+.sheet-card.editing { border-left-color: var(--c-warn); }

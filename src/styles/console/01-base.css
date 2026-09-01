@@ -1,0 +1,250 @@
+/* ============================================================
+   TOWER RAID CONTROL SYSTEM — 전투 콘솔 테마
+   소개 페이지(global.css)와 팔레트는 공유하되 레이아웃 언어는 별개다.
+   ============================================================ */
+
+:root {
+  --c-bg: #05070c;
+  --c-bg-2: #080b12;
+  --c-panel: #0b0f18;
+  --c-panel-2: #0f141f;
+  --c-line: rgba(140, 168, 205, .26);
+  --c-line-2: rgba(150, 180, 220, .52);
+  --c-text: #eaf0f8;
+  --c-dim: #a3b1c6;
+  --c-faint: #8593a8;
+
+  --c-ok: #5fe0cd;
+  --c-warn: #f0cf68;
+  --c-danger: #f79a5c;
+  --c-critical: #ff6f7c;
+  --c-offline: #7a8598;
+  --c-gold: #e6c583;
+  --c-violet: #a48cff;
+  --c-blue: #7fb0ff;
+
+  --c-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --c-sans: "Pretendard Variable", Pretendard, Inter, system-ui, "Noto Sans KR", sans-serif;
+  /* 성좌 쪽 표기에만 쓴다 — 라틴은 Cinzel, 한글은 Noto Serif KR 로 떨어진다 */
+  --c-serif: "Cinzel", "Noto Serif KR", Georgia, "Times New Roman", serif;
+
+  /* 드롭다운 · 스크롤바 같은 네이티브 위젯도 어두운 쪽으로 그리게 한다 */
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body.console-body {
+  margin: 0;
+  background:
+    radial-gradient(1100px 600px at 12% -10%, rgba(88, 116, 172, .16), transparent 70%),
+    radial-gradient(900px 500px at 92% 0%, rgba(164, 140, 255, .10), transparent 70%),
+    linear-gradient(180deg, var(--c-bg) 0%, var(--c-bg-2) 100%);
+  background-attachment: fixed;
+  color: var(--c-text);
+  font-family: var(--c-sans);
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+/* 성좌 격자 — 관측 장비의 눈금처럼 아주 옅게 */
+body.console-body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(126, 152, 188, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 152, 188, .05) 1px, transparent 1px),
+    radial-gradient(circle, rgba(255, 255, 255, .30) 0 1px, transparent 1.4px);
+  background-size: 48px 48px, 48px 48px, 260px 260px;
+}
+
+/*
+   flex 열로 둔다 — grid 였을 때는 각 패널이 자기 행에 갇혀서
+   아래에 붙는 확정 버튼(.confirm.dock)의 sticky 가 움직일 여유를 못 가졌다.
+*/
+.console {
+  width: min(1360px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.console-loading {
+  padding: 80px 0;
+  text-align: center;
+  color: var(--c-dim);
+  font-family: var(--c-mono);
+  letter-spacing: .2em;
+}
+
+/* ── 공통 요소 ───────────────────────────────────────── */
+.panel {
+  border: 1px solid var(--c-line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .02), transparent 40%),
+    linear-gradient(180deg, var(--c-panel-2), var(--c-panel));
+  padding: 18px 20px;
+  position: relative;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .28);
+}
+/* 좌상단 액센트 + 우상단 코너 브래킷 */
+.panel::before {
+  content: "";
+  position: absolute; left: 0; top: 0;
+  width: 28px; height: 1px;
+  background: var(--c-ok);
+  box-shadow: 0 0 8px rgba(95, 224, 205, .6);
+}
+.panel::after {
+  content: "";
+  position: absolute; right: -1px; top: -1px;
+  width: 12px; height: 12px;
+  border-top: 1px solid var(--c-line-2);
+  border-right: 1px solid var(--c-line-2);
+  pointer-events: none;
+}
+.panel-title {
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--c-mono);
+  font-size: 0.71875rem;
+  letter-spacing: .28em;
+  color: var(--c-dim);
+}
+.panel-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--c-line), transparent);
+}
+.sub-title {
+  margin: 18px 0 10px;
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .24em;
+  color: var(--c-faint);
+  border-top: 1px solid var(--c-line);
+  padding-top: 12px;
+}
+.field { display: flex; align-items: baseline; gap: 10px; min-height: 26px; }
+.field-label {
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  /* 한글 라벨도 들어오는 자리라 자간을 조였다 — .18em 은 낱자가 흩어져 읽힌다 */
+  letter-spacing: .1em;
+  color: var(--c-faint);
+  white-space: nowrap;
+}
+.field-value { font-weight: 600; }
+.num { font-family: var(--c-mono); letter-spacing: .04em; }
+.dim { color: var(--c-dim); }
+.gold { color: var(--c-gold); }
+.small-text { font-size: 0.8125rem; }
+.danger-text { color: var(--c-critical); }
+.warn-text { color: var(--c-warn); }
+.hint { color: var(--c-dim); font-size: 0.84375rem; }
+.ok-text { color: var(--c-ok); }
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--c-line-2);
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .14em;
+  color: var(--c-dim);
+}
+.tag.ok { color: var(--c-ok); border-color: rgba(79, 214, 196, .45); }
+.tag.warn { color: var(--c-warn); border-color: rgba(232, 197, 90, .45); }
+.tag.danger { color: var(--c-danger); border-color: rgba(240, 138, 75, .45); }
+.tag.critical { color: var(--c-critical); border-color: rgba(239, 95, 107, .5); }
+.tag.offline { color: var(--c-offline); border-color: rgba(91, 101, 117, .5); }
+.tag.blue { color: var(--c-blue); border-color: rgba(127, 176, 255, .45); }
+.tag.gold { color: var(--c-gold); border-color: rgba(230, 197, 131, .45); }
+.tag.auto {
+  margin-left: 6px;
+  color: var(--c-violet);
+  border-color: rgba(164, 140, 255, .5);
+  background: rgba(164, 140, 255, .10);
+}
+
+.gauge {
+  position: relative;
+  height: 9px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .03);
+  overflow: hidden;
+  margin: 8px 0;
+}
+/* 계기판처럼 눈금을 얹는다 */
+.gauge::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 9px,
+    rgba(5, 7, 12, .55) 9px 10px
+  );
+  pointer-events: none;
+}
+.gauge-fill {
+  height: 100%;
+  background: var(--c-ok);
+  box-shadow: 0 0 10px rgba(95, 224, 205, .45);
+  transition: width .4s cubic-bezier(.2, .7, .3, 1);
+}
+.gauge.tone-warn .gauge-fill { background: var(--c-warn); }
+.gauge.tone-danger .gauge-fill { background: var(--c-danger); }
+.gauge.tone-critical .gauge-fill { background: var(--c-critical); }
+.gauge.tone-offline .gauge-fill { background: var(--c-offline); }
+
+.ap-dots { display: inline-flex; gap: 4px; vertical-align: middle; }
+.ap-dots i {
+  width: 9px; height: 9px;
+  border: 1px solid var(--c-line-2);
+  border-radius: 50%;
+  display: block;
+}
+.ap-dots i.on { background: var(--c-ok); border-color: var(--c-ok); box-shadow: 0 0 6px rgba(79, 214, 196, .5); }
+
+/* 버튼 */
+.ctl {
+  font-family: var(--c-mono);
+  font-size: 0.71875rem;
+  letter-spacing: .16em;
+  color: var(--c-text);
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--c-line-2);
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+.ctl:hover:not(:disabled) { background: rgba(79, 214, 196, .12); border-color: var(--c-ok); }
+.ctl:disabled { opacity: .4; cursor: not-allowed; }
+.ctl.small { padding: 5px 10px; font-size: 0.6875rem; }
+.ctl.on { color: var(--c-violet); border-color: rgba(164, 140, 255, .6); background: rgba(164, 140, 255, .12); }
+.ctl.primary { color: var(--c-ok); border-color: var(--c-ok); background: rgba(79, 214, 196, .12); }
+.ctl.wide { width: 100%; display: grid; gap: 6px; padding: 16px; }
+.ctl.wide small { font-family: var(--c-sans); letter-spacing: 0; color: var(--c-faint); font-size: 0.71875rem; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 기본 폭은 넓게 두되, 그리드 안에서는 칸을 넘치지 않는다 */
+select.ctl { min-width: min(260px, 100%); max-width: 100%; }
+
+/*
+   드롭다운 목록은 브라우저가 그린다.
+   반투명 배경을 물려주면 흰 시스템 팝업 위에 밝은 글자가 얹혀 읽을 수 없으므로,
+   select 와 option 에 불투명한 색을 직접 지정한다. (변수를 못 받는 팝업이 있어 실색을 쓴다)
+*/
+select.ctl { background-color: #131a26; color: var(--c-text); }
+select.ctl option,
+select.ctl optgroup {
+  background-color: #131a26;
+  color: #eaf0f8;
+}
+select.ctl option:disabled { color: #7a8598; }

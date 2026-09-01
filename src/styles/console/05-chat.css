@@ -1,0 +1,210 @@
+/* ── 채팅 ────────────────────────────────────────────── */
+.chat::before { background: var(--c-violet); }
+.chat-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 4px 0;
+  display: grid;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--c-line);
+  border-bottom: 1px solid var(--c-line);
+}
+.chat-empty { padding: 20px 0; text-align: center; }
+.chat-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 150px) 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-left: 2px solid transparent;
+}
+.chat-line:hover { background: rgba(255, 255, 255, .03); }
+.chat-line.mine { border-left-color: var(--c-ok); background: rgba(95, 224, 205, .05); }
+.chat-line.operator { border-left-color: var(--c-critical); background: rgba(255, 111, 124, .06); }
+.chat-time { color: var(--c-faint); font-size: 0.6875rem; }
+.chat-author { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chat-author b { font-size: 0.8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-body { font-size: 0.875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.chat-kind { color: var(--c-gold); font-family: var(--c-mono); font-size: 0.6875rem; margin-right: 6px; }
+/* 예전 글에만 남아 있는 행동 말머리 */
+.chat-line.kind-action .chat-body { color: var(--c-dim); font-style: italic; }
+/* 대사 안의 인용은 눈에 띄게 */
+.chat-line.kind-talk .chat-body { color: var(--c-text); }
+.chat-line.kind-ooc .chat-body { color: var(--c-faint); font-size: 0.8125rem; }
+.chat-del {
+  background: none;
+  border: none;
+  color: var(--c-faint);
+  cursor: pointer;
+  opacity: 0;
+  padding: 0 4px;
+  transition: opacity .15s ease;
+}
+.chat-line:hover .chat-del { opacity: 1; }
+.chat-del:hover { color: var(--c-critical); }
+
+.chat-input { display: grid; gap: 8px; }
+.chat-send { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+.chat-send textarea { resize: vertical; line-height: 1.6; }
+.chat-send .ctl.primary { padding: 0 22px; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .chat-line { grid-template-columns: 1fr auto; gap: 2px 8px; }
+  .chat-time { display: none; }
+  .chat-author { grid-column: 1; }
+  .chat-body { grid-column: 1 / -1; }
+}
+
+/* ── 다이스 ──────────────────────────────────────────── */
+.dice-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 3px 10px;
+  border: 1px solid rgba(230, 197, 131, .45);
+  background: rgba(230, 197, 131, .08);
+  font-family: var(--c-mono);
+  font-size: 0.78125rem;
+}
+.dice-icon { font-size: 0.875rem; }
+.dice-expr { color: var(--c-gold); letter-spacing: .06em; }
+.dice-rolls { color: var(--c-dim); }
+.dice-mod { color: var(--c-dim); }
+.dice-total { color: var(--c-ok); font-size: 0.9375rem; }
+.chat-line.kind-roll { border-left-color: var(--c-gold); }
+
+/* ── 기믹 선언 ───────────────────────────────────────── */
+.gimmick-declare::before { background: var(--c-gold); }
+.gimmick-declare { display: grid; gap: 10px; }
+.gimmick-brief {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 2px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .03);
+  font-size: 0.84375rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  color: var(--c-text);
+}
+.check-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px dashed var(--c-line-2);
+}
+.check-preview b { font-size: 0.9375rem; color: var(--c-ok); }
+
+/* ── 운영진 기믹 판정 ────────────────────────────────── */
+.judge-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--c-line);
+}
+.judge-note { color: var(--c-text); font-size: 0.78125rem; max-width: 320px; }
+.judge-progress { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ── 아이템 · 보급 · 포인트 ──────────────────────────── */
+.item-list .action { border-left: 2px solid var(--c-blue); }
+
+.inventory-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.inventory-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+  font-size: 0.875rem;
+}
+.inventory-list li > span:first-child { flex: 1; min-width: 90px; }
+.inventory-list b { margin-left: auto; }
+
+.item-admin { display: grid; gap: 8px; margin-bottom: 12px; }
+
+.shop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.shop-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--c-line);
+  background: rgba(255, 255, 255, .02);
+}
+.shop-name { flex: 1; min-width: 160px; font-size: 0.9375rem; }
+.shop-name small { display: block; color: var(--c-dim); font-size: 0.8125rem; }
+
+.bond-resource {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-top: 1px solid var(--c-line);
+}
+.bond-resource .num-field { min-width: 130px; }
+
+/* ── 공략 기록 ───────────────────────────────────────── */
+.record-list { display: grid; gap: 12px; }
+.panel.record { border-left: 2px solid var(--c-gold); }
+
+/* ── 하단 링크 ───────────────────────────────────────── */
+.console-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--c-faint);
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .16em;
+}
+.console-foot a { color: var(--c-dim); }
+.console-foot a:hover { color: var(--c-ok); }
+
+/* ── 반응형 ──────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .pair-grid { grid-template-columns: 1fr; }
+  .ops { grid-template-columns: repeat(2, auto); }
+}
+@media (max-width: 640px) {
+  .console { width: calc(100% - 20px); padding-bottom: 110px; }
+  .panel { padding: 14px; }
+  .stat-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'name ctl' 'track track' 'effect effect';
+    gap: 6px 12px;
+  }
+  .stat-track { align-self: auto; }
+  .stat-track i { flex: 1; }
+  .ops { grid-template-columns: 1fr 1fr; gap: 2px 16px; }
+  select.ctl { min-width: 0; width: 100%; }
+  .action { grid-template-columns: 1fr auto; padding: 12px; }
+  .log-list li { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* ── 접근성 ──────────────────────────────────────────── */
+:where(button, a, select, input, textarea):focus-visible {
+  outline: 2px solid var(--c-ok);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
