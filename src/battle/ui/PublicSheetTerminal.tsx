@@ -24,6 +24,12 @@ function homeUrl(): string {
   return import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
 }
 
+/** 명부 게시판 — 이 사람 말고 다른 참가자도 보려는 사람에게 준다 */
+function boardUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/board/`;
+}
+
 /** 주소에서 활동명을 꺼낸다. `?id=` 와 `?handle=` 을 모두 받는다. */
 function readHandle(): string {
   if (typeof window === 'undefined') return '';
@@ -103,6 +109,9 @@ export default function PublicSheetTerminal() {
           {/* 처음 온 사람도 있다 — 등록 입구를 함께 둔다 */}
           <a className="ctl" href={homeUrl()}>
             세계관 소개
+          </a>
+          <a className="ctl" href={boardUrl()}>
+            명부 게시판
           </a>
           <a className="ctl" href={joinUrl()}>
             내 시트 · 참가 신청

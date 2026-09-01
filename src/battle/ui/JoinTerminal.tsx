@@ -103,6 +103,23 @@ function controlUrl(): string {
   return `${base}/battle/control/`;
 }
 
+function boardUrl(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}/battle/board/`;
+}
+
+/**
+ * 처음 열 화면 — 소개 페이지의 관문이 `?mode=login` 으로 들여보낸다.
+ *
+ * 이미 등록한 사람에게 시트 작성 폼을 먼저 펼쳐 놓으면 로그인 칸을 찾아야 한다.
+ * 어느 관문으로 들어왔는지 주소에 적혀 오므로 그대로 따른다. 값이 없으면 등록이 기본이다.
+ */
+function initialMode(): Mode {
+  if (typeof window === 'undefined') return 'REGISTER';
+  const asked = new URLSearchParams(window.location.search).get('mode');
+  return (asked ?? '').toLowerCase() === 'login' ? 'LOGIN' : 'REGISTER';
+}
+
 function StatRow({
   statKey,
   label,
@@ -400,7 +417,7 @@ function SkillEditor({
 
 export default function JoinTerminal() {
   const auth = useMemo(() => getAuth(), []);
-  const [mode, setMode] = useState<Mode>('REGISTER');
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [account, setAccount] = useState<Account | null>(null);
   const [operator, setOperator] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -872,6 +889,10 @@ export default function JoinTerminal() {
           <span>CONTRACT REGISTRY · 계약자 등록</span>
         </div>
         <div className="btn-row">
+          {/* 남의 시트를 먼저 둘러보고 싶은 사람도 있다 */}
+          <a className="ctl" href={boardUrl()}>
+            명부 게시판
+          </a>
           <button
             type="button"
             className={`ctl ${mode === 'LOGIN' ? 'on' : ''}`}

@@ -2783,3 +2783,78 @@ a.ctl { text-decoration: none; display: inline-block; }
 }
 .wheel-ledger > div { display: grid; gap: 2px; }
 .wheel-ledger b { font-size: 1.125rem; }
+
+
+/* ══ 명부 게시판 ══════════════════════════════════════ */
+.board-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.board-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+/* 한 줄이 곧 게시글 링크다 — 줄 전체를 누를 수 있게 button 을 깔아 둔다 */
+.board-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-line-2);
+  background: rgba(255, 255, 255, .02);
+  color: var(--c-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease;
+}
+.board-row:hover { background: rgba(255, 255, 255, .06); border-color: var(--c-line-2); }
+.board-row.hunter { border-left-color: var(--c-blue); }
+.board-row.constellation { border-left-color: var(--c-gold); }
+
+.board-no {
+  font-family: var(--c-mono);
+  font-size: 0.75rem;
+  letter-spacing: .1em;
+  color: var(--c-faint);
+}
+.board-main { display: grid; gap: 3px; min-width: 0; }
+.board-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.board-title b { font-size: 0.9375rem; }
+.board-meta {
+  display: flex;
+  gap: 4px 14px;
+  flex-wrap: wrap;
+  font-size: 0.78125rem;
+  color: var(--c-dim);
+}
+.board-handle { font-family: var(--c-mono); font-size: 0.71875rem; }
+
+@media (max-width: 620px) {
+  .board-row { grid-template-columns: 28px auto minmax(0, 1fr); }
+  .board-handle { display: none; }
+}
+
+/* 글 머리 — 제목과 목록 복귀 버튼을 양 끝에 둔다 */
+.board-post-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.board-crumb {
+  font-family: var(--c-mono);
+  font-size: 0.6875rem;
+  letter-spacing: .18em;
+  color: var(--c-faint);
+}
+
+.board-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+.board-nav .ctl { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

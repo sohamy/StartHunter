@@ -5,6 +5,11 @@ import '../styles/global.css';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const joinUrl = `${base}/battle/join/`;
 const battleUrl = `${base}/battle/`;
+/* 관문을 둘로 나눈다 — 이미 등록한 사람은 로그인 칸부터, 처음 온 사람은 시트 작성부터 */
+const loginUrl = `${base}/battle/join/?mode=login`;
+const registerUrl = `${base}/battle/join/?mode=register`;
+const boardUrl = `${base}/battle/board/`;
+const controlUrl = `${base}/battle/control/`;
 ---
 <html lang="ko">
 <head>
@@ -33,8 +38,12 @@ const battleUrl = `${base}/battle/`;
       <a href="#schedule">SCHEDULE</a>
       <a href="#glossary">GLOSSARY</a>
       <a href="#faq">FAQ</a>
+      <a href="#join">JOIN</a>
     </nav>
-    <a class="nav-cta" href={joinUrl}>참가 신청 →</a>
+    <div class="nav-cta-row">
+      <a class="nav-cta ghost" href={boardUrl}>명부 게시판</a>
+      <a class="nav-cta" href={joinUrl}>참가 신청 →</a>
+    </div>
   </div>
 </header>
 
@@ -67,8 +76,9 @@ const battleUrl = `${base}/battle/`;
         아래 <b>입문 가이드</b>에서 장르와 진행 방식을 처음부터 설명합니다.
       </p>
       <div class="cta-row">
-        <a class="btn join" href={joinUrl}>참가 신청하기</a>
+        <a class="btn join" href="#join">참가 신청하기</a>
         <a class="btn primary" href="#guide">처음이신가요? 입문 가이드</a>
+        <a class="btn" href={boardUrl}>명부 게시판</a>
         <a class="btn" href="#world">세계관 읽기</a>
         <a class="btn" href="#system">전투 시스템 보기</a>
       </div>
@@ -702,9 +712,45 @@ const battleUrl = `${base}/battle/`;
         역할(헌터 · 성좌)을 고르고 스탯을 배분하면, 그 수치가 그대로 전투에 들어갑니다.
         페어 편성은 등록을 마친 뒤 관리국이 진행합니다.
       </p>
+
+      <!-- 관문 둘 — 처음 온 사람과 이미 등록한 사람이 서로 다른 문으로 들어간다 -->
+      <div class="gate-row reveal">
+        <a class="gate" href={loginUrl}>
+          <span class="gate-tag">GATE 01 · 재입장</span>
+          <b class="gate-title">로그인</b>
+          <p>
+            이미 캐릭터 시트를 제출한 계약자용 문입니다. 활동명과 비밀번호를 넣으면 내 시트 ·
+            소지금 · 상점 · 전투 단말로 이어집니다.
+          </p>
+          <span class="gate-go">활동명으로 입장하기 →</span>
+        </a>
+
+        <a class="gate join" href={registerUrl}>
+          <span class="gate-tag">GATE 02 · 신규 등록</span>
+          <b class="gate-title">캐릭터 시트 작성</b>
+          <p>
+            처음 오셨다면 이쪽입니다. 헌터 · 성좌를 고르고 스탯을 배분해 시트를 제출하면 등록이
+            끝납니다. 페어 편성은 관리국이 이어서 진행합니다.
+          </p>
+          <span class="gate-go">시트 작성하고 등록하기 →</span>
+        </a>
+      </div>
+
       <div class="cta-row reveal">
-        <a class="btn join" href={joinUrl}>계약자 등록하기</a>
-        <a class="btn" href={battleUrl}>이미 등록했습니다 · 전투 단말</a>
+        <a class="btn" href={boardUrl}>명부 게시판 · 다른 참가자 프로필</a>
+        <a class="btn" href={battleUrl}>전투 단말</a>
+      </div>
+
+      <!-- 운영진 전용 입구. 문 자체는 열려 있고, 권한 판정은 작전실이 한다 -->
+      <div class="gate-staff reveal">
+        <div>
+          <b>운영자 전용 · CENTRAL RAID CONTROL</b>
+          <p>
+            관리국 계정만 들어갑니다. 편성 · 전투 진행 · 상점 진열 · 포인트 정산을 이 작전실에서
+            처리합니다. 참가자 계정으로는 열리지 않습니다.
+          </p>
+        </div>
+        <a class="btn" href={controlUrl}>작전실 입장 →</a>
       </div>
     </div>
   </section>
@@ -715,8 +761,11 @@ const battleUrl = `${base}/battle/`;
     <div class="brand-line">✦ CONSTELLATION × HUNTER</div>
     <div>성좌 × 헌터 전투 페어 커뮤니티 소개 사이트 · 장르 입문자 환영</div>
     <div class="footer-links">
-      <a href={joinUrl}>계약자 등록</a>
+      <a href={registerUrl}>계약자 등록</a>
+      <a href={loginUrl}>로그인</a>
+      <a href={boardUrl}>명부 게시판</a>
       <a href={battleUrl}>전투 단말</a>
+      <a href={controlUrl}>운영자 작전실</a>
     </div>
   </div>
 </footer>

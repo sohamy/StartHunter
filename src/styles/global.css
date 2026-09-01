@@ -483,6 +483,7 @@ h1 {
   .nav { flex-direction: column; align-items: flex-start; padding: 14px 0; gap: 10px; }
   .menu { gap: 2px; margin-left: -12px; }
   .nav-cta { align-self: stretch; text-align: center; }
+  .nav-cta-row { align-self: stretch; }
   .hero { min-height: auto; padding: 80px 0 70px; }
   .grid-2, .grid-3, .duel, .timeline { grid-template-columns: 1fr; }
   .vs { min-height: 44px; }
@@ -624,3 +625,85 @@ b.htr { color: #d2e3ff; text-shadow: 0 0 16px rgba(127, 176, 255, .40); }
 .phase p { margin: 0; color: var(--muted); font-size: 0.90625rem; }
 .phase .tick li { font-size: 0.875rem; }
 .phase.rest .tick li::before { color: var(--gold); }
+
+
+/* ── 관문 ────────────────────────────────────────────────
+   등록을 마친 사람과 처음 온 사람은 필요한 화면이 다르다.
+   문을 둘로 나눠 두면 각자 자기 쪽을 바로 누른다. */
+.nav-cta-row { display: flex; gap: 8px; flex: none; }
+/* 명부는 읽기만 하는 문이다 — 등록 쪽보다 조용하게 둔다 */
+.nav-cta.ghost {
+  border-color: var(--line-2);
+  background: rgba(255, 255, 255, .04);
+  color: var(--muted);
+}
+.nav-cta.ghost:hover { border-color: rgba(255, 255, 255, .34); background: rgba(255, 255, 255, .09); color: var(--text); }
+
+.gate-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  max-width: 900px;
+  margin: 34px auto 0;
+}
+.gate {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 28px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  transition: transform .3s ease, border-color .3s ease, box-shadow .3s ease;
+}
+.gate:hover { transform: translateY(-4px); border-color: rgba(255, 255, 255, .34); }
+.gate-tag {
+  font-family: var(--display);
+  font-size: 0.6875rem;
+  letter-spacing: .2em;
+  color: var(--dim);
+}
+.gate-title { font-family: var(--serif); font-size: 1.5rem; letter-spacing: -.02em; }
+.gate p { margin: 0; color: var(--muted); font-size: 0.90625rem; }
+.gate-go { margin-top: 8px; font-size: 0.84375rem; font-weight: 600; color: var(--blue); }
+
+/* 신규 등록 쪽이 이 페이지의 목적이다 — 금색으로 먼저 눈에 들어오게 한다 */
+.gate.join {
+  border-color: rgba(230, 197, 131, .48);
+  background: linear-gradient(150deg, rgba(230, 197, 131, .12), rgba(164, 140, 255, .05));
+}
+.gate.join:hover { border-color: var(--gold); box-shadow: 0 18px 50px rgba(230, 197, 131, .18); }
+.gate.join .gate-tag { color: var(--gold); }
+.gate.join .gate-title { color: var(--gold); }
+.gate.join .gate-go { color: var(--gold); }
+
+/* 운영자 전용 — 참가자 관문과 섞이지 않게 한 단 아래에 따로 둔다 */
+.gate-staff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  max-width: 900px;
+  margin: 28px auto 0;
+  padding: 20px 24px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, .02);
+}
+.gate-staff b {
+  font-family: var(--display);
+  font-size: 0.75rem;
+  letter-spacing: .16em;
+  color: var(--dim);
+}
+.gate-staff p { margin: 6px 0 0; color: var(--muted); font-size: 0.84375rem; max-width: 560px; }
+.gate-staff .btn { padding: 10px 18px; font-size: 0.8125rem; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .gate-row { grid-template-columns: 1fr; gap: 14px; }
+  .gate { padding: 22px; }
+  .gate-staff { padding: 18px; }
+  .gate-staff .btn { align-self: stretch; text-align: center; width: 100%; }
+}
