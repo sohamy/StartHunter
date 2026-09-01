@@ -1,0 +1,55 @@
+---
+/**
+ * 콘솔 화면 껍데기.
+ *
+ * 전투 단말 · 작전실 · 상점 · 도박장 · 명부 · 공개 시트가 모두 같은 틀을 쓴다.
+ * 예전에는 이 <head> 가 일곱 파일에 복사돼 있었고, 그래서 전투 단말 한 곳만
+ * Cinzel · Noto Serif KR 링크가 빠져 있었다 — 성좌 표기(--c-serif)가 그 화면에서만
+ * 대체 글꼴로 떨어졌다. 복붙은 이렇게 조용히 어긋난다.
+ *
+ * 아래 링크는 화면마다 다르므로 슬롯으로 받는다. 없으면 발을 그리지 않는다.
+ */
+import '../styles/console.css';
+
+interface Props {
+  /** 브라우저 탭에 뜨는 이름 */
+  title: string;
+  /** 검색 · 링크 미리보기에 뜨는 한 줄 */
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    {/* 참가자 화면은 검색에 걸릴 이유가 없다 — 주소를 아는 사람만 온다 */}
+    <meta name="robots" content="noindex" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&family=Noto+Serif+KR:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
+  </head>
+  <body class="console-body">
+    <slot />
+    {
+      Astro.slots.has('foot') && (
+        <footer class="console">
+          <div class="console-foot">
+            <slot name="foot" />
+          </div>
+        </footer>
+      )
+    }
+  </body>
+</html>
