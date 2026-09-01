@@ -42,7 +42,20 @@ export interface ShopRow extends ShopEntry {
   item: ItemDefinition;
 }
 
+/*
+   운영진 진열은 앱이 켜질 때 저장소에서 한 번 실어 온다 (store 의 loadShopCatalog).
+   여기 모듈 변수에 남는 것은 **전투 판정도 같은 목록을 봐야** 하기 때문이다 —
+   engine 은 findItem() 으로 아이템을 찾고, 그 안에 운영진이 만든 품목이 들어 있어야 한다.
+   카탈로그를 인자로 들고 다니게 하려면 engine 전체에 실어 날라야 하므로 그대로 두었다.
+
+   대신 **못 실은 것과 빈 진열을 구분한다.** 예전에는 불러오기가 실패해도 조용히 기본
+   목록으로 떨어져서, 화면에 뜬 가격이 서버가 매기는 값과 다를 수 있었다. 판정은 서버가
+   하므로 잘못 팔리지는 않지만, 그동안 화면이 거짓말을 하고 있었다.
+*/
+export type CatalogStatus = 'DEFAULT' | 'LOADED' | 'FAILED';
+
 let listings: ShopItemRecord[] = [];
+let status: CatalogStatus = 'DEFAULT';
 
 /**
  * 저장소에서 읽어 온 진열을 싣는다. 화면 진입 때 한 번 부른다.
@@ -50,7 +63,25 @@ let listings: ShopItemRecord[] = [];
  */
 export function applyShopCatalog(rows: ShopItemRecord[]): void {
   listings = rows;
+  status = 'LOADED';
   applyItemCatalog(rows.flatMap((row) => (row.item ? [row.item] : [])));
+}
+
+/** 진열을 불러오지 못했다 — 기본 목록으로 돌아가되, 그 사실을 남긴다 */
+export function markShopCatalogFailed(): void {
+  listings = [];
+  status = 'FAILED';
+  applyItemCatalog([]);
+}
+
+/**
+ * 지금 보고 있는 진열이 어디서 왔는지.
+ *   DEFAULT  아직 안 실었다 — 코드에 있는 기본 목록이다
+ *   LOADED   저장소에서 실었다
+ *   FAILED   저장소를 못 읽어 기본 목록으로 떨어졌다 (화면이 알려야 한다)
+ */
+export function shopCatalogStatus(): CatalogStatus {
+  return status;
 }
 
 export function shopCatalog(): ShopItemRecord[] {

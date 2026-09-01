@@ -12,18 +12,16 @@
  * 돌리는 도중에 새로고침해도 결과는 이미 서버에 적혀 있다.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { ROULETTE_NPC } from '../config/npc';
 import { chanceOf, chanceText, expectedNet, totalWeight } from '../engine/roulette';
 import { getAccounts, getRoulette } from '../store';
-import { findDeployment } from './deployment';
 import NpcCard from './NpcCard';
 import TerminalNav from './TerminalNav';
-import type { Account, BattleState, RouletteSlot, RouletteSpin, RouletteWheel } from '../types';
+import { useAccountSession } from './useAccountSession';
+import type { RouletteSlot, RouletteSpin, RouletteWheel } from '../types';
 import type { SpinOutcome } from '../store';
-
-type Phase = 'LOADING' | 'READY' | 'GUEST';
 
 /** 원반이 도는 시간. CSS 전환 시간과 같아야 한다 */
 const SPIN_MS = 4200;
@@ -122,12 +120,27 @@ export default function RouletteTerminal() {
   /* 원반 · 전광판 · 돌리기가 한 곳에서 온다 — 예전에는 앞의 둘이 storage, 뒤가 accounts 였다 */
   const roulette = useMemo(() => getRoulette(), []);
 
-  const [phase, setPhase] = useState<Phase>('LOADING');
-  const [account, setAccount] = useState<Account | null>(null);
+  /** 부팅은 단말 공통이다 — 창구라 배치 여부까지 함께 본다. 원반과 전광판만 여기서 더 싣는다 */
+  const { phase, account, setAccount, deployed, refreshDeployment } = useAccountSession({
+    deployment: true,
+    onReady: async (_found, stopped) => {
+      try {
+        const rows = (await roulette.listWheels()).filter((wheel) => wheel.active);
+        if (stopped()) return;
+        setWheels(rows);
+        setPickedId(rows[0]?.id ?? '');
+      } catch (failure) {
+        if (!stopped()) {
+          setError(failure instanceof Error ? failure.message : '원반을 불러오지 못했습니다.');
+        }
+      }
+      await refreshBoard();
+    },
+  });
+
   const [wheels, setWheels] = useState<RouletteWheel[]>([]);
   const [pickedId, setPickedId] = useState<string>('');
   const [board, setBoard] = useState<RouletteSpin[]>([]);
-  const [deployed, setDeployed] = useState<BattleState | null>(null);
 
   /** 원반이 지금까지 돈 각도 — 줄어들지 않게 계속 더한다 */
   const [rotation, setRotation] = useState(0);
@@ -143,39 +156,6 @@ export default function RouletteTerminal() {
     }
   }, [roulette]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const session = await accounts.currentSession();
-      if (!session) {
-        if (!cancelled) setPhase('GUEST');
-        return;
-      }
-      const found = await accounts.getAccount(session.accountId);
-      if (cancelled) return;
-      setAccount(found);
-      setPhase(found ? 'READY' : 'GUEST');
-      if (!found) return;
-
-      try {
-        const rows = (await roulette.listWheels()).filter((wheel) => wheel.active);
-        if (cancelled) return;
-        setWheels(rows);
-        setPickedId(rows[0]?.id ?? '');
-      } catch (failure) {
-        if (!cancelled) {
-          setError(failure instanceof Error ? failure.message : '원반을 불러오지 못했습니다.');
-        }
-      }
-
-      const joined = await findDeployment(found.id);
-      if (!cancelled) setDeployed(joined);
-      await refreshBoard();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accounts, refreshBoard, roulette]);
 
   const wheel = wheels.find((row) => row.id === pickedId) ?? null;
   const sheet = account?.sheet ?? null;
@@ -187,9 +167,7 @@ export default function RouletteTerminal() {
     setError(null);
     setResult(null);
 
-    // 화면을 열어 둔 채 배치되었을 수 있다 — 누를 때 한 번 더 확인한다
-    const joined = await findDeployment(account.id);
-    setDeployed(joined);
+    const joined = await refreshDeployment(account.id);
     if (joined) {
       setError('전투에 배치된 동안에는 돌릴 수 없습니다. 전투가 끝난 뒤에 오세요.');
       return;

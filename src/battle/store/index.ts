@@ -19,7 +19,7 @@
  * 봐야 하는지 매번 다시 찾아야 했다. 여기서 묶어 하나로 내준다.
  */
 
-import { applyShopCatalog } from '../config/shop';
+import { applyShopCatalog, markShopCatalogFailed } from '../config/shop';
 import { LocalAccountAdapter } from './LocalAccountAdapter';
 import { LocalStorageAdapter } from './LocalStorageAdapter';
 import { SupabaseAccountAdapter } from './SupabaseAccountAdapter';
@@ -115,7 +115,8 @@ export async function loadShopCatalog(): Promise<void> {
   try {
     applyShopCatalog(await getShop().listItems());
   } catch {
-    applyShopCatalog([]);
+    // 빈 진열과 못 읽은 것은 다르다 — 화면이 그 차이를 말할 수 있어야 한다
+    markShopCatalogFailed();
   }
 }
 

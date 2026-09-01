@@ -15,18 +15,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ITEM_CATEGORY_LABELS, describeItem, findItem, statGainOf, statLabel } from '../config/items';
 import { SHOP_NPC } from '../config/npc';
-import { shopRows } from '../config/shop';
+import { shopCatalogStatus, shopRows } from '../config/shop';
 import { REFUND_RATIO } from '../engine/shop';
 import { getAccounts, getShop, loadShopCatalog } from '../store';
-import { findDeployment } from './deployment';
 import NpcCard from './NpcCard';
 import { SupplyBlock } from './SheetView';
 import TerminalNav from './TerminalNav';
-import type { Account, BattleState, ItemStack } from '../types';
+import { useAccountSession } from './useAccountSession';
+import type { ItemStack } from '../types';
 
 type GiftKind = 'POINTS' | 'ITEM';
-
-type Phase = 'LOADING' | 'READY' | 'GUEST';
 
 function joinUrl(): string {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -36,12 +34,12 @@ function joinUrl(): string {
 export default function ShopTerminal() {
   const accounts = useMemo(() => getAccounts(), []);
   const shop = useMemo(() => getShop(), []);
-  const [phase, setPhase] = useState<Phase>('LOADING');
-  const [account, setAccount] = useState<Account | null>(null);
+  /** 부팅은 단말 공통이다 — 창구라 배치 여부까지 함께 본다 */
+  const { phase, account, setAccount, deployed, refreshDeployment } = useAccountSession({
+    deployment: true,
+  });
   /** 진열을 실은 뒤에 그려야 운영진이 넣은 품목이 함께 뜬다 */
   const [catalogReady, setCatalogReady] = useState(false);
-  /** 배치된 전투 — 있으면 창구를 닫는다 */
-  const [deployed, setDeployed] = useState<BattleState | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,31 +52,17 @@ export default function ShopTerminal() {
   /** 이름을 확인한 결과 — 누구에게 보내는지 눈으로 보고 누르게 한다 */
   const [giftTarget, setGiftTarget] = useState<string | null>(null);
 
+  /* 진열은 접속 여부와 상관없이 싣는다 — 관문 화면에서도 무엇을 파는지는 보인다 */
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       await loadShopCatalog();
       if (!cancelled) setCatalogReady(true);
-
-      const session = await accounts.currentSession();
-      if (!session) {
-        if (!cancelled) setPhase('GUEST');
-        return;
-      }
-      const found = await accounts.getAccount(session.accountId);
-      if (cancelled) return;
-      setAccount(found);
-      setPhase(found ? 'READY' : 'GUEST');
-
-      if (found) {
-        const joined = await findDeployment(found.id);
-        if (!cancelled) setDeployed(joined);
-      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [accounts]);
+  }, []);
 
   /** 구매 · 반납은 같은 길을 탄다 — 결과를 내 시트에 그대로 쓴다 */
   const trade = useCallback(
@@ -87,9 +71,7 @@ export default function ShopTerminal() {
       setMessage(null);
       setError(null);
 
-      // 화면을 열어 둔 채 배치되었을 수 있다 — 누를 때 한 번 더 확인한다
-      const joined = await findDeployment(account.id);
-      setDeployed(joined);
+      const joined = await refreshDeployment(account.id);
       if (joined) {
         setError('전투에 배치된 동안에는 보급을 살 수 없습니다. 전투가 끝난 뒤에 오세요.');
         return;
@@ -436,6 +418,17 @@ export default function ShopTerminal() {
             </span>
           )}
         </div>
+
+        {/*
+          진열을 못 읽었으면 지금 보이는 가격은 코드에 있는 기본값이다.
+          최종 판정은 서버가 하므로 눌러도 값이 다르게 나갈 수 있다 — 먼저 알린다.
+        */}
+        {shopCatalogStatus() === 'FAILED' && (
+          <p className="notice warn">
+            <b>진열을 불러오지 못했습니다</b> — 아래는 기본 가격표입니다. 관리국이 정한 값과
+            다를 수 있으니, 새로 고친 뒤에 사세요.
+          </p>
+        )}
 
         {/* 반납 값은 규칙이라 진열 위에 못 박아 둔다 — 눌러 보고 알게 하지 않는다 */}
         <p className="notice depot-notice">

@@ -32,7 +32,6 @@ import {
   getServerAccounts,
   getStorage,
   isServerMode,
-  loadShopCatalog,
   toPublicProfile,
   type PublicProfile,
 } from '../store';
