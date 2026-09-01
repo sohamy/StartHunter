@@ -3,6 +3,9 @@ name: Deploy Astro to GitHub Pages
 on:
   push:
     branches: [main]
+  # 배포 전에 걸러 내려면 PR 에서도 검증이 돌아야 한다 (배포 잡은 아래에서 막는다)
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -10,12 +13,31 @@ permissions:
   pages: write
   id-token: write
 
+# ref 별로 묶는다 — PR 검증이 main 배포를 취소해서는 안 된다
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # 타입과 전투 규칙을 먼저 본다. 여기서 걸리면 배포까지 가지 않는다.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      # 엔진 규칙 검증 — assert 300여 개가 브라우저 없이 돈다
+      - name: Verify battle rules
+        run: npm run verify:battle
+
   build:
+    needs: verify
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +52,7 @@ jobs:
           PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
