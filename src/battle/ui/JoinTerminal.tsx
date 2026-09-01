@@ -28,8 +28,8 @@ import { selectableStatuses } from '../config/status';
 import { deriveConstellation, deriveHunter, validateSheet } from '../engine/character';
 import {
   AuthError,
-  getAuth,
-  getServerAuth,
+  getAccounts,
+  getServerAccounts,
   getStorage,
   isServerMode,
   loadShopCatalog,
@@ -420,7 +420,7 @@ function SkillEditor({
 }
 
 export default function JoinTerminal() {
-  const auth = useMemo(() => getAuth(), []);
+  const accounts = useMemo(() => getAccounts(), []);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [account, setAccount] = useState<Account | null>(null);
   const [operator, setOperator] = useState(false);
@@ -444,11 +444,11 @@ export default function JoinTerminal() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const session = await auth.currentSession();
+      const session = await accounts.currentSession();
       if (!session || cancelled) return;
 
       // 세션이 이미 살아 있는 운영자는 작전실로 넘긴다.
-      const server = getServerAuth();
+      const server = getServerAccounts();
       if (server && (await server.isOperator())) {
         if (cancelled) return;
         setOperator(true);
@@ -456,13 +456,13 @@ export default function JoinTerminal() {
         return;
       }
 
-      const found = await auth.getAccount(session.accountId);
+      const found = await accounts.getAccount(session.accountId);
       if (!cancelled && found) setAccount(found);
     })();
     return () => {
       cancelled = true;
     };
-  }, [auth]);
+  }, [accounts]);
 
   /**
    * 확정된 편성을 찾아 온다.
@@ -491,7 +491,7 @@ export default function JoinTerminal() {
           (mine.hunterAccountId === account.id
             ? mine.constellationAccountId
             : mine.hunterAccountId);
-        setPartnerProfile(partnerId ? await auth.getPublicProfile(partnerId) : null);
+        setPartnerProfile(partnerId ? await accounts.getPublicProfile(partnerId) : null);
       } catch {
         // 편성 조회 실패는 화면을 막을 이유가 아니다 — 시트는 그대로 보여 준다
         if (!cancelled) {
@@ -503,7 +503,7 @@ export default function JoinTerminal() {
     return () => {
       cancelled = true;
     };
-  }, [account, auth]);
+  }, [account, accounts]);
 
   // 서버가 거절한 경우(활동명 중복 등)에만 뜬다. 폼이 길어서 스스로 보여 줘야 한다.
   useEffect(() => {
@@ -549,7 +549,7 @@ export default function JoinTerminal() {
     draft.side === 'CONSTELLATION' ? deriveConstellation(previewSheet) : null;
 
   /** 서버 모드는 Supabase 정책을 따른다 — 로컬 모드보다 길다 */
-  const minPassword = auth.minPasswordLength;
+  const minPassword = accounts.minPasswordLength;
 
   /**
    * 지금 등록을 막고 있는 것들.
@@ -569,7 +569,7 @@ export default function JoinTerminal() {
 
     setBusy(true);
     try {
-      const created = await auth.register({
+      const created = await accounts.register({
         id: registerId,
         password: registerPassword,
         sheet: {
@@ -603,17 +603,17 @@ export default function JoinTerminal() {
     setMessage(null);
     setBusy(true);
     try {
-      const session = await auth.login({ id: loginId, password: loginPassword });
+      const session = await accounts.login({ id: loginId, password: loginPassword });
 
       // 운영자는 시트가 없을 수 있으므로 계정 조회보다 먼저 판정하고 작전실로 보낸다.
-      const server = getServerAuth();
+      const server = getServerAccounts();
       if (server && (await server.isOperator())) {
         setMessage('운영자 계정 — 중앙 작전실로 이동합니다…');
         window.location.href = controlUrl();
         return;
       }
 
-      const found = await auth.getAccount(session.accountId);
+      const found = await accounts.getAccount(session.accountId);
       if (!found) {
         setErrors([
           '이 계정에 등록된 캐릭터 시트가 없습니다. 운영자 계정이라면 작전실로 접속하세요.',
@@ -629,7 +629,7 @@ export default function JoinTerminal() {
   };
 
   const logout = async () => {
-    await auth.logout();
+    await accounts.logout();
     setAccount(null);
     setMessage('접속을 종료했습니다.');
   };

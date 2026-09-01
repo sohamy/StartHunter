@@ -24,11 +24,11 @@ export function useSheetAdmin(
   /** 저장·삭제가 끝난 뒤 편집 칸을 닫는 등, 부르는 쪽이 정리할 일이 있으면 넘긴다 */
   onSettled?: () => void,
 ) {
-  const { auth, guard, refresh, setMessage, setError } = ops;
+  const { accounts, guard, refresh, setMessage, setError } = ops;
 
   const saveSheet = async (accountId: string, next: CharacterSheet) => {
     await guard(async () => {
-      await auth.updateSheet(accountId, next);
+      await accounts.updateSheet(accountId, next);
       await refresh();
       onSettled?.();
       setMessage(`${next.name} 시트를 저장했습니다.`);
@@ -42,7 +42,7 @@ export function useSheetAdmin(
     if (!confirmed(warning)) return;
 
     await guard(async () => {
-      await auth.deleteSheet(sheet.id);
+      await accounts.deleteSheet(sheet.id);
       await refresh();
       onSettled?.();
       setMessage(`${sheet.name} 시트를 삭제했습니다.`);
@@ -57,7 +57,7 @@ export function useSheetAdmin(
       return;
     }
     await guard(async () => {
-      await auth.updateSheet(row.accountId, withPurchase(row.sheet, result));
+      await accounts.updateSheet(row.accountId, withPurchase(row.sheet, result));
       await refresh();
       setMessage(`${row.sheet.name} — ${result.message}`);
     });
@@ -70,7 +70,7 @@ export function useSheetAdmin(
       return;
     }
     await guard(async () => {
-      await auth.updateSheet(row.accountId, withPurchase(row.sheet, result));
+      await accounts.updateSheet(row.accountId, withPurchase(row.sheet, result));
       await refresh();
       setMessage(`${row.sheet.name} — ${result.message}`);
     });
@@ -86,7 +86,7 @@ export function useSheetAdmin(
     if (delta === 0) return;
     const next = Math.max(0, (row.sheet.points ?? 0) + delta);
     await guard(async () => {
-      await auth.updateSheet(row.accountId, { ...row.sheet, points: next });
+      await accounts.updateSheet(row.accountId, { ...row.sheet, points: next });
       await refresh();
       setMessage(
         `${row.sheet.name} 소지금 ${delta > 0 ? '+' : ''}${delta} P — ${row.sheet.points ?? 0} → ${next}`,
@@ -100,7 +100,7 @@ export function useSheetAdmin(
     if (!item || delta === 0) return;
     const inventory = addItem(row.sheet.inventory ?? [], itemId, delta);
     await guard(async () => {
-      await auth.updateSheet(row.accountId, { ...row.sheet, inventory });
+      await accounts.updateSheet(row.accountId, { ...row.sheet, inventory });
       await refresh();
       setMessage(
         `${row.sheet.name} — ${item.nameKo} ${delta > 0 ? `지급 ×${delta}` : `회수 ×${-delta}`}`,

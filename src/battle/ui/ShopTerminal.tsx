@@ -17,7 +17,7 @@ import { ITEM_CATEGORY_LABELS, describeItem, findItem, statGainOf, statLabel } f
 import { SHOP_NPC } from '../config/npc';
 import { shopRows } from '../config/shop';
 import { REFUND_RATIO } from '../engine/shop';
-import { getAuth, loadShopCatalog } from '../store';
+import { getAccounts, getShop, loadShopCatalog } from '../store';
 import { findDeployment } from './deployment';
 import NpcCard from './NpcCard';
 import { SupplyBlock } from './SheetView';
@@ -34,7 +34,8 @@ function joinUrl(): string {
 }
 
 export default function ShopTerminal() {
-  const auth = useMemo(() => getAuth(), []);
+  const accounts = useMemo(() => getAccounts(), []);
+  const shop = useMemo(() => getShop(), []);
   const [phase, setPhase] = useState<Phase>('LOADING');
   const [account, setAccount] = useState<Account | null>(null);
   /** 진열을 실은 뒤에 그려야 운영진이 넣은 품목이 함께 뜬다 */
@@ -59,12 +60,12 @@ export default function ShopTerminal() {
       await loadShopCatalog();
       if (!cancelled) setCatalogReady(true);
 
-      const session = await auth.currentSession();
+      const session = await accounts.currentSession();
       if (!session) {
         if (!cancelled) setPhase('GUEST');
         return;
       }
-      const found = await auth.getAccount(session.accountId);
+      const found = await accounts.getAccount(session.accountId);
       if (cancelled) return;
       setAccount(found);
       setPhase(found ? 'READY' : 'GUEST');
@@ -77,7 +78,7 @@ export default function ShopTerminal() {
     return () => {
       cancelled = true;
     };
-  }, [auth]);
+  }, [accounts]);
 
   /** 구매 · 반납은 같은 길을 탄다 — 결과를 내 시트에 그대로 쓴다 */
   const trade = useCallback(
@@ -97,7 +98,7 @@ export default function ShopTerminal() {
       setBusy(true);
       try {
         // 값 계산과 최종 판정은 서버가 한다 — 브라우저는 무엇을 사고팔지만 보낸다
-        const wallet = await auth.tradeItem(itemId, kind);
+        const wallet = await shop.trade(itemId, kind);
         setAccount({
           ...account,
           sheet: { ...account.sheet, points: wallet.points, inventory: wallet.inventory },
@@ -113,7 +114,7 @@ export default function ShopTerminal() {
         setBusy(false);
       }
     },
-    [account, auth],
+    [account, accounts],
   );
 
   /** 이름이 실제로 있는지 미리 확인한다 — 눌러 보고 알게 하지 않는다 */
@@ -122,7 +123,7 @@ export default function ShopTerminal() {
     setGiftTarget(null);
     if (!name) return;
     try {
-      const found = await auth.findGiftTarget(name);
+      const found = await accounts.findGiftTarget(name);
       if (found) {
         setGiftTarget(`${found.name} · ${found.side === 'HUNTER' ? '헌터' : '성좌'}`);
       } else {
@@ -131,7 +132,7 @@ export default function ShopTerminal() {
     } catch {
       // 조회에 실패해도 보내기는 서버가 다시 판정한다 — 여기서 막지 않는다
     }
-  }, [auth, giftName]);
+  }, [accounts, giftName]);
 
   const sendGift = useCallback(async () => {
     if (!account) return;
@@ -155,7 +156,7 @@ export default function ShopTerminal() {
 
     setBusy(true);
     try {
-      const result = await auth.giftTo({
+      const result = await accounts.giftTo({
         toName: name,
         kind: giftKind,
         itemId: giftKind === 'ITEM' ? giftItemId : null,
@@ -176,7 +177,7 @@ export default function ShopTerminal() {
     } finally {
       setBusy(false);
     }
-  }, [account, auth, giftAmount, giftItemId, giftKind, giftName]);
+  }, [account, accounts, giftAmount, giftItemId, giftKind, giftName]);
 
   /** 강화 아이템 사용 — 전투 밖에서만, 능력치가 영구히 오른다 */
   const useItem = useCallback(
@@ -186,7 +187,7 @@ export default function ShopTerminal() {
       setError(null);
       setBusy(true);
       try {
-        const result = await auth.useSupply(itemId);
+        const result = await shop.useSupply(itemId);
         setAccount({
           ...account,
           sheet: {
@@ -205,7 +206,7 @@ export default function ShopTerminal() {
         setBusy(false);
       }
     },
-    [account, auth],
+    [account, accounts],
   );
 
   if (phase === 'LOADING' || !catalogReady) {

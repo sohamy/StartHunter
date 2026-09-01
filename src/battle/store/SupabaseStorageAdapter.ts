@@ -28,6 +28,8 @@ import type {
   PairState,
   RoundSubmission,
 } from '../types';
+import type { RouletteCatalog } from './ports/RoulettePort';
+import type { ShopCatalog } from './ports/ShopPort';
 
 interface PairRow {
   id: string;
@@ -107,7 +109,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  */
 const REALTIME_SAFETY_NET_MS = 15000;
 
-export class SupabaseStorageAdapter implements StorageAdapter {
+export class SupabaseStorageAdapter implements StorageAdapter, ShopCatalog, RouletteCatalog {
   /**
    * 계정 식별자 변환표.
    *
@@ -464,7 +466,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
 
   /* ── 상점 진열 ── */
 
-  async listShopItems(): Promise<ShopItemRecord[]> {
+  async listItems(): Promise<ShopItemRecord[]> {
     const { data } = await requireSupabase().from('shop_items').select('*').order('sort');
 
     return (data ?? []).map((row) => ({
@@ -477,7 +479,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     }));
   }
 
-  async saveShopItem(record: ShopItemRecord): Promise<void> {
+  async saveItem(record: ShopItemRecord): Promise<void> {
     const { error } = await requireSupabase().from('shop_items').upsert({
       item_id: record.itemId,
       price: record.price,
@@ -489,14 +491,14 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throw new Error(`상점 저장 실패: ${error.message}`);
   }
 
-  async deleteShopItem(itemId: string): Promise<void> {
+  async deleteItem(itemId: string): Promise<void> {
     const { error } = await requireSupabase().from('shop_items').delete().eq('item_id', itemId);
     if (error) throw new Error(`상점 삭제 실패: ${error.message}`);
   }
 
   /* ── 룰렛 원반 ── */
 
-  async listRouletteWheels(): Promise<RouletteWheel[]> {
+  async listWheels(): Promise<RouletteWheel[]> {
     const { data } = await requireSupabase().from('roulette_wheels').select('*').order('sort');
 
     return (data ?? []).map((row) => ({
@@ -510,7 +512,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     }));
   }
 
-  async saveRouletteWheel(wheel: RouletteWheel): Promise<void> {
+  async saveWheel(wheel: RouletteWheel): Promise<void> {
     const { error } = await requireSupabase().from('roulette_wheels').upsert({
       id: wheel.id,
       name: wheel.name,
@@ -524,7 +526,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
     if (error) throw new Error(`원반 저장 실패: ${error.message}`);
   }
 
-  async deleteRouletteWheel(id: string): Promise<void> {
+  async deleteWheel(id: string): Promise<void> {
     const { error } = await requireSupabase().from('roulette_wheels').delete().eq('id', id);
     if (error) throw new Error(`원반 삭제 실패: ${error.message}`);
   }
@@ -533,12 +535,12 @@ export class SupabaseStorageAdapter implements StorageAdapter {
    * 회전 기록 한 줄을 지운다 — 운영진만 통과한다 (0019 · spins operator delete).
    * 뷰가 아니라 원본 표를 지운다. 지워도 소지금은 그대로다 — 기록은 전광판일 뿐이다.
    */
-  async deleteRouletteSpin(id: string): Promise<void> {
+  async deleteSpin(id: string): Promise<void> {
     const { error } = await requireSupabase().from('roulette_spins').delete().eq('id', id);
     if (error) throw new Error(`회전 기록 삭제 실패: ${error.message}`);
   }
 
-  async clearRouletteSpins(): Promise<void> {
+  async clearSpins(): Promise<void> {
     // 조건 없는 delete 는 거절되므로 언제나 참인 조건을 하나 준다
     const { error } = await requireSupabase()
       .from('roulette_spins')
@@ -551,7 +553,7 @@ export class SupabaseStorageAdapter implements StorageAdapter {
    * 전광판 — 뷰(`roulette_board`)를 읽는다.
    * 표를 직접 읽으면 RLS 가 자기 기록만 주므로, 남이 딴 것은 뷰로만 보인다.
    */
-  async listRouletteSpins(limit = 50): Promise<RouletteSpin[]> {
+  async recentSpins(limit = 50): Promise<RouletteSpin[]> {
     const { data } = await requireSupabase()
       .from('roulette_board')
       .select('*')
@@ -677,8 +679,8 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       battles,
       bonds: await this.listBonds(),
       enemyTemplates: await this.listEnemyTemplates(),
-      shopItems: await this.listShopItems(),
-      rouletteWheels: await this.listRouletteWheels(),
+      shopItems: await this.listItems(),
+      rouletteWheels: await this.listWheels(),
       records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
@@ -696,10 +698,10 @@ export class SupabaseStorageAdapter implements StorageAdapter {
       await this.saveEnemyTemplate(template);
     }
     for (const row of envelope.shopItems ?? []) {
-      await this.saveShopItem(row);
+      await this.saveItem(row);
     }
     for (const wheel of envelope.rouletteWheels ?? []) {
-      await this.saveRouletteWheel(wheel);
+      await this.saveWheel(wheel);
     }
     for (const record of envelope.records ?? []) {
       await this.saveRecord(record);

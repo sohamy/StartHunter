@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { getAuth, getServerAuth } from '../store';
+import { getAccounts, getServerAccounts } from '../store';
 import type { ActorSide } from '../types';
 
 /** 어느 화면을 보고 있는지 — 그 항목을 현재 위치로 표시한다 */
@@ -73,14 +73,14 @@ export default function TerminalNav({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const session = await getAuth().currentSession();
+      const session = await getAccounts().currentSession();
       if (cancelled) return;
       setSignedIn(!!session);
       if (!session) return;
 
       // 운영자 판정은 서버 모드에서만 있다
       try {
-        const server = getServerAuth();
+        const server = getServerAccounts();
         if (server && (await server.isOperator()) && !cancelled) setOperator(true);
       } catch {
         /* 판정 실패는 참가자로 본다 */
@@ -92,7 +92,7 @@ export default function TerminalNav({
   }, []);
 
   const logout = async () => {
-    await getAuth().logout();
+    await getAccounts().logout();
     window.location.href = `${base()}/battle/join/?mode=login`;
   };
 

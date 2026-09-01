@@ -51,7 +51,7 @@ export default function OperationSetupTab({
   sheetOf: (accountId: string | null) => CharacterSheet | null;
   openBattle: (next: BattleState) => void;
 }) {
-  const { storage, auth, busy, setBusy, guard, refresh, setMessage, setError } = useOps();
+  const { storage, accounts, busy, setBusy, guard, refresh, setMessage, setError } = useOps();
   const fileInput = useRef<HTMLInputElement>(null);
   const [selectedBonds, setSelectedBonds] = useState<string[]>([]);
   const [selectedEnemies, setSelectedEnemies] = useState<string[]>([]);
@@ -74,7 +74,7 @@ export default function OperationSetupTab({
     // 이미 불러온 시트 목록을 먼저 쓰고, 없을 때만 서버에 다시 묻는다.
     const loadSheet = async (accountId: string | null): Promise<CharacterSheet | null> => {
       if (!accountId) return null;
-      return sheetOf(accountId) ?? (await auth.getAccount(accountId))?.sheet ?? null;
+      return sheetOf(accountId) ?? (await accounts.getAccount(accountId))?.sheet ?? null;
     };
 
     const entries: BondEntry[] = [];

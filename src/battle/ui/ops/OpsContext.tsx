@@ -11,11 +11,15 @@
 
 import { createContext, useContext, type ReactNode } from 'react';
 
-import type { AuthAdapter, StorageAdapter } from '../../store';
+import type { AccountAdapter, RoulettePort, ShopPort, StorageAdapter } from '../../store';
 
 export interface OpsShell {
   storage: StorageAdapter;
-  auth: AuthAdapter;
+  accounts: AccountAdapter;
+  /** 보급 상점 한 도메인 — 선반과 창구가 묶여 온다 */
+  shop: ShopPort;
+  /** 운명 도박장 한 도메인 */
+  roulette: RoulettePort;
   /** 저장·통신이 도는 중인지 — 버튼을 잠그는 데 쓴다 */
   busy: boolean;
   /** guard 를 쓸 수 없는 긴 작업(전투 시작처럼)에서 직접 잠근다 */

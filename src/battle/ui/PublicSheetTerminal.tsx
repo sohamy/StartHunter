@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { getAuth, getStorage, loadShopCatalog, type PublicProfile } from '../store';
+import { getAccounts, getStorage, loadShopCatalog, type PublicProfile } from '../store';
 import { ProfileCard, PublicSheetCard } from './SheetView';
 import Collapsible from './Collapsible';
 import TerminalNav from './TerminalNav';
@@ -54,11 +54,11 @@ export default function PublicSheetTerminal() {
     (async () => {
       // 가방에 운영진이 만든 품목이 들어 있을 수 있다
       await loadShopCatalog();
-      const auth = getAuth();
+      const accounts = getAccounts();
 
       // 로그인하지 않아도 읽는다 — 이 주소는 커뮤니티에 그대로 붙이는 용도다.
       // 서버 쪽도 public_profiles 를 anon 에게 열어 두었다 (0014).
-      const found = await auth.getPublicProfile(target);
+      const found = await accounts.getPublicProfile(target);
       if (cancelled) return;
       if (!found) {
         setPhase('NOT_FOUND');

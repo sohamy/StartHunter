@@ -28,7 +28,7 @@ export default function ArchiveTab({
   /** 보관은 자동 보관 효과도 함께 쓰므로 작전실 본체가 들고 있다 */
   archiveBattle: (state: BattleState, silent?: boolean) => Promise<void>;
 }) {
-  const { storage, auth, busy, guard, refresh, setMessage, copyText } = useOps();
+  const { storage, accounts, busy, guard, refresh, setMessage, copyText } = useOps();
 
   /**
    * 기록의 포인트와 소모된 보급품을 **개인 시트**에 반영한다.
@@ -72,7 +72,7 @@ export default function ArchiveTab({
         if (!changed.has(target.accountId)) continue;
         const owner = sheets.find((row) => row.accountId === target.accountId);
         if (!owner) continue;
-        await auth.updateSheet(target.accountId, {
+        await accounts.updateSheet(target.accountId, {
           ...owner.sheet,
           points: target.points,
           inventory: target.inventory,

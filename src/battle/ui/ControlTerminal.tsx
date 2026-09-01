@@ -17,8 +17,10 @@ import { applyShopCatalog, shopRows } from '../config/shop';
 import { buildRecord } from '../engine/record';
 import {
   AuthError,
-  getAuth,
-  getServerAuth,
+  getAccounts,
+  getRoulette,
+  getServerAccounts,
+  getShop,
   getStorage,
   isServerMode,
   type PublicProfile,
@@ -65,8 +67,10 @@ type Tab =
 
 export default function ControlTerminal() {
   const storage = useMemo(() => getStorage(), []);
-  const auth = useMemo(() => getAuth(), []);
-  const serverAuth = useMemo(() => getServerAuth(), []);
+  const accounts = useMemo(() => getAccounts(), []);
+  const shop = useMemo(() => getShop(), []);
+  const roulette = useMemo(() => getRoulette(), []);
+  const serverAccounts = useMemo(() => getServerAccounts(), []);
 
   const [tab, setTab] = useState<Tab>('OPERATION');
   const [message, setMessage] = useState<string | null>(null);
@@ -127,15 +131,15 @@ export default function ControlTerminal() {
         wheelRows,
         spinRows,
       ] = await Promise.all([
-        auth.listProfiles(),
-        auth.listSheets(),
+        accounts.listProfiles(),
+        accounts.listSheets(),
         storage.listBonds(),
         storage.listEnemyTemplates(),
         storage.listBattles(),
         storage.listRecords(),
-        storage.listShopItems(),
-        storage.listRouletteWheels(),
-        storage.listRouletteSpins(200),
+        shop.listItems(),
+        roulette.listWheels(),
+        roulette.recentSpins(200),
       ]);
       setProfiles(profileRows);
       setSheets(sheetRows);
@@ -155,7 +159,7 @@ export default function ControlTerminal() {
           : '데이터를 불러올 수 없습니다.',
       );
     }
-  }, [auth, storage]);
+  }, [accounts, roulette, shop, storage]);
 
   useEffect(() => {
     if (access === 'GRANTED' || access === 'LOCAL') void refresh();
@@ -163,15 +167,15 @@ export default function ControlTerminal() {
 
   useEffect(() => {
     (async () => {
-      if (!serverAuth) return;
-      const session = await serverAuth.currentSession();
+      if (!serverAccounts) return;
+      const session = await serverAccounts.currentSession();
       if (!session) {
         setAccess('DENIED');
         return;
       }
-      setAccess((await serverAuth.isOperator()) ? 'GRANTED' : 'DENIED');
+      setAccess((await serverAccounts.isOperator()) ? 'GRANTED' : 'DENIED');
     })();
-  }, [serverAuth]);
+  }, [serverAccounts]);
 
   useEffect(() => {
     if (!battle) return;
@@ -314,12 +318,12 @@ export default function ControlTerminal() {
   /* ── 인증 ────────────────────────────────────────── */
 
   const operatorLogin = async () => {
-    if (!serverAuth) return;
+    if (!serverAccounts) return;
     setBusy(true);
     setMessage(null);
     try {
-      await serverAuth.login({ id: operatorId, password: operatorPassword });
-      if (await serverAuth.isOperator()) {
+      await serverAccounts.login({ id: operatorId, password: operatorPassword });
+      if (await serverAccounts.isOperator()) {
         setOperatorHandle(operatorId);
         setAccess('GRANTED');
       }
@@ -410,8 +414,8 @@ export default function ControlTerminal() {
 
   /* 탭이 공통으로 쓰는 배선 — 여기 한 곳에서만 엮는다 */
   const shell: OpsShell = useMemo(
-    () => ({ storage, auth, busy, setBusy, guard, refresh, setMessage, setError, copyText }),
-    [storage, auth, busy, guard, refresh, copyText],
+    () => ({ storage, accounts, shop, roulette, busy, setBusy, guard, refresh, setMessage, setError, copyText }),
+    [storage, accounts, shop, roulette, busy, guard, refresh, copyText],
   );
 
 
@@ -502,7 +506,7 @@ export default function ControlTerminal() {
                 type="button"
                 className="ctl small"
                 onClick={async () => {
-                  await auth.logout();
+                  await accounts.logout();
                   window.location.reload();
                 }}
               >

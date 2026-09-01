@@ -51,7 +51,7 @@ import {
   isDown,
   statusViews,
 } from '../engine/status';
-import { getAuth, getServerStorage, getStorage, loadShopCatalog, type PublicProfile } from '../store';
+import { getAccounts, getServerStorage, getStorage, loadShopCatalog, type PublicProfile } from '../store';
 import ChatPanel from './ChatPanel';
 import { Portrait } from './PortraitField';
 import Collapsible from './Collapsible';
@@ -315,9 +315,9 @@ function InventoryList({ pair, side }: { pair: PairState; side: ActorSide }) {
 export default function BattleTerminal() {
   const storage = useMemo(() => getStorage(), []);
   const serverStorage = useMemo(() => getServerStorage(), []);
-  const auth = useMemo(() => getAuth(), []);
+  const accounts = useMemo(() => getAccounts(), []);
 
-  const [authState, setAuthState] = useState<'LOADING' | 'GUEST' | 'READY'>('LOADING');
+  const [authState, setAccountsState] = useState<'LOADING' | 'GUEST' | 'READY'>('LOADING');
   const [account, setAccount] = useState<Account | null>(null);
   const [partners, setPartners] = useState<PublicProfile[]>([]);
   /** 활동명 → 사진. 전투 상태에는 사진이 없어 공개 프로필에서 받아 둔다 */
@@ -365,20 +365,20 @@ export default function BattleTerminal() {
       // 운영진이 만든 아이템도 이름 · 효과가 떠야 한다
       await loadShopCatalog();
 
-      const session = await auth.currentSession();
+      const session = await accounts.currentSession();
       if (!session) {
-        if (!cancelled) setAuthState('GUEST');
+        if (!cancelled) setAccountsState('GUEST');
         return;
       }
 
-      const found = await auth.getAccount(session.accountId);
+      const found = await accounts.getAccount(session.accountId);
       if (!found) {
-        if (!cancelled) setAuthState('GUEST');
+        if (!cancelled) setAccountsState('GUEST');
         return;
       }
 
       const opposite: ActorSide = found.sheet.side === 'HUNTER' ? 'CONSTELLATION' : 'HUNTER';
-      const everyone = await auth.listProfiles();
+      const everyone = await accounts.listProfiles();
       const profiles = everyone.filter(
         (profile) => profile.side === opposite && profile.accountId !== found.id,
       );
@@ -394,13 +394,13 @@ export default function BattleTerminal() {
       setPortraits(faces);
       setPartners(profiles);
       setBattle(joined);
-      setAuthState('READY');
+      setAccountsState('READY');
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [auth, findAssignedBattle]);
+  }, [accounts, findAssignedBattle]);
 
   useEffect(() => {
     // 서버 모드에서 전투 상태는 관리국만 쓴다. 참가자는 제출만 보낸다.
@@ -499,7 +499,7 @@ export default function BattleTerminal() {
     let partnerSheet: CharacterSheet | null = null;
 
     if (partnerId) {
-      const partnerAccount = await auth.getAccount(partnerId);
+      const partnerAccount = await accounts.getAccount(partnerId);
       partnerSheet = partnerAccount?.sheet ?? null;
     }
 
@@ -533,7 +533,7 @@ export default function BattleTerminal() {
         },
       }),
     );
-  }, [account, auth, battleId, partnerId, setupMode]);
+  }, [account, accounts, battleId, partnerId, setupMode]);
 
   /* ── 진입 게이트 ─────────────────────────────────── */
 

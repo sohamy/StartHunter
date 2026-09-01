@@ -1,7 +1,7 @@
 /**
  * Supabase 기반 계정 구현.
  *
- * LocalAuthAdapter 와 달리 실제 인증이다 — 비밀번호 검증과 세션이 서버에서 처리된다.
+ * LocalAccountAdapter 와 달리 실제 인증이다 — 비밀번호 검증과 세션이 서버에서 처리된다.
  * 활동명(handle)은 이메일 형태가 아니어도 되게 내부에서 가상 이메일로 변환한다.
  */
 
@@ -9,7 +9,7 @@ import { toProfile } from '../config/characters';
 import { requireSupabase } from './supabaseClient';
 import {
   AuthError,
-  type AuthAdapter,
+  type AccountAdapter,
   type AuthErrorCode,
   type Credentials,
   type PublicProfile,
@@ -18,11 +18,9 @@ import {
   type GiftInput,
   type GiftResult,
   type GiftTarget,
-  type SpinOutcome,
-  type TradeKind,
-  type TradeResult,
-  type UseSupplyOutcome,
-} from './AuthAdapter';
+} from './AccountAdapter';
+import type { RouletteCounter, SpinOutcome } from './ports/RoulettePort';
+import type { ShopCounter, TradeKind, TradeResult, UseSupplyOutcome } from './ports/ShopPort';
 import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 
 /**
@@ -160,7 +158,7 @@ function toPublicRow(row: Record<string, unknown>): PublicProfile {
   };
 }
 
-export class SupabaseAuthAdapter implements AuthAdapter {
+export class SupabaseAccountAdapter implements AccountAdapter, ShopCounter, RouletteCounter {
   /** Supabase Auth 가 강제하는 값이다 — 여기서 낮춰도 서버가 거절한다 */
   readonly minPasswordLength = 6;
 
@@ -363,7 +361,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
    * 가격과 한도는 shop_items 를, 배치 여부는 battle_pairs 를 서버가 직접 본다.
    * 브라우저가 보내는 것은 무엇을 사고팔지뿐이다.
    */
-  async tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult> {
+  async trade(itemId: string, kind: TradeKind): Promise<TradeResult> {
     const { data, error } = await requireSupabase().rpc('shop_trade', {
       p_item_id: itemId,
       p_kind: kind,
@@ -446,7 +444,7 @@ export class SupabaseAuthAdapter implements AuthAdapter {
    * 참가비 · 칸 · 확률은 roulette_wheels 를 서버가 직접 보고,
    * **어느 칸에 걸렸는지도 서버가 뽑는다.** 브라우저가 보내는 것은 어느 원반을 돌릴지뿐이다.
    */
-  async spinRoulette(wheelId: string): Promise<SpinOutcome> {
+  async spin(wheelId: string): Promise<SpinOutcome> {
     const { data, error } = await requireSupabase().rpc('roulette_spin', { p_wheel_id: wheelId });
 
     if (error) throw new AuthError('INVALID_INPUT', error.message);

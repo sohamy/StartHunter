@@ -12,11 +12,11 @@ import { confirmed } from './shared';
 import type { ShopItemRecord } from '../../types';
 
 export default function ShopTab({ shopItems }: { shopItems: ShopItemRecord[] }) {
-  const { storage, busy, guard, refresh, setMessage } = useOps();
+  const { shop, busy, guard, refresh, setMessage } = useOps();
 
   const saveShopRow = async (record: ShopItemRecord) => {
     await guard(async () => {
-      await storage.saveShopItem(record);
+      await shop.saveItem(record);
       await refresh();
       setMessage(`상점에 반영했습니다 — ${record.item?.nameKo ?? record.itemId}`);
     });
@@ -25,7 +25,7 @@ export default function ShopTab({ shopItems }: { shopItems: ShopItemRecord[] }) 
   const removeShopRow = async (itemId: string) => {
     if (!confirmed(`${itemId} 을(를) 진열에서 지웁니다.`)) return;
     await guard(async () => {
-      await storage.deleteShopItem(itemId);
+      await shop.deleteItem(itemId);
       await refresh();
       setMessage('진열에서 지웠습니다.');
     });

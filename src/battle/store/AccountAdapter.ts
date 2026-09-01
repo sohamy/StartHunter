@@ -1,12 +1,19 @@
 /**
- * 계정 · 세션 인터페이스.
+ * 계정 포트 — **사람에게 붙는 것** 전부.
  *
- * UI 는 이 인터페이스만 참조한다.
- * 서버(Supabase Auth 등)가 붙으면 이 파일을 구현하는 어댑터로 교체하며,
- * 화면 코드는 수정하지 않는다.
+ * 로그인과 세션, 그 사람의 시트, 이름으로 보내는 선물, 운영진의 계정 · 시트 삭제.
+ * 공통점은 계정 하나가 주인이라는 것이다.
+ *
+ * 예전 이름은 AuthAdapter 였는데, 인증만 있는 것이 아니어서 이름이 사실과 달랐다.
+ * 상점 매매 · 보급품 사용 · 원반 돌리기까지 여기 들어 있던 것은
+ * ports/ShopPort · ports/RoulettePort 로 옮겼다 — 그쪽은 도메인이 따로 있다.
+ * 구현 클래스는 여전히 그 창구들을 함께 구현한다(세션이 필요한 일이라서).
+ *
+ * UI 는 이 인터페이스만 참조한다. 백엔드가 바뀌어도 화면 코드는 손대지 않는다.
  */
 
 import { toProfile } from '../config/characters';
+import type { TradeResult } from './ports/ShopPort';
 import type {
   Account,
   ActorSide,
@@ -97,14 +104,6 @@ export interface SheetRecord {
   sheet: CharacterSheet;
 }
 
-export type TradeKind = 'BUY' | 'SELL';
-
-/** 거래 뒤의 지갑 — 서버가 계산한 값이 그대로 온다 */
-export interface TradeResult {
-  points: number;
-  inventory: ItemStack[];
-}
-
 /** 선물 한 건 — 이름으로 상대를 지목한다 */
 export interface GiftInput {
   /** 받는 사람의 이름. 이름은 겹치지 않으므로 한 사람만 걸린다. */
@@ -128,29 +127,6 @@ export interface GiftTarget {
   side: ActorSide;
 }
 
-/**
- * 룰렛을 한 번 돌린 결과.
- *
- * 어느 칸에 걸렸는지도 **서버가** 정한다 — 브라우저가 뽑아 보내면
- * 원하는 칸을 적어 보낼 수 있기 때문이다. 화면의 회전 연출은 이 결과를 따라 돈다.
- */
-export interface SpinOutcome {
-  slotIndex: number;
-  label: string;
-  payout: number;
-  fee: number;
-  /** 참가비를 뺀 손익 */
-  net: number;
-  /** 돌리고 난 뒤의 소지금 */
-  points: number;
-}
-
-/** 강화 아이템을 쓴 뒤의 시트 */
-export interface UseSupplyOutcome {
-  statBonus: StatBlock;
-  inventory: ItemStack[];
-}
-
 export type AuthErrorCode =
   | 'ID_TAKEN'
   | 'NOT_FOUND'
@@ -168,7 +144,7 @@ export class AuthError extends Error {
   }
 }
 
-export interface AuthAdapter {
+export interface AccountAdapter {
   /**
    * 비밀번호 최소 길이.
    *
@@ -199,14 +175,14 @@ export interface AuthAdapter {
    */
   listSheets(): Promise<SheetRecord[]>;
   updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account>;
-  /**
-   * 보급 구매 · 반납.
-   *
-   * 값 계산과 규칙 판정은 **서버가** 한다 (`shop_trade`).
-   * 브라우저가 소지금을 계산해 저장하면 마음먹은 사람이 숫자를 고칠 수 있기 때문이다.
-   * 거절 사유는 AuthError 로 온다 — 화면은 그대로 보여 주기만 하면 된다.
-   */
-  tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult>;
+
+  /*
+     상점 매매 · 보급품 사용 · 원반 돌리기는 여기 없다 —
+     ports/ShopPort 의 ShopCounter, ports/RoulettePort 의 RouletteCounter 로 갔다.
+     구현은 여전히 이 클래스가 한다. 사람의 지갑을 건드리는 일이라 세션이 필요하고,
+     서버 모드에서는 판정 자체가 RPC 뒤에 있기 때문이다.
+  */
+
   /**
    * 선물하기 — 이름으로 상대를 찾아 소지금이나 보급품을 넘긴다.
    * 판정은 서버(`shop_gift`)가 한다. 전투에 배치된 동안에는 창구가 닫힌다.
@@ -217,18 +193,6 @@ export interface AuthAdapter {
    * 없으면 null. 통과 여부는 보낼 때 서버가 다시 정한다.
    */
   findGiftTarget(name: string): Promise<GiftTarget | null>;
-  /**
-   * 강화 아이템 사용 — 전투 밖에서만 쓴다.
-   * 가방에서 하나 빠지고 시트의 statBonus 가 오른다. 판정은 서버(`use_supply`)가 한다.
-   */
-  useSupply(itemId: string): Promise<UseSupplyOutcome>;
-  /**
-   * 룰렛을 한 번 돌린다 — 참가비를 내고 걸린 칸의 값을 받는다.
-   *
-   * 참가비도 확률도 어느 칸에 걸렸는지도 서버(`roulette_spin`)가 정한다.
-   * 전투에 배치된 동안에는 상점과 같은 이유로 닫힌다.
-   */
-  spinRoulette(wheelId: string): Promise<SpinOutcome>;
   /** 운영진용 — 참가자 시트를 지운다. 편성 기록(PairBond)은 남는다. */
   deleteSheet(sheetId: string): Promise<void>;
   deleteAccount(accountId: string): Promise<void>;

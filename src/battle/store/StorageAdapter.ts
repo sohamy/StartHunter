@@ -14,7 +14,6 @@ import type {
   BattleSummary,
   ChatMessage,
   EnemyTemplate,
-  RouletteSpin,
   RouletteWheel,
   ShopItemRecord,
   PairBond,
@@ -59,27 +58,11 @@ export interface StorageAdapter {
   saveEnemyTemplate(template: EnemyTemplate): Promise<void>;
   deleteEnemyTemplate(id: string): Promise<void>;
 
-  /** 상점 진열 — 운영진이 작전실에서 직접 넣고 고친다 */
-  listShopItems(): Promise<ShopItemRecord[]>;
-  saveShopItem(record: ShopItemRecord): Promise<void>;
-  deleteShopItem(itemId: string): Promise<void>;
-
-  /** 룰렛 원반 — 상점과 달리 코드에 기본 목록이 없다. 운영진이 만든 것이 전부다 */
-  listRouletteWheels(): Promise<RouletteWheel[]>;
-  saveRouletteWheel(wheel: RouletteWheel): Promise<void>;
-  deleteRouletteWheel(id: string): Promise<void>;
-  /**
-   * 최근 회전 기록 — 도박장 전광판과 운영진 확인에 쓴다.
-   * 소지금은 담기지 않는다 (전광판은 남의 지갑을 보여 주는 곳이 아니다).
-   */
-  listRouletteSpins(limit?: number): Promise<RouletteSpin[]>;
-  /** 회전 기록 한 줄을 지운다 — 운영진만 된다 (0019 · spins operator delete) */
-  deleteRouletteSpin(id: string): Promise<void>;
-  /**
-   * 회전 기록을 전부 지운다 — 운영진만 된다.
-   * 소지금은 건드리지 않는다. 기록은 정산 근거가 아니라 전광판이므로 지워도 지갑은 그대로다.
-   */
-  clearRouletteSpins(): Promise<void>;
+  /*
+     상점 진열과 원반은 여기 없다 — ShopCatalog · RouletteCatalog 로 갔다.
+     구현은 여전히 이 클래스가 하지만(세계 데이터라 같은 저장소에 산다),
+     화면은 ports/ShopPort · ports/RoulettePort 로 도메인 전체를 한 번에 본다.
+  */
 
   /* ── 실시간 ── */
   /**

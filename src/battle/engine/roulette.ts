@@ -112,7 +112,7 @@ export interface SpinResult {
 
 /**
  * 로컬 모드의 뽑기 — 서버가 없을 때만 쓴다.
- * 서버 모드에서는 이 길로 오지 않는다 (SupabaseAuthAdapter 가 함수를 부른다).
+ * 서버 모드에서는 이 길로 오지 않는다 (SupabaseAccountAdapter 가 함수를 부른다).
  */
 export function spin(
   wheel: RouletteWheel,

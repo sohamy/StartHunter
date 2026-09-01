@@ -16,7 +16,7 @@ import type { Account, ActorSide, CharacterSheet, Session } from '../types';
 import {
   AuthError,
   toPublicProfile,
-  type AuthAdapter,
+  type AccountAdapter,
   type Credentials,
   type PublicProfile,
   type RegisterInput,
@@ -24,11 +24,9 @@ import {
   type GiftInput,
   type GiftResult,
   type GiftTarget,
-  type SpinOutcome,
-  type TradeKind,
-  type TradeResult,
-  type UseSupplyOutcome,
-} from './AuthAdapter';
+} from './AccountAdapter';
+import type { RouletteCounter, SpinOutcome } from './ports/RoulettePort';
+import type { ShopCounter, TradeKind, TradeResult, UseSupplyOutcome } from './ports/ShopPort';
 
 const ACCOUNTS_KEY = 'sh.auth.accounts';
 const SESSION_KEY = 'sh.auth.session';
@@ -110,7 +108,12 @@ function newSheetId(side: ActorSide): string {
   return `${side === 'HUNTER' ? 'HS' : 'CS'}-${stamp}-${salt}`;
 }
 
-export class LocalAuthAdapter implements AuthAdapter {
+/*
+   계정 어댑터가 상점 · 도박장 창구까지 구현하는 것은, 그 일들이 모두
+   **사람의 지갑과 가방**을 건드리기 때문이다. 세계 데이터(선반 · 원반)는
+   저장소 어댑터가 맡는다. 화면은 둘을 나눠 보지 않는다 — getShop() · getRoulette() 참고.
+*/
+export class LocalAccountAdapter implements AccountAdapter, ShopCounter, RouletteCounter {
   /** 브라우저에만 남는 계정이라 서버보다 느슨하게 둔다 */
   readonly minPasswordLength = 4;
 
@@ -211,7 +214,7 @@ export class LocalAuthAdapter implements AuthAdapter {
    * 로컬 모드에는 서버가 없다 — 같은 규칙을 이 자리에서 계산한다.
    * 혼자 확인해 보는 경로이므로 배치 여부까지는 보지 않는다 (화면이 먼저 막는다).
    */
-  async tradeItem(itemId: string, kind: TradeKind): Promise<TradeResult> {
+  async trade(itemId: string, kind: TradeKind): Promise<TradeResult> {
     const session = await this.currentSession();
     if (!session) throw new AuthError('NOT_FOUND', '접속 상태가 아닙니다.');
 
@@ -314,7 +317,7 @@ export class LocalAuthAdapter implements AuthAdapter {
    * 서버 모드에서는 이 길로 오지 않는다. 혼자 확인해 보는 경로이므로
    * 뽑기를 브라우저가 하는 것이 문제가 되지 않는다 (같은 브라우저에 소지금도 있다).
    */
-  async spinRoulette(wheelId: string): Promise<SpinOutcome> {
+  async spin(wheelId: string): Promise<SpinOutcome> {
     const session = await this.currentSession();
     if (!session) throw new AuthError('NOT_FOUND', '접속 상태가 아닙니다.');
 
@@ -322,7 +325,7 @@ export class LocalAuthAdapter implements AuthAdapter {
     const index = accounts.findIndex((account) => account.id === session.accountId);
     if (index < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
 
-    const wheel = (await new LocalStorageAdapter().listRouletteWheels()).find(
+    const wheel = (await new LocalStorageAdapter().listWheels()).find(
       (row) => row.id === wheelId,
     );
     if (!wheel) throw new AuthError('NOT_FOUND', '지금 돌릴 수 없는 원반입니다.');

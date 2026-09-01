@@ -17,6 +17,8 @@ import type {
   RouletteWheel,
   ShopItemRecord,
 } from '../types';
+import type { RouletteCatalog } from './ports/RoulettePort';
+import type { ShopCatalog } from './ports/ShopPort';
 import type { ExportEnvelope, PublicPair, StorageAdapter } from './StorageAdapter';
 
 const KEY_PREFIX = 'sh.battle.';
@@ -96,7 +98,11 @@ function summarize(state: BattleState): BattleSummary {
   };
 }
 
-export class LocalStorageAdapter implements StorageAdapter {
+/*
+   선반(상점 진열)과 원반은 세계 데이터라 전투 · 명부와 같은 저장소에 산다.
+   도메인 전체는 ports/ShopPort · ports/RoulettePort 에서 본다.
+*/
+export class LocalStorageAdapter implements StorageAdapter, ShopCatalog, RouletteCatalog {
   async loadBattle(id: string): Promise<BattleState | null> {
     if (!hasStorage()) return null;
     const raw = window.localStorage.getItem(KEY_PREFIX + id);
@@ -151,8 +157,8 @@ export class LocalStorageAdapter implements StorageAdapter {
       battles,
       bonds: await this.listBonds(),
       enemyTemplates: await this.listEnemyTemplates(),
-      shopItems: await this.listShopItems(),
-      rouletteWheels: await this.listRouletteWheels(),
+      shopItems: await this.listItems(),
+      rouletteWheels: await this.listWheels(),
       records: await this.listRecords(),
     };
     return JSON.stringify(envelope, null, 2);
@@ -233,52 +239,52 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   /* ── 상점 진열 ── */
 
-  async listShopItems(): Promise<ShopItemRecord[]> {
+  async listItems(): Promise<ShopItemRecord[]> {
     return readJson<ShopItemRecord[]>(SHOP_KEY, []).sort((a, b) => a.sort - b.sort);
   }
 
-  async saveShopItem(record: ShopItemRecord): Promise<void> {
-    const rows = (await this.listShopItems()).filter((row) => row.itemId !== record.itemId);
+  async saveItem(record: ShopItemRecord): Promise<void> {
+    const rows = (await this.listItems()).filter((row) => row.itemId !== record.itemId);
     writeJson(SHOP_KEY, [...rows, record]);
   }
 
-  async deleteShopItem(itemId: string): Promise<void> {
+  async deleteItem(itemId: string): Promise<void> {
     writeJson(
       SHOP_KEY,
-      (await this.listShopItems()).filter((row) => row.itemId !== itemId),
+      (await this.listItems()).filter((row) => row.itemId !== itemId),
     );
   }
 
   /* ── 룰렛 원반 ── */
 
-  async listRouletteWheels(): Promise<RouletteWheel[]> {
+  async listWheels(): Promise<RouletteWheel[]> {
     return readJson<RouletteWheel[]>(WHEELS_KEY, []).sort((a, b) => a.sort - b.sort);
   }
 
-  async saveRouletteWheel(wheel: RouletteWheel): Promise<void> {
-    const rows = (await this.listRouletteWheels()).filter((row) => row.id !== wheel.id);
+  async saveWheel(wheel: RouletteWheel): Promise<void> {
+    const rows = (await this.listWheels()).filter((row) => row.id !== wheel.id);
     writeJson(WHEELS_KEY, [...rows, wheel]);
   }
 
-  async deleteRouletteWheel(id: string): Promise<void> {
+  async deleteWheel(id: string): Promise<void> {
     writeJson(
       WHEELS_KEY,
-      (await this.listRouletteWheels()).filter((row) => row.id !== id),
+      (await this.listWheels()).filter((row) => row.id !== id),
     );
   }
 
-  async deleteRouletteSpin(id: string): Promise<void> {
+  async deleteSpin(id: string): Promise<void> {
     writeJson(
       SPINS_KEY,
       readRouletteSpins().filter((row) => row.id !== id),
     );
   }
 
-  async clearRouletteSpins(): Promise<void> {
+  async clearSpins(): Promise<void> {
     writeJson(SPINS_KEY, []);
   }
 
-  async listRouletteSpins(limit = 50): Promise<RouletteSpin[]> {
+  async recentSpins(limit = 50): Promise<RouletteSpin[]> {
     return readRouletteSpins().slice(0, limit);
   }
 
@@ -349,10 +355,10 @@ export class LocalStorageAdapter implements StorageAdapter {
       await this.saveEnemyTemplate(template);
     }
     for (const row of envelope.shopItems ?? []) {
-      await this.saveShopItem(row);
+      await this.saveItem(row);
     }
     for (const wheel of envelope.rouletteWheels ?? []) {
-      await this.saveRouletteWheel(wheel);
+      await this.saveWheel(wheel);
     }
     for (const record of envelope.records ?? []) {
       await this.saveRecord(record);

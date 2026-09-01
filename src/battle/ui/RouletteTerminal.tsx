@@ -16,12 +16,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ROULETTE_NPC } from '../config/npc';
 import { chanceOf, chanceText, expectedNet, totalWeight } from '../engine/roulette';
-import { getAuth, getStorage } from '../store';
+import { getAccounts, getRoulette } from '../store';
 import { findDeployment } from './deployment';
 import NpcCard from './NpcCard';
 import TerminalNav from './TerminalNav';
 import type { Account, BattleState, RouletteSlot, RouletteSpin, RouletteWheel } from '../types';
-import type { SpinOutcome } from '../store/AuthAdapter';
+import type { SpinOutcome } from '../store';
 
 type Phase = 'LOADING' | 'READY' | 'GUEST';
 
@@ -118,8 +118,9 @@ function arcsOf(slots: RouletteSlot[]): Array<{ start: number; end: number; mid:
 }
 
 export default function RouletteTerminal() {
-  const auth = useMemo(() => getAuth(), []);
-  const storage = useMemo(() => getStorage(), []);
+  const accounts = useMemo(() => getAccounts(), []);
+  /* 원반 · 전광판 · 돌리기가 한 곳에서 온다 — 예전에는 앞의 둘이 storage, 뒤가 accounts 였다 */
+  const roulette = useMemo(() => getRoulette(), []);
 
   const [phase, setPhase] = useState<Phase>('LOADING');
   const [account, setAccount] = useState<Account | null>(null);
@@ -136,28 +137,28 @@ export default function RouletteTerminal() {
 
   const refreshBoard = useCallback(async () => {
     try {
-      setBoard(await storage.listRouletteSpins(20));
+      setBoard(await roulette.recentSpins(20));
     } catch {
       // 전광판이 안 떠도 원반은 돌아간다 — 여기서 화면을 멈추지 않는다
     }
-  }, [storage]);
+  }, [roulette]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const session = await auth.currentSession();
+      const session = await accounts.currentSession();
       if (!session) {
         if (!cancelled) setPhase('GUEST');
         return;
       }
-      const found = await auth.getAccount(session.accountId);
+      const found = await accounts.getAccount(session.accountId);
       if (cancelled) return;
       setAccount(found);
       setPhase(found ? 'READY' : 'GUEST');
       if (!found) return;
 
       try {
-        const rows = (await storage.listRouletteWheels()).filter((wheel) => wheel.active);
+        const rows = (await roulette.listWheels()).filter((wheel) => wheel.active);
         if (cancelled) return;
         setWheels(rows);
         setPickedId(rows[0]?.id ?? '');
@@ -174,7 +175,7 @@ export default function RouletteTerminal() {
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshBoard, storage]);
+  }, [accounts, refreshBoard, roulette]);
 
   const wheel = wheels.find((row) => row.id === pickedId) ?? null;
   const sheet = account?.sheet ?? null;
@@ -198,7 +199,7 @@ export default function RouletteTerminal() {
     let outcome: SpinOutcome;
     try {
       // 결과는 여기서 이미 정해진다 — 아래 회전은 그것을 따라가는 연출이다
-      outcome = await auth.spinRoulette(wheel.id);
+      outcome = await roulette.spin(wheel.id);
     } catch (failure) {
       setSpinning(false);
       setError(failure instanceof Error ? failure.message : '돌리지 못했습니다.');
@@ -221,7 +222,7 @@ export default function RouletteTerminal() {
       );
       void refreshBoard();
     }, SPIN_MS);
-  }, [account, arcs, auth, refreshBoard, rotation, spinning, wheel]);
+  }, [account, arcs, accounts, refreshBoard, rotation, spinning, wheel]);
 
   if (phase === 'LOADING') {
     return <div className="console-loading">OPENING FORTUNE HALL…</div>;

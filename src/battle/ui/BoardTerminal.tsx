@@ -23,7 +23,7 @@ import TerminalNav from './TerminalNav';
 import { Portrait } from './PortraitField';
 import { findClass } from '../config/characters';
 import {
-  getAuth,
+  getAccounts,
   getStorage,
   loadShopCatalog,
   type PublicPair,
@@ -197,7 +197,7 @@ export default function BoardTerminal() {
       // 가방에 운영진이 만든 품목이 들어 있을 수 있다 — 이름을 붙이려면 진열을 먼저 읽는다
       await loadShopCatalog();
       try {
-        const rows = await getAuth().listProfiles();
+        const rows = await getAccounts().listProfiles();
         if (cancelled) return;
         setProfiles([...rows].sort(compareProfiles));
       } catch {

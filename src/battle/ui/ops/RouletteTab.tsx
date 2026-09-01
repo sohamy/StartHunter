@@ -17,11 +17,11 @@ export default function RouletteTab({
   wheels: RouletteWheel[];
   spins: RouletteSpin[];
 }) {
-  const { storage, busy, guard, refresh, setMessage } = useOps();
+  const { roulette, busy, guard, refresh, setMessage } = useOps();
 
   const saveWheel = async (wheel: RouletteWheel) => {
     await guard(async () => {
-      await storage.saveRouletteWheel(wheel);
+      await roulette.saveWheel(wheel);
       await refresh();
       setMessage(`원반을 반영했습니다 — ${wheel.name}`);
     });
@@ -29,7 +29,7 @@ export default function RouletteTab({
 
   const removeWheel = async (id: string) => {
     await guard(async () => {
-      await storage.deleteRouletteWheel(id);
+      await roulette.deleteWheel(id);
       await refresh();
       setMessage('원반을 지웠습니다.');
     });
@@ -44,7 +44,7 @@ export default function RouletteTab({
   const removeSpin = async (spin: RouletteSpin) => {
     if (!confirmed(`${spin.spinnerName} 의 회전 기록 한 줄을 지웁니다.`)) return;
     await guard(async () => {
-      await storage.deleteRouletteSpin(spin.id);
+      await roulette.deleteSpin(spin.id);
       await refresh();
       setMessage('회전 기록을 지웠습니다.');
     });
@@ -53,7 +53,7 @@ export default function RouletteTab({
   const clearSpins = async () => {
     if (!confirmed(`회전 기록 ${spins.length}건을 모두 지웁니다. 소지금은 그대로입니다.`)) return;
     await guard(async () => {
-      await storage.clearRouletteSpins();
+      await roulette.clearSpins();
       await refresh();
       setMessage('회전 기록을 비웠습니다.');
     });
