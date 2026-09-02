@@ -5,6 +5,10 @@
  * 한쪽에서만 고치면 같은 조작이 화면마다 다르게 동작하게 되므로 한 곳에 둔다.
  *
  * 소지금과 가방은 **개인 소유**다. 페어가 아니라 사람에게 붙인다.
+ *
+ * 여기를 지나는 모든 조작은 **감사 기록에 한 줄 남는다.** 운영진이 남의 소지금을
+ * 고칠 수 있다는 것 자체는 필요한 권한이지만, 그 사실이 어디에도 남지 않으면
+ * 「내 포인트가 왜 줄었냐」는 말에 답할 근거가 없다.
  */
 
 import { findItem } from '../../config/items';
@@ -12,7 +16,7 @@ import { addItem } from '../../engine/items';
 import { purchase, refund, withPurchase } from '../../engine/shop';
 import type { OpsShell } from './OpsContext';
 import { confirmed } from './shared';
-import type { SheetRecord } from '../../store';
+import type { AuditDraft, SheetRecord } from '../../store';
 import type { CharacterSheet } from '../../types';
 
 /**
@@ -24,11 +28,38 @@ export function useSheetAdmin(
   /** 저장·삭제가 끝난 뒤 편집 칸을 닫는 등, 부르는 쪽이 정리할 일이 있으면 넘긴다 */
   onSettled?: () => void,
 ) {
-  const { accounts, guard, refresh, setMessage, setError } = ops;
+  const { accounts, audit, guard, refresh, setMessage, setError } = ops;
 
-  const saveSheet = async (accountId: string, next: CharacterSheet) => {
+  /**
+   * 감사 기록 한 줄.
+   *
+   * **실패해도 여기서 멈추지 않는다.** 기록이 안 남는 것보다 지급이 반쯤 되고 마는 것이
+   * 나쁘다 — 이미 시트는 고쳐진 뒤다. 실패는 화면에만 알린다.
+   */
+  const trail = async (draft: AuditDraft) => {
+    try {
+      await audit.record(draft);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? `조작은 됐지만 기록에 남지 않았습니다: ${caught.message}`
+          : '조작은 됐지만 기록에 남지 않았습니다.',
+      );
+    }
+  };
+
+  const saveSheet = async (accountId: string, next: CharacterSheet, reason?: string) => {
     await guard(async () => {
       await accounts.updateSheet(accountId, next);
+      await trail({
+        targetAccountId: accountId,
+        targetName: next.name,
+        action: 'SHEET',
+        summary: `시트 저장 — ${next.classId}`,
+        reason: reason?.trim() || null,
+        before: null,
+        after: null,
+      });
       await refresh();
       onSettled?.();
       setMessage(`${next.name} 시트를 저장했습니다.`);
@@ -43,6 +74,15 @@ export function useSheetAdmin(
 
     await guard(async () => {
       await accounts.deleteSheet(sheet.id);
+      await trail({
+        targetAccountId: accountId,
+        targetName: sheet.name,
+        action: 'SHEET_DELETE',
+        summary: `시트 삭제 — 소지금 ${sheet.points ?? 0} P 와 가방이 함께 사라짐`,
+        reason: bondLabel ? `편성: ${bondLabel}` : null,
+        before: sheet.points ?? 0,
+        after: null,
+      });
       await refresh();
       onSettled?.();
       setMessage(`${sheet.name} 시트를 삭제했습니다.`);
@@ -57,7 +97,17 @@ export function useSheetAdmin(
       return;
     }
     await guard(async () => {
-      await accounts.updateSheet(row.accountId, withPurchase(row.sheet, result));
+      const next = withPurchase(row.sheet, result);
+      await accounts.updateSheet(row.accountId, next);
+      await trail({
+        targetAccountId: row.accountId,
+        targetName: row.sheet.name,
+        action: 'TRADE',
+        summary: `운영진 대리 구매 — ${findItem(itemId)?.nameKo ?? itemId}`,
+        reason: null,
+        before: row.sheet.points ?? 0,
+        after: next.points ?? 0,
+      });
       await refresh();
       setMessage(`${row.sheet.name} — ${result.message}`);
     });
@@ -70,7 +120,17 @@ export function useSheetAdmin(
       return;
     }
     await guard(async () => {
-      await accounts.updateSheet(row.accountId, withPurchase(row.sheet, result));
+      const next = withPurchase(row.sheet, result);
+      await accounts.updateSheet(row.accountId, next);
+      await trail({
+        targetAccountId: row.accountId,
+        targetName: row.sheet.name,
+        action: 'TRADE',
+        summary: `운영진 대리 반납 — ${findItem(itemId)?.nameKo ?? itemId}`,
+        reason: null,
+        before: row.sheet.points ?? 0,
+        after: next.points ?? 0,
+      });
       await refresh();
       setMessage(`${row.sheet.name} — ${result.message}`);
     });
@@ -81,26 +141,50 @@ export function useSheetAdmin(
    *
    * 참가자는 상점(shop_trade)을 거쳐야 소지금이 바뀌지만, 운영진은 창구를 직접 연다.
    * 편성 여부와 상관없이 시트가 있는 사람이면 누구에게나 줄 수 있다.
+   *
+   * 사유는 비워 둘 수 있지만, 분쟁이 나면 그 칸이 유일한 근거가 된다.
    */
-  const giveSheetPoints = async (row: SheetRecord, delta: number) => {
+  const giveSheetPoints = async (row: SheetRecord, delta: number, reason?: string) => {
     if (delta === 0) return;
-    const next = Math.max(0, (row.sheet.points ?? 0) + delta);
+    const before = row.sheet.points ?? 0;
+    const next = Math.max(0, before + delta);
     await guard(async () => {
       await accounts.updateSheet(row.accountId, { ...row.sheet, points: next });
+      await trail({
+        targetAccountId: row.accountId,
+        targetName: row.sheet.name,
+        action: 'POINTS',
+        summary: `소지금 ${delta > 0 ? '+' : ''}${delta} P`,
+        reason: reason?.trim() || null,
+        before,
+        after: next,
+      });
       await refresh();
-      setMessage(
-        `${row.sheet.name} 소지금 ${delta > 0 ? '+' : ''}${delta} P — ${row.sheet.points ?? 0} → ${next}`,
-      );
+      setMessage(`${row.sheet.name} 소지금 ${delta > 0 ? '+' : ''}${delta} P — ${before} → ${next}`);
     });
   };
 
   /** 보급품 지급 · 회수 — 값을 받지 않고 그냥 준다 */
-  const giveSheetItem = async (row: SheetRecord, itemId: string, delta: number) => {
+  const giveSheetItem = async (
+    row: SheetRecord,
+    itemId: string,
+    delta: number,
+    reason?: string,
+  ) => {
     const item = findItem(itemId);
     if (!item || delta === 0) return;
     const inventory = addItem(row.sheet.inventory ?? [], itemId, delta);
     await guard(async () => {
       await accounts.updateSheet(row.accountId, { ...row.sheet, inventory });
+      await trail({
+        targetAccountId: row.accountId,
+        targetName: row.sheet.name,
+        action: 'ITEM',
+        summary: `${item.nameKo} ${delta > 0 ? `지급 ×${delta}` : `회수 ×${-delta}`}`,
+        reason: reason?.trim() || null,
+        before: null,
+        after: null,
+      });
       await refresh();
       setMessage(
         `${row.sheet.name} — ${item.nameKo} ${delta > 0 ? `지급 ×${delta}` : `회수 ×${-delta}`}`,

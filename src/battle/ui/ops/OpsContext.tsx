@@ -11,7 +11,13 @@
 
 import { createContext, useContext, type ReactNode } from 'react';
 
-import type { AccountAdapter, RoulettePort, ShopPort, StorageAdapter } from '../../store';
+import type {
+  AccountAdapter,
+  AuditPort,
+  RoulettePort,
+  ShopPort,
+  StorageAdapter,
+} from '../../store';
 
 export interface OpsShell {
   storage: StorageAdapter;
@@ -20,6 +26,8 @@ export interface OpsShell {
   shop: ShopPort;
   /** 운명 도박장 한 도메인 */
   roulette: RoulettePort;
+  /** 운영 감사 기록 — 사람에게 붙는 값을 고쳤으면 여기 한 줄 남긴다 */
+  audit: AuditPort;
   /** 저장·통신이 도는 중인지 — 버튼을 잠그는 데 쓴다 */
   busy: boolean;
   /** guard 를 쓸 수 없는 긴 작업(전투 시작처럼)에서 직접 잠근다 */

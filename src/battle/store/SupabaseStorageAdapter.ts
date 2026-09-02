@@ -28,6 +28,7 @@ import type {
   PairState,
   RoundSubmission,
 } from '../types';
+import type { AuditDraft, AuditEntry, AuditPort } from './ports/AuditPort';
 import type { RouletteCatalog } from './ports/RoulettePort';
 import type { ShopCatalog } from './ports/ShopPort';
 
@@ -109,7 +110,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  */
 const REALTIME_SAFETY_NET_MS = 15000;
 
-export class SupabaseStorageAdapter implements StorageAdapter, ShopCatalog, RouletteCatalog {
+export class SupabaseStorageAdapter
+  implements StorageAdapter, ShopCatalog, RouletteCatalog, AuditPort
+{
   /**
    * 계정 식별자 변환표.
    *
@@ -553,6 +556,46 @@ export class SupabaseStorageAdapter implements StorageAdapter, ShopCatalog, Roul
    * 전광판 — 뷰(`roulette_board`)를 읽는다.
    * 표를 직접 읽으면 RLS 가 자기 기록만 주므로, 남이 딴 것은 뷰로만 보인다.
    */
+  /* ── 운영 감사 기록 ── */
+
+  async record(draft: AuditDraft): Promise<void> {
+    /*
+       by_account 는 적지 않는다 — 표의 기본값이 auth.uid() 라 서버가 채운다.
+       브라우저가 보내면 남의 이름으로 적을 수 있다.
+    */
+    const { error } = await requireSupabase().from('ops_audit').insert({
+      target_account: draft.targetAccountId || null,
+      target_name: draft.targetName,
+      action: draft.action,
+      summary: draft.summary,
+      reason: draft.reason,
+      before_value: draft.before,
+      after_value: draft.after,
+    });
+    if (error) throw new Error(`감사 기록 실패: ${error.message}`);
+  }
+
+  async listAudit(limit = 200): Promise<AuditEntry[]> {
+    const { data } = await requireSupabase()
+      .from('ops_audit')
+      .select('*')
+      .order('at', { ascending: false })
+      .limit(limit);
+
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      at: (row.at as string) ?? new Date().toISOString(),
+      byHandle: (row.by_handle as string) ?? '관리국',
+      targetAccountId: (row.target_account as string | null) ?? '',
+      targetName: (row.target_name as string) ?? '',
+      action: row.action as AuditEntry['action'],
+      summary: (row.summary as string) ?? '',
+      reason: (row.reason as string | null) ?? null,
+      before: (row.before_value as number | null) ?? null,
+      after: (row.after_value as number | null) ?? null,
+    }));
+  }
+
   async recentSpins(limit = 50): Promise<RouletteSpin[]> {
     const { data } = await requireSupabase()
       .from('roulette_board')

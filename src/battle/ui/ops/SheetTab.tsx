@@ -188,9 +188,11 @@ export default function SheetTab({
                   <SupplyAdmin
                     row={row}
                     busy={busy}
-                    onPoints={(target, delta) => void giveSheetPoints(target, delta)}
-                    onItem={(target, itemId, delta) =>
-                      void giveSheetItem(target, itemId, delta)
+                    onPoints={(target, delta, reason) =>
+                      void giveSheetPoints(target, delta, reason)
+                    }
+                    onItem={(target, itemId, delta, reason) =>
+                      void giveSheetItem(target, itemId, delta, reason)
                     }
                   />
                 </Collapsible>
@@ -246,9 +248,11 @@ export default function SheetTab({
                   <SupplyAdmin
                     row={row}
                     busy={busy}
-                    onPoints={(target, delta) => void giveSheetPoints(target, delta)}
-                    onItem={(target, itemId, delta) =>
-                      void giveSheetItem(target, itemId, delta)
+                    onPoints={(target, delta, reason) =>
+                      void giveSheetPoints(target, delta, reason)
+                    }
+                    onItem={(target, itemId, delta, reason) =>
+                      void giveSheetItem(target, itemId, delta, reason)
                     }
                   />
                 </Collapsible>

@@ -28,7 +28,7 @@ export default function ArchiveTab({
   /** 보관은 자동 보관 효과도 함께 쓰므로 작전실 본체가 들고 있다 */
   archiveBattle: (state: BattleState, silent?: boolean) => Promise<void>;
 }) {
-  const { storage, accounts, busy, guard, refresh, setMessage, copyText } = useOps();
+  const { storage, accounts, audit, busy, guard, refresh, setMessage, copyText } = useOps();
 
   /**
    * 기록의 포인트와 소모된 보급품을 **개인 시트**에 반영한다.
@@ -77,6 +77,26 @@ export default function ArchiveTab({
           points: target.points,
           inventory: target.inventory,
         });
+
+        /*
+           정산은 사람마다 한 줄씩 남긴다.
+           한 덩이로 남기면 「누구의 소지금이 얼마에서 얼마로」를 되짚을 수 없고,
+           정산은 두 번 하면 값이 되돌아가는 조작이라 특히 근거가 필요하다.
+        */
+        const row = result.rows.find((candidate) => candidate.accountId === target.accountId);
+        try {
+          await audit.record({
+            targetAccountId: target.accountId,
+            targetName: owner.sheet.name,
+            action: 'SETTLE',
+            summary: `${record.operation.name} 정산${row && row.earned > 0 ? ` — 이 전투 지급 +${row.earned} P` : ''}`,
+            reason: again ? '재정산 (전투 종료 시점 값으로 되돌림)' : null,
+            before: row?.pointsBefore ?? null,
+            after: row?.pointsAfter ?? null,
+          });
+        } catch {
+          // 기록이 안 남아도 정산은 이미 끝났다 — 여기서 멈추면 반만 반영된다
+        }
       }
       await storage.saveRecord({
         ...record,

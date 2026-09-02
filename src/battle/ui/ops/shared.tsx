@@ -212,14 +212,26 @@ export function SupplyAdmin({
 }: {
   row: SheetRecord;
   busy: boolean;
-  onPoints: (row: SheetRecord, delta: number) => void;
-  onItem: (row: SheetRecord, itemId: string, delta: number) => void;
+  onPoints: (row: SheetRecord, delta: number, reason: string) => void;
+  onItem: (row: SheetRecord, itemId: string, delta: number, reason: string) => void;
 }) {
   const [amount, setAmount] = useState(100);
+  /* 왜 고쳤는지 — 감사 기록에 함께 남는다. 분쟁이 나면 이 칸이 유일한 근거다 */
+  const [reason, setReason] = useState('');
   const bag = (row.sheet.inventory ?? []).filter((stack) => stack.quantity > 0);
 
   return (
     <div className="item-admin">
+      <label className="input-row">
+        <span className="field-label">사유 (감사 기록에 남습니다)</span>
+        <input
+          className="ctl input"
+          value={reason}
+          placeholder="예: 3층 클리어 보상 · 오지급 회수"
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </label>
+
       <div className="bond-resource">
         <span className="field-label">소지금</span>
         <b className="num gold">{(row.sheet.points ?? 0).toLocaleString()} P</b>
@@ -235,7 +247,7 @@ export function SupplyAdmin({
           type="button"
           className="ctl small primary"
           disabled={busy || amount <= 0}
-          onClick={() => onPoints(row, amount)}
+          onClick={() => onPoints(row, amount, reason)}
         >
           +{amount} P 지급
         </button>
@@ -243,7 +255,7 @@ export function SupplyAdmin({
           type="button"
           className="ctl small"
           disabled={busy || amount <= 0}
-          onClick={() => onPoints(row, -amount)}
+          onClick={() => onPoints(row, -amount, reason)}
         >
           −{amount} P 차감
         </button>
@@ -262,7 +274,7 @@ export function SupplyAdmin({
                   type="button"
                   className="ctl small"
                   disabled={busy}
-                  onClick={() => onItem(row, stack.itemId, 1)}
+                  onClick={() => onItem(row, stack.itemId, 1, reason)}
                 >
                   +1
                 </button>
@@ -270,7 +282,7 @@ export function SupplyAdmin({
                   type="button"
                   className="ctl small"
                   disabled={busy}
-                  onClick={() => onItem(row, stack.itemId, -1)}
+                  onClick={() => onItem(row, stack.itemId, -1, reason)}
                 >
                   −1
                 </button>
@@ -286,7 +298,7 @@ export function SupplyAdmin({
         disabled={busy}
         onChange={(event) => {
           if (!event.target.value) return;
-          onItem(row, event.target.value, 1);
+          onItem(row, event.target.value, 1, reason);
         }}
       >
         <option value="">보급품 지급…</option>

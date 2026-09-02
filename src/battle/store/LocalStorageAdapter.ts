@@ -6,6 +6,7 @@
  */
 
 import { SCHEMA_VERSION } from '../config/rules';
+import { newUuid } from '../engine/id';
 import type {
   BattleRecord,
   BattleState,
@@ -17,6 +18,7 @@ import type {
   RouletteWheel,
   ShopItemRecord,
 } from '../types';
+import type { AuditDraft, AuditEntry, AuditPort } from './ports/AuditPort';
 import type { RouletteCatalog } from './ports/RoulettePort';
 import type { ShopCatalog } from './ports/ShopPort';
 import type { ExportEnvelope, PublicPair, StorageAdapter } from './StorageAdapter';
@@ -30,6 +32,7 @@ const SPINS_KEY = 'sh.roulette.spins';
 const ENEMIES_KEY = 'sh.roster.enemies';
 const CHAT_KEY = 'sh.chat.messages';
 const RECORDS_KEY = 'sh.records.battles';
+const AUDIT_KEY = 'sh.ops.audit';
 
 interface IndexRow extends BattleSummary {}
 
@@ -102,7 +105,9 @@ function summarize(state: BattleState): BattleSummary {
    선반(상점 진열)과 원반은 세계 데이터라 전투 · 명부와 같은 저장소에 산다.
    도메인 전체는 ports/ShopPort · ports/RoulettePort 에서 본다.
 */
-export class LocalStorageAdapter implements StorageAdapter, ShopCatalog, RouletteCatalog {
+export class LocalStorageAdapter
+  implements StorageAdapter, ShopCatalog, RouletteCatalog, AuditPort
+{
   async loadBattle(id: string): Promise<BattleState | null> {
     if (!hasStorage()) return null;
     const raw = window.localStorage.getItem(KEY_PREFIX + id);
@@ -286,6 +291,27 @@ export class LocalStorageAdapter implements StorageAdapter, ShopCatalog, Roulett
 
   async recentSpins(limit = 50): Promise<RouletteSpin[]> {
     return readRouletteSpins().slice(0, limit);
+  }
+
+  /* ── 운영 감사 기록 ── */
+
+  /*
+     로컬 모드에는 운영진과 참가자를 가르는 벽이 없다 — 브라우저 저장소를 열면
+     누구든 고칠 수 있으므로, 여기 남는 기록은 「분쟁의 근거」가 아니라
+     혼자 굴려 볼 때 무엇을 만졌는지 되짚는 메모다.
+  */
+  async record(draft: AuditDraft): Promise<void> {
+    const entry: AuditEntry = {
+      ...draft,
+      id: newUuid(),
+      at: new Date().toISOString(),
+      byHandle: '관리국',
+    };
+    writeJson(AUDIT_KEY, [entry, ...readJson<AuditEntry[]>(AUDIT_KEY, [])].slice(0, 500));
+  }
+
+  async listAudit(limit = 200): Promise<AuditEntry[]> {
+    return readJson<AuditEntry[]>(AUDIT_KEY, []).slice(0, limit);
   }
 
   /* ── 채팅 ── */

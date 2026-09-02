@@ -18,6 +18,7 @@ import { buildRecord } from '../engine/record';
 import {
   AuthError,
   getAccounts,
+  getAudit,
   getRoulette,
   getServerAccounts,
   getShop,
@@ -70,6 +71,7 @@ export default function ControlTerminal() {
   const accounts = useMemo(() => getAccounts(), []);
   const shop = useMemo(() => getShop(), []);
   const roulette = useMemo(() => getRoulette(), []);
+  const audit = useMemo(() => getAudit(), []);
   const serverAccounts = useMemo(() => getServerAccounts(), []);
 
   const [tab, setTab] = useState<Tab>('OPERATION');
@@ -414,8 +416,21 @@ export default function ControlTerminal() {
 
   /* 탭이 공통으로 쓰는 배선 — 여기 한 곳에서만 엮는다 */
   const shell: OpsShell = useMemo(
-    () => ({ storage, accounts, shop, roulette, busy, setBusy, guard, refresh, setMessage, setError, copyText }),
-    [storage, accounts, shop, roulette, busy, guard, refresh, copyText],
+    () => ({
+      storage,
+      accounts,
+      shop,
+      roulette,
+      audit,
+      busy,
+      setBusy,
+      guard,
+      refresh,
+      setMessage,
+      setError,
+      copyText,
+    }),
+    [storage, accounts, shop, roulette, audit, busy, guard, refresh, copyText],
   );
 
 

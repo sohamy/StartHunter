@@ -26,12 +26,13 @@ import { SupabaseAccountAdapter } from './SupabaseAccountAdapter';
 import { SupabaseStorageAdapter } from './SupabaseStorageAdapter';
 import { hasSupabase } from './supabaseClient';
 import type { AccountAdapter } from './AccountAdapter';
+import type { AuditPort } from './ports/AuditPort';
 import type { RouletteCatalog, RouletteCounter, RoulettePort } from './ports/RoulettePort';
 import type { ShopCatalog, ShopCounter, ShopPort } from './ports/ShopPort';
 import type { StorageAdapter } from './StorageAdapter';
 
 /** 저장소 구현이 실제로 갖춰야 하는 것 — 세계 데이터에 선반과 원반이 얹힌다 */
-export type StorageImplementation = StorageAdapter & ShopCatalog & RouletteCatalog;
+export type StorageImplementation = StorageAdapter & ShopCatalog & RouletteCatalog & AuditPort;
 /** 계정 구현 — 계정에 두 창구가 얹힌다 */
 export type AccountImplementation = AccountAdapter & ShopCounter & RouletteCounter;
 
@@ -85,6 +86,17 @@ export function getShop(): ShopPort {
     };
   }
   return shopPort;
+}
+
+/**
+ * 운영 감사 기록.
+ *
+ * 세계 데이터라 저장소가 그대로 갖는다 — 묶을 것이 없어 파사드가 얇다.
+ * 그래도 접근자를 따로 두는 것은, 이 표가 **덧붙이기만 하는 것**이라는 규칙을
+ * 부르는 쪽에서 보이게 하기 위해서다 (AuditPort 에는 지우는 길이 없다).
+ */
+export function getAudit(): AuditPort {
+  return storageImpl();
 }
 
 /** 운명 도박장 한 도메인. 상점과 같은 방식으로 묶는다. */
@@ -153,6 +165,7 @@ export type {
   SheetRecord,
 } from './AccountAdapter';
 export type { PublicPair, StorageAdapter } from './StorageAdapter';
+export type { AuditAction, AuditDraft, AuditEntry, AuditPort } from './ports/AuditPort';
 export type {
   RouletteCatalog,
   RouletteCounter,
