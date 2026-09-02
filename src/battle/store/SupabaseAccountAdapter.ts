@@ -353,6 +353,36 @@ export class SupabaseAccountAdapter implements AccountAdapter, ShopCounter, Roul
     }));
   }
 
+  async updateOwnProfile(next: CharacterSheet): Promise<Account> {
+    const supabase = requireSupabase();
+    const { data } = await supabase.auth.getUser();
+    const accountId = data.user?.id;
+    if (!accountId) throw new AuthError('NOT_FOUND', '로그인 상태가 아닙니다.');
+
+    /*
+       보내는 칸을 여기서 좁힌다. 스탯 · 클래스 · 이름은 아예 실리지 않으므로
+       화면이 무엇을 들고 있든 나가지 않는다. 스킬은 글만 갈아 끼운다.
+    */
+    const { error } = await supabase
+      .from('sheets')
+      .update({
+        pair_name: next.pairName,
+        partner_name: next.partnerName,
+        personality: next.personality,
+        traits: next.traits,
+        contract_story: next.contractStory,
+        portrait: next.portrait ?? null,
+        skills: next.skills,
+      })
+      .eq('owner', accountId);
+
+    if (error) throw new AuthError('INVALID_INPUT', describeSheetError(error.message));
+
+    const account = await this.getAccount(accountId);
+    if (!account) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+    return account;
+  }
+
   async updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account> {
     const supabase = requireSupabase();
     const { error } = await supabase

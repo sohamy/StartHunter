@@ -387,6 +387,49 @@ export class LocalAccountAdapter implements AccountAdapter, ShopCounter, Roulett
     }));
   }
 
+  async updateOwnProfile(next: CharacterSheet): Promise<Account> {
+    const session = await this.currentSession();
+    if (!session) throw new AuthError('NOT_FOUND', '로그인 상태가 아닙니다.');
+
+    const accounts = readAccounts();
+    const index = accounts.findIndex((account) => account.id === session.accountId);
+    if (index < 0) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+
+    /*
+       고칠 수 있는 칸만 갈아 끼운다 — 스탯 · 클래스 · 역할 · 소속 · 이름 · 소지금 ·
+       가방은 예전 값을 그대로 둔다. 화면이 무엇을 들고 있든 여기서 걸러진다.
+       서버 모드에서는 트리거(0022)가 한 겹 더 막는다.
+    */
+    const kept = accounts[index].sheet;
+    const updated: Account = {
+      ...accounts[index],
+      sheet: {
+        ...kept,
+        pairName: next.pairName,
+        partnerName: next.partnerName,
+        personality: next.personality,
+        traits: next.traits,
+        contractStory: next.contractStory,
+        portrait: next.portrait ?? null,
+        // 스킬은 글만 — 수치는 예전 것을 지킨다
+        skills: kept.skills.map((skill) => {
+          const edited = next.skills.find((row) => row.id === skill.id);
+          return edited
+            ? {
+                ...skill,
+                name: edited.name,
+                description: edited.description,
+                special: edited.special,
+              }
+            : skill;
+        }),
+      },
+    };
+    accounts[index] = updated;
+    writeAccounts(accounts);
+    return updated;
+  }
+
   async updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account> {
     const accounts = readAccounts();
     const index = accounts.findIndex((account) => account.id === accountId);

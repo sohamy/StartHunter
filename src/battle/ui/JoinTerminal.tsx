@@ -425,6 +425,191 @@ function SkillEditor({
  * 자기 비밀번호를 손댈 수 있는 유일한 자리다. 아주 잊어버린 사람은 운영진이
  * 임시 비밀번호를 내주고, 그 사람이 여기서 다시 자기 것으로 바꾼다.
  */
+/**
+ * 내 시트 고치기 — 글만.
+ *
+ * 등록을 마친 사람이 자기 시트의 오타 하나도 고칠 수 없었다. 고치는 길이 운영진
+ * 화면에만 있었기 때문이다. 성격 · 특징 · 계약 경위 · 사진 · 페어 이름은 본인이
+ * 다듬어야 할 글이다.
+ *
+ * **스탯은 여기 없다.** 한 번 정한 배분을 나중에 옮길 수 있으면 그것은 배분이 아니고,
+ * 전투 중에 바뀌면 이미 굴러간 판정과 어긋난다. 이름도 없다 — 편성과 선물이
+ * 그 값을 기준으로 삼기 때문이다. 둘 다 관리국에 문의해야 한다.
+ *
+ * 스킬은 이름 · 설명 · 특수효과만 고친다. 수치는 균형이다.
+ */
+function ProfileEditor({
+  sheet,
+  onSaved,
+}: {
+  sheet: CharacterSheet;
+  onSaved: (next: Account) => void;
+}) {
+  const accounts = useMemo(() => getAccounts(), []);
+  const [draft, setDraft] = useState<CharacterSheet>(sheet);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /* 밖에서 시트가 새로 들어오면(저장 후 새로고침) 초안을 맞춘다 */
+  useEffect(() => {
+    setDraft(sheet);
+  }, [sheet]);
+
+  const patch = (next: Partial<CharacterSheet>) => {
+    setDraft((current) => ({ ...current, ...next }));
+    setDone(false);
+  };
+
+  const over = PROFILE_FIELDS.filter(
+    (field) => (draft[field.key] ?? '').trim().length > field.maxChars,
+  );
+
+  const submit = async () => {
+    if (over.length > 0) return;
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      onSaved(await accounts.updateOwnProfile(draft));
+      setDone(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '저장하지 못했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="form">
+      <div className="portrait-row">
+        <PortraitField
+          value={draft.portrait}
+          name={draft.name}
+          onChange={(next) => patch({ portrait: next })}
+        />
+      </div>
+
+      <div className="skill-grid">
+        <label className="input-row">
+          <span className="field-label">페어 이름</span>
+          <input
+            className="ctl input"
+            value={draft.pairName}
+            placeholder="상대와 정한 이름 — 관리국이 이 이름으로 짝을 짓습니다"
+            onChange={(event) => patch({ pairName: event.target.value })}
+          />
+        </label>
+        <label className="input-row">
+          <span className="field-label">계약 상대 이름</span>
+          <input
+            className="ctl input"
+            value={draft.partnerName}
+            placeholder="아직 없으면 공란으로 두세요"
+            onChange={(event) => patch({ partnerName: event.target.value })}
+          />
+        </label>
+      </div>
+
+      {PROFILE_FIELDS.map((field) => {
+        const value = draft[field.key] ?? '';
+        const tooLong = value.trim().length > field.maxChars;
+        return (
+          <div key={field.key} className="profile-field">
+            <div className="profile-field-head">
+              <span className="field-label">
+                {field.label} <small className="dim">{field.labelKo}</small>
+              </span>
+              <span className={`num small-text ${tooLong ? 'danger-text' : 'dim'}`}>
+                {value.length} / {field.maxChars}
+              </span>
+            </div>
+            <textarea
+              className="ctl input textarea"
+              rows={field.rows}
+              value={value}
+              placeholder={field.placeholder}
+              onChange={(event) => patch({ [field.key]: event.target.value })}
+            />
+          </div>
+        );
+      })}
+
+      {draft.skills.length > 0 && (
+        <>
+          <h3 className="sub-title">SKILL TEXT · 스킬 연출</h3>
+          <p className="hint" style={{ marginBottom: 10 }}>
+            이름 · 설명 · 특수효과 서술만 고칩니다. <b>행동력 · 계수 · 쿨타임 · 횟수는
+            관리국이 정합니다</b> — 여기서 바꿔도 반영되지 않습니다.
+          </p>
+          {draft.skills.map((skill, index) => (
+            <div key={skill.id} className="skill-card">
+              <label className="input-row">
+                <span className="field-label">
+                  이름 <small className="dim">AP {skill.apCost} · 계수 {skill.power}</small>
+                </span>
+                <input
+                  className="ctl input"
+                  value={skill.name}
+                  onChange={(event) => {
+                    const skills = [...draft.skills];
+                    skills[index] = { ...skill, name: event.target.value };
+                    patch({ skills });
+                  }}
+                />
+              </label>
+              <label className="input-row">
+                <span className="field-label">설명 · 연출</span>
+                <textarea
+                  className="ctl input textarea"
+                  rows={2}
+                  value={skill.description}
+                  onChange={(event) => {
+                    const skills = [...draft.skills];
+                    skills[index] = { ...skill, description: event.target.value };
+                    patch({ skills });
+                  }}
+                />
+              </label>
+              <label className="input-row">
+                <span className="field-label">특수효과 (수치로 표현되지 않는 것)</span>
+                <input
+                  className="ctl input"
+                  value={skill.special}
+                  onChange={(event) => {
+                    const skills = [...draft.skills];
+                    skills[index] = { ...skill, special: event.target.value };
+                    patch({ skills });
+                  }}
+                />
+              </label>
+            </div>
+          ))}
+        </>
+      )}
+
+      <div className="btn-row">
+        <button
+          type="button"
+          className="ctl primary"
+          disabled={busy || over.length > 0}
+          onClick={() => void submit()}
+        >
+          {busy ? '저장 중…' : '내 시트 저장'}
+        </button>
+      </div>
+
+      {over.length > 0 && (
+        <p className="hint">
+          글자 수를 넘긴 칸이 있습니다 — {over.map((field) => field.labelKo).join(' · ')}
+        </p>
+      )}
+      {done && <p className="notice ok">저장했습니다.</p>}
+      {error && <p className="notice warn">{error}</p>}
+    </div>
+  );
+}
+
 function PasswordChange({ minLength }: { minLength: number }) {
   const accounts = useMemo(() => getAccounts(), []);
   const [current, setCurrent] = useState('');
@@ -965,6 +1150,19 @@ export default function JoinTerminal() {
         </section>
 
         <section className="panel">
+          <h2 className="panel-title">EDIT · 내 시트 고치기</h2>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            성격 · 특징 · 계약 경위 · 사진 · 페어 이름은 <b>언제든 본인이 고칩니다.</b>
+            {' '}
+            <b className="warn-text">스탯 · 클래스 · 이름은 고칠 수 없습니다</b> — 등록할 때 한 번
+            정하는 값이라, 바꿔야 하면 관리국에 문의하세요.
+          </p>
+          <Collapsible label="시트 고치기 열기">
+            <ProfileEditor sheet={sheet} onSaved={setAccount} />
+          </Collapsible>
+        </section>
+
+        <section className="panel">
           <h2 className="panel-title">PASSPHRASE · 비밀번호</h2>
           <p className="hint" style={{ marginBottom: 12 }}>
             활동명으로 접속하는 구조라 <b>메일로 되찾는 길이 없습니다.</b> 잊으면 관리국에
@@ -1248,6 +1446,15 @@ export default function JoinTerminal() {
                 남은 포인트 {remaining} / {POINT_BUY.freePoints}
               </span>
             </h3>
+            {/*
+              배분 앞에 못 박는다. 등록을 마친 뒤에 알게 되면 이미 늦다 —
+              고쳐 달라는 문의가 관리국으로 몰리고, 그때부터는 형평성 문제가 된다.
+            */}
+            <p className="notice warn" style={{ marginBottom: 12 }}>
+              <b>스탯은 한 번 정하면 고칠 수 없습니다.</b> 등록을 마치면 본인 화면에서는
+              바꿀 수 없고, 클래스와 이름도 같습니다. 아래 환산값을 확인하면서 신중히
+              배분하세요 — 성격 · 특징 · 사진 같은 글은 나중에 언제든 고칠 수 있습니다.
+            </p>
             <div className="stat-list">
               {stats.map((stat) => (
                 <StatRow

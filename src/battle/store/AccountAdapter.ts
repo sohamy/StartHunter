@@ -185,6 +185,18 @@ export interface AccountAdapter {
    */
   listSheets(): Promise<SheetRecord[]>;
   updateSheet(accountId: string, sheet: CharacterSheet): Promise<Account>;
+  /**
+   * 본인이 자기 시트의 **글**을 고친다 — 성격 · 특징 · 계약 경위 · 사진 ·
+   * 페어 이름 · 계약 상대 이름, 그리고 스킬의 이름 · 설명 · 특수효과 서술.
+   *
+   * 스탯 · 클래스 · 역할 · 소속 · 이름 · 스킬 수치는 **담기지 않는다.**
+   * 한 번 정한 배분을 나중에 옮길 수 있으면 그것은 배분이 아니고, 전투 중에 바뀌면
+   * 이미 굴러간 판정과 어긋난다. 이름은 편성과 선물이 기준으로 삼는 값이라 함께 잠근다.
+   *
+   * 전체 시트를 받지만 구현이 허용된 칸만 골라 쓴다 — 화면이 실수로 스탯을 실어
+   * 보내도 나가지 않는다. 서버 쪽은 트리거(0022 · guard_sheet_locked)가 한 겹 더 막는다.
+   */
+  updateOwnProfile(next: CharacterSheet): Promise<Account>;
 
   /*
      상점 매매 · 보급품 사용 · 원반 돌리기는 여기 없다 —
