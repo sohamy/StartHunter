@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 
 import { getAccounts } from '../store';
 import { findDeployment } from './deployment';
+import { useNotify, type Notifier } from './useNotify';
 import type { Account, BattleState } from '../types';
 
 export type SessionPhase = 'LOADING' | 'GUEST' | 'READY';
@@ -41,6 +42,8 @@ export interface AccountSession {
    * 화면을 열어 둔 채 배치될 수 있으므로, 창구를 **누르는 순간**에 한 번 더 확인한다.
    */
   refreshDeployment: (accountId: string) => Promise<BattleState | null>;
+  /** 탭 제목 뱃지와 브라우저 알림 — 켜는 버튼을 화면에 두려면 이것을 쓴다 */
+  notifier: Notifier;
 }
 
 export function useAccountSession(
@@ -99,5 +102,43 @@ export function useAccountSession(
     return joined;
   }, []);
 
-  return { phase, account, setAccount, deployed, refreshDeployment };
+  /*
+     선물이 왔는지 지켜본다.
+
+     소지금과 가방은 **남이 바꿔 놓을 수 있는** 유일한 내 값이다 — 내가 아무 것도
+     하지 않았는데 늘어나 있을 수 있다. 그런데 화면을 계속 보고 있어야만 알았다.
+
+     늘어난 때만 알린다. 줄어드는 것은 내가 산 것이거나 운영진이 회수한 것이고,
+     어느 쪽이든 이 화면에서 이미 알고 있다.
+  */
+  const notifier = useNotify();
+  const seenPoints = useRef<number | null>(null);
+  const { notify } = notifier;
+
+  useEffect(() => {
+    const id = account?.id;
+    if (!id) return;
+
+    return accounts.subscribeSheet(id, () => {
+      void (async () => {
+        const fresh = await accounts.getAccount(id);
+        if (!fresh) return;
+        setAccount(fresh);
+
+        const before = seenPoints.current;
+        const after = fresh.sheet.points ?? 0;
+        if (before !== null && after > before) {
+          notify('선물이 도착했습니다', `소지금 +${after - before} P — 지금 ${after} P`);
+        }
+        seenPoints.current = after;
+      })();
+    });
+  }, [account?.id, accounts, notify]);
+
+  /* 처음 읽은 값을 기준선으로 잡는다 — 첫 조회를 「늘어났다」고 보지 않게 */
+  useEffect(() => {
+    if (account && seenPoints.current === null) seenPoints.current = account.sheet.points ?? 0;
+  }, [account]);
+
+  return { phase, account, setAccount, deployed, refreshDeployment, notifier };
 }

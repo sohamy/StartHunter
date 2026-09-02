@@ -57,6 +57,8 @@ import { Portrait } from './PortraitField';
 import Collapsible from './Collapsible';
 import { ActorSheet } from './SheetView';
 import TerminalNav from './TerminalNav';
+import NotifyToggle from './NotifyToggle';
+import { useNotify } from './useNotify';
 import type {
   ActionDefinition,
   Account,
@@ -427,6 +429,54 @@ export default function BattleTerminal() {
     [storage],
   );
 
+  /*
+     자리를 비운 사이에 판이 넘어간 것을 알린다.
+
+     구독은 이미 돌고 있었지만 **화면만 갱신하고 알리지는 않았다.** 탭을 뒤에 깔아 둔
+     사람은 자기 차례가 온 것도, 라운드가 처리된 것도 몰랐다.
+
+     라운드 번호로 한 번씩만 알린다 — 제출 상태는 상대가 낼 때마다 바뀌므로,
+     그때마다 알리면 「내 차례」가 여러 번 뜬다.
+  */
+  const notifier = useNotify();
+  const { notify } = notifier;
+  const toldRound = useRef(0);
+  const seenRound = useRef(0);
+
+  useEffect(() => {
+    if (!battle || !account) return;
+
+    if (seenRound.current === 0) {
+      // 처음 열었을 때를 「넘어갔다」고 보지 않는다
+      seenRound.current = battle.round;
+      toldRound.current = battle.round;
+      return;
+    }
+
+    if (battle.round > seenRound.current) {
+      seenRound.current = battle.round;
+      notify('라운드가 처리됐습니다', `ROUND ${battle.round} 시작 — 결과를 확인하세요`);
+      // 새 라운드의 「내 차례」는 아직 안 알린 것으로 둔다
+      toldRound.current = battle.round - 1;
+    }
+
+    if (battle.status !== 'ENGAGED' || toldRound.current >= battle.round) return;
+
+    const pair = viewerPair(battle);
+    if (!pair) return;
+    const side = sideOfAccount(pair, account.id);
+    if (!side) return;
+
+    const waiting =
+      side === 'HUNTER'
+        ? !pair.submission.hunterSubmitted && pair.hunter.control !== 'AUTO' && pair.hunter.hp > 0
+        : !pair.submission.constellationSubmitted && pair.constellation.control !== 'AUTO';
+    if (!waiting) return;
+
+    toldRound.current = battle.round;
+    notify('내 차례입니다', `ROUND ${battle.round} — ${pair.label} 행동을 제출하세요`);
+  }, [account, battle, notify]);
+
   /**
    * 라운드 처리 결과와 상대의 제출을 자동으로 받아 본다.
    * 새로고침을 눌러야 진행이 보이는 화면은 쓸 수 없다.
@@ -593,6 +643,9 @@ export default function BattleTerminal() {
               </span>
             </Field>
             <Field label="NAME">{account.sheet.name}</Field>
+            <Field label="알림">
+              <NotifyToggle notifier={notifier} />
+            </Field>
           </dl>
         </header>
 
@@ -1006,6 +1059,10 @@ export default function BattleTerminal() {
             <span className={`tag ${battle.status === 'ENGAGED' ? 'ok' : 'warn'}`}>
               {statusLabel[battle.status]}
             </span>
+          </Field>
+          {/* 자리를 비워도 내 차례를 알 수 있게 — 권한은 사이트 단위라 한 번만 켜면 된다 */}
+          <Field label="알림">
+            <NotifyToggle notifier={notifier} />
           </Field>
         </dl>
       </header>

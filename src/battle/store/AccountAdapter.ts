@@ -197,6 +197,14 @@ export interface AccountAdapter {
    * 보내도 나가지 않는다. 서버 쪽은 트리거(0022 · guard_sheet_locked)가 한 겹 더 막는다.
    */
   updateOwnProfile(next: CharacterSheet): Promise<Account>;
+  /**
+   * 내 시트가 바뀌면 알린다. 돌려받은 함수를 부르면 그만 듣는다.
+   *
+   * 선물을 받았을 때 알아채는 데 쓴다 — 소지금과 가방은 **남이 바꿔 놓을 수 있는**
+   * 유일한 내 값이라, 내가 아무 것도 하지 않았는데도 늘어나 있을 수 있다.
+   * 어떻게 알아내는지는 구현이 정한다 (서버는 Realtime, 로컬은 storage 이벤트).
+   */
+  subscribeSheet(accountId: string, onChange: () => void): () => void;
 
   /*
      상점 매매 · 보급품 사용 · 원반 돌리기는 여기 없다 —

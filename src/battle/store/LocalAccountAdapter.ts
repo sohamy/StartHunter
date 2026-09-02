@@ -387,6 +387,20 @@ export class LocalAccountAdapter implements AccountAdapter, ShopCounter, Roulett
     }));
   }
 
+  /*
+     로컬 저장소는 **다른 탭**이 값을 바꿀 때 storage 이벤트를 띄운다.
+     같은 탭에서 바꾼 것은 오지 않지만, 그쪽은 이미 알고 있으므로 문제가 되지 않는다.
+  */
+  subscribeSheet(_accountId: string, onChange: () => void): () => void {
+    if (typeof window === 'undefined') return () => {};
+    const listener = (event: StorageEvent) => {
+      // key 가 null 이면 저장소 전체가 비워진 것이다 (clear)
+      if (event.key === null || event.key === ACCOUNTS_KEY) onChange();
+    };
+    window.addEventListener('storage', listener);
+    return () => window.removeEventListener('storage', listener);
+  }
+
   async updateOwnProfile(next: CharacterSheet): Promise<Account> {
     const session = await this.currentSession();
     if (!session) throw new AuthError('NOT_FOUND', '로그인 상태가 아닙니다.');

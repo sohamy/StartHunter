@@ -353,6 +353,22 @@ export class SupabaseAccountAdapter implements AccountAdapter, ShopCounter, Roul
     }));
   }
 
+  subscribeSheet(accountId: string, onChange: () => void): () => void {
+    const supabase = requireSupabase();
+    const channel = supabase
+      .channel(`sheet:${accountId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'sheets', filter: `owner=eq.${accountId}` },
+        onChange,
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }
+
   async updateOwnProfile(next: CharacterSheet): Promise<Account> {
     const supabase = requireSupabase();
     const { data } = await supabase.auth.getUser();
