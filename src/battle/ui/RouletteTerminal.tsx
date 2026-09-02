@@ -50,6 +50,38 @@ function tierOf(slot: RouletteSlot, fee: number): string {
   return 'top';
 }
 
+/**
+ * 밤하늘 — 칸이 비치므로 그 뒤에 깔린다.
+ *
+ * 새로고침할 때마다 별자리가 바뀌면 같은 원반으로 보이지 않는다. 씨앗을 고정한다.
+ * 반지름에 제곱근을 취하는 것은 넓이에 고르게 뿌리기 위해서다 —
+ * 그냥 곱하면 가운데가 빽빽해지고 바깥이 휑해진다.
+ */
+const SKY = (() => {
+  let seed = 20250901;
+  const next = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  return Array.from({ length: 54 }, () => {
+    const radius = Math.sqrt(next()) * 84;
+    const angle = next() * Math.PI * 2;
+    const faint = next() > 0.42;
+    return {
+      x: Number((100 + Math.cos(angle) * radius).toFixed(1)),
+      y: Number((100 + Math.sin(angle) * radius).toFixed(1)),
+      r: faint ? 0.6 : 0.95,
+      faint,
+    };
+  });
+})();
+
+/** 테 눈금 — 5도마다 하나, 30도마다 굵게. 도는 것은 하늘이고 눈금은 장치 쪽이다 */
+const TICKS = Array.from({ length: 72 }, (_, index) => ({
+  angle: index * 5,
+  major: index % 6 === 0,
+}));
+
 /** 원 위의 한 점 — 0도가 12시, 시계 방향 */
 function pointAt(angle: number, radius: number): [number, number] {
   const radian = (angle * Math.PI) / 180;
@@ -77,20 +109,41 @@ interface LabelPlan {
   size: number;
   /** 글자가 시작하는 반지름 — 좁은 칸은 바깥으로 밀어 둘레를 넓게 쓴다 */
   from: number;
-  /** 넘치는 이름은 잘라 낸다 */
-  maxChars: number;
 }
 
 function labelPlan(span: number): LabelPlan | null {
-  if (span >= 24) return { size: 9, from: 30, maxChars: 8 };
-  if (span >= 13) return { size: 8, from: 36, maxChars: 7 };
-  if (span >= 7) return { size: 7, from: 46, maxChars: 5 };
+  if (span >= 24) return { size: 9, from: 28 };
+  if (span >= 13) return { size: 8, from: 34 };
+  if (span >= 7) return { size: 7, from: 44 };
   return null;
 }
 
-function clipLabel(label: string, maxChars: number): string {
+/** 원반 안쪽 끝 — 여기를 넘으면 글자가 테를 뚫고 나간다 */
+const LABEL_LIMIT = 88;
+
+/**
+ * 남은 반지름에 들어가는 만큼만 남기고 자른다.
+ *
+ * 예전에는 글자 수로 잘랐다(넓은 칸 8자). 한글은 한 자가 글자 크기만큼을 먹으므로
+ * 9px × 8자 = 72 가 시작 반지름 30 에 얹히면 102 — **테(90) 밖으로 나갔다.**
+ * 한글 · 한자는 한 칸, 라틴 · 숫자 · 공백은 대략 반 칸으로 세어 폭으로 자른다.
+ */
+function fitLabel(label: string, plan: LabelPlan): string {
+  const room = LABEL_LIMIT - plan.from;
+  const wide = /[ᄀ-ᇿ　-鿿가-힯＀-｠]/;
+
   const text = label.trim();
-  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+  let used = 0;
+  let cut = 0;
+  for (const ch of text) {
+    const next = used + (wide.test(ch) ? 1 : 0.55) * plan.size;
+    if (next > room) break;
+    used = next;
+    cut += ch.length;
+  }
+  if (cut >= text.length) return text;
+  // 말줄임표도 자리를 먹는다 — 한 글자 물러난다
+  return text.slice(0, Math.max(1, cut - 1)) + "…";
 }
 
 /** 무게에 비례한 각도 — 그림과 확률이 어긋나면 화면이 거짓말을 하게 된다 */
@@ -337,23 +390,43 @@ export default function RouletteTerminal() {
                 aria-label={`${wheel.name} 원반`}
               >
                 <defs>
-                  {/* 놋쇠 테 — 위쪽이 밝고 아래쪽이 어두워 원반이 세워져 있는 것처럼 보인다 */}
-                  <linearGradient id="wheel-rim" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f0d79b" />
-                    <stop offset="45%" stopColor="#8d7238" />
-                    <stop offset="100%" stopColor="#5d4a22" />
+                  {/* 홀로 테 — 청록에서 보라를 거쳐 금으로 넘어간다 */}
+                  <linearGradient id="wheel-rim" x1="0" y1="0" x2="0.35" y2="1">
+                    <stop offset="0%" stopColor="#9fe8ff" />
+                    <stop offset="42%" stopColor="#7fb0ff" />
+                    <stop offset="72%" stopColor="#a48cff" />
+                    <stop offset="100%" stopColor="#e6c583" />
                   </linearGradient>
-                  {/* 가운데는 그대로 두고 테두리만 어둡게 깔아 두께를 만든다 */}
-                  <radialGradient id="wheel-shade" cx="50%" cy="42%" r="62%">
-                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0.14" />
-                    <stop offset="62%" stopColor="#ffffff" stopOpacity="0" />
-                    <stop offset="100%" stopColor="#000000" stopOpacity="0.42" />
+
+                  {/* 유리 돔 — 위에서 빛이 들어오고 가장자리로 갈수록 어두워진다 */}
+                  <radialGradient id="wheel-glass" cx="50%" cy="36%" r="66%">
+                    <stop offset="0%" stopColor="#9fe8ff" stopOpacity="0.14" />
+                    <stop offset="55%" stopColor="#ffffff" stopOpacity="0" />
+                    <stop offset="100%" stopColor="#02040a" stopOpacity="0.5" />
                   </radialGradient>
+
+                  {/* 주사선 — 투영 장치의 흔적 */}
+                  <pattern id="wheel-scan" width="4" height="3" patternUnits="userSpaceOnUse">
+                    <rect width="4" height="1" fill="rgba(150, 220, 255, 0.09)" />
+                  </pattern>
+
+                  {/* 관측 스윕 — 빛 한 줄기가 천천히 원반을 훑는다 */}
+                  <linearGradient id="wheel-sweep" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#bfefff" stopOpacity="0" />
+                    <stop offset="70%" stopColor="#bfefff" stopOpacity="0.16" />
+                    <stop offset="100%" stopColor="#bfefff" stopOpacity="0" />
+                  </linearGradient>
+
+                  {/* 주사선과 스윕이 원반 밖으로 새지 않게 한다 */}
+                  <clipPath id="wheel-face">
+                    <circle cx="100" cy="100" r="90" />
+                  </clipPath>
                 </defs>
 
-                <circle className="wheel-rim" cx="100" cy="100" r="98" />
-                <circle className="wheel-rim-inner" cx="100" cy="100" r="93" />
+                {/* 투영면 */}
+                <circle className="wheel-void" cx="100" cy="100" r="90" />
 
+                {/* 도는 것은 하늘이다 */}
                 <g
                   style={{
                     transform: `rotate(${rotation}deg)`,
@@ -363,6 +436,17 @@ export default function RouletteTerminal() {
                       : 'none',
                   }}
                 >
+                  {/* 밤하늘 — 칸이 비치므로 뒤에 깔아 둔다 */}
+                  {SKY.map((star, index) => (
+                    <circle
+                      key={`sky-${index}`}
+                      className={`wheel-sky ${star.faint ? 'faint' : ''}`}
+                      cx={star.x}
+                      cy={star.y}
+                      r={star.r}
+                    />
+                  ))}
+
                   {wheel.slots.length === 1 ? (
                     <circle className="wheel-slice tier-top" cx="100" cy="100" r="90" />
                   ) : (
@@ -377,12 +461,39 @@ export default function RouletteTerminal() {
                     ))
                   )}
 
-                  {/* 칸 경계마다 못을 박는다 — 회전이 눈에 보이게 하는 표식이다 */}
-                  {wheel.slots.length > 1 &&
-                    arcs.map((arc, index) => {
-                      const [x, y] = pointAt(arc.start, 84);
-                      return <circle key={`peg-${index}`} className="wheel-peg" cx={x} cy={y} r="1.8" />;
-                    })}
+                  {/*
+                    별자리 — 칸 경계마다 별이 하나. 이웃한 별을 이어 원반 전체가
+                    하나의 별자리가 된다. 예전에는 나무 원반의 「못」이 박혀 있던 자리다.
+                  */}
+                  {wheel.slots.length > 1 && (
+                    <>
+                      <polygon
+                        className="wheel-const"
+                        points={arcs
+                          .map((arc) =>
+                            pointAt(arc.start, 84)
+                              .map((value) => value.toFixed(1))
+                              .join(','),
+                          )
+                          .join(' ')}
+                      />
+                      {arcs.map((arc, index) => {
+                        const [x, y] = pointAt(arc.start, 84);
+                        return (
+                          <g key={`star-${index}`}>
+                            <circle
+                              className="wheel-star-halo"
+                              cx={x}
+                              cy={y}
+                              r="4.2"
+                              style={{ animationDelay: `${-(index % 5) * 0.7}s` }}
+                            />
+                            <circle className="wheel-star" cx={x} cy={y} r="1.5" />
+                          </g>
+                        );
+                      })}
+                    </>
+                  )}
 
                   {wheel.slots.map((slot, index) => {
                     const arc = arcs[index];
@@ -401,18 +512,50 @@ export default function RouletteTerminal() {
                         textAnchor="start"
                         dominantBaseline="central"
                       >
-                        {clipLabel(slot.label, plan.maxChars)}
+                        {fitLabel(slot.label, plan)}
                       </text>
                     );
                   })}
                 </g>
 
-                {/* 그림자는 원반과 함께 돌지 않는다 — 빛은 늘 같은 곳에서 온다 */}
-                <circle className="wheel-shade" cx="100" cy="100" r="90" />
+                {/* 아래는 투영 장치 쪽이다 — 원반과 함께 돌지 않는다 */}
+                <g clipPath="url(#wheel-face)">
+                  <circle className="wheel-scan" cx="100" cy="100" r="90" fill="url(#wheel-scan)" />
+                  <g className="wheel-sweep">
+                    <path d={wedgePath(0, 54, 90)} fill="url(#wheel-sweep)" />
+                  </g>
+                </g>
+                <circle className="wheel-glass" cx="100" cy="100" r="90" />
 
-                <circle className="wheel-hub" cx="100" cy="100" r="16" />
-                <circle className="wheel-hub-ring" cx="100" cy="100" r="11" />
-                <text className="wheel-hub-mark" x="100" y="100" textAnchor="middle" dominantBaseline="central">
+                {/* 테와 눈금 */}
+                <circle className="wheel-rim" cx="100" cy="100" r="96" />
+                <circle className="wheel-rim-inner" cx="100" cy="100" r="90" />
+                {TICKS.map((tick) => {
+                  const [x1, y1] = pointAt(tick.angle, tick.major ? 91 : 92.5);
+                  const [x2, y2] = pointAt(tick.angle, 95);
+                  return (
+                    <line
+                      key={`tick-${tick.angle}`}
+                      className={`wheel-tick ${tick.major ? 'major' : ''}`}
+                      x1={x1}
+                      y1={y1}
+                      x2={x2}
+                      y2={y2}
+                    />
+                  );
+                })}
+
+                {/* 축 */}
+                <circle className="wheel-hub-halo" cx="100" cy="100" r="23" />
+                <circle className="wheel-hub" cx="100" cy="100" r="15" />
+                <circle className="wheel-hub-ring" cx="100" cy="100" r="10.5" />
+                <text
+                  className="wheel-hub-mark"
+                  x="100"
+                  y="100"
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                >
                   ✦
                 </text>
               </svg>

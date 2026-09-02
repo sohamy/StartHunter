@@ -18,65 +18,144 @@
 }
 
 .wheel-box { position: relative; width: 100%; max-width: 320px; margin: 0 auto; }
+
+/*
+   원반은 놋쇠 판이 아니라 **관리국 단말이 쏘아 올린 성도(星圖)** 다.
+   칸은 유리처럼 비쳐 뒤의 별밭이 그대로 보이고, 칸 경계마다 별이 하나씩 박혀
+   원반 전체가 하나의 별자리로 이어진다.
+
+   도는 것은 하늘이고 투영 장치는 제자리에 있다 —
+   주사선 · 빛 쓸림 · 테 눈금은 원반과 함께 돌지 않는다.
+*/
 .wheel-svg {
   display: block;
   width: 100%;
   height: auto;
-  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, .55));
+  filter:
+    drop-shadow(0 0 22px rgba(95, 224, 205, .20))
+    drop-shadow(0 12px 28px rgba(0, 0, 0, .6));
+  animation: wheel-holo 6s ease-in-out infinite;
+}
+/* 송출이 이따금 한 번 튄다 — 살아 있는 투영이라는 티만 낸다 */
+@keyframes wheel-holo {
+  0%, 46%, 52%, 100% { opacity: 1; }
+  48%                { opacity: .88; }
+  50%                { opacity: 1; }
 }
 
 /* 바늘 — 원반은 돌아도 이것은 12시에 붙박여 있다 */
 .wheel-needle {
   position: absolute;
-  top: -2px;
+  top: -6px;
   left: 50%;
-  z-index: 2;
+  z-index: 3;
   width: 0;
   height: 0;
   transform: translateX(-50%);
   border-left: 9px solid transparent;
   border-right: 9px solid transparent;
-  border-top: 18px solid var(--c-gold);
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6));
+  border-top: 20px solid var(--c-gold);
+  filter: drop-shadow(0 0 8px rgba(230, 197, 131, .85));
+}
+/* 바늘에서 내려오는 빛줄기 — 어느 칸을 가리키는지 원반 위까지 이어진다 */
+.wheel-needle::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 14px;
+  width: 2px;
+  height: 26px;
+  background: linear-gradient(180deg, rgba(230, 197, 131, .85), transparent);
 }
 
-/* 테 — 원반이 판에 박혀 있는 것처럼 보이게 하는 놋쇠 두 겹 */
-.wheel-rim { fill: url(#wheel-rim); }
-.wheel-rim-inner { fill: #0a0e16; stroke: rgba(230, 197, 131, .35); stroke-width: 1; }
+/* ── 투영면 ── */
+.wheel-void { fill: #05080f; }
+.wheel-sky { fill: rgba(214, 234, 255, .7); }
+.wheel-sky.faint { fill: rgba(186, 210, 244, .34); }
 
-.wheel-slice { stroke: rgba(5, 7, 12, .85); stroke-width: 1; }
-.wheel-slice.tier-dud { fill: #2a3140; }
-.wheel-slice.tier-low { fill: #3d4a63; }
-.wheel-slice.tier-mid { fill: #5a5182; }
-.wheel-slice.tier-top { fill: #8a6f3a; }
+/*
+   칸은 칠하지 않고 비춘다. 뒤의 별이 비쳐야 홀로그램이고,
+   등급은 색으로 갈린다 — 꽝은 흐린 슬레이트, 큰 배당은 금빛이다.
+*/
+.wheel-slice { stroke: rgba(150, 200, 255, .34); stroke-width: .6; }
+.wheel-slice.tier-dud { fill: rgba(96, 116, 148, .22); }
+.wheel-slice.tier-low { fill: rgba(127, 176, 255, .22); }
+.wheel-slice.tier-mid { fill: rgba(164, 140, 255, .30); }
+.wheel-slice.tier-top { fill: rgba(230, 197, 131, .34); }
 /* 같은 등급이 나란히 오면 경계가 보이지 않는다 — 한 칸씩 밝기를 달리 준다 */
-.wheel-slice.alt { filter: brightness(1.18); }
+.wheel-slice.alt { filter: brightness(1.35); }
 /* 걸린 칸 — 멈춘 뒤에만 켠다 */
-.wheel-slice.hit { stroke: var(--c-gold); stroke-width: 1.6; filter: brightness(1.5); }
+.wheel-slice.hit {
+  stroke: var(--c-gold);
+  stroke-width: 1.8;
+  filter: brightness(1.7) drop-shadow(0 0 8px rgba(230, 197, 131, .8));
+}
 
-/* 칸 경계의 못 */
-.wheel-peg { fill: rgba(255, 255, 255, .55); }
+/*
+   별자리 — 칸 경계마다 별이 하나. 이웃한 별을 이어 원반이 하나의 별자리가 된다.
+   예전의 「못」자리다. 못은 나무 원반의 물건이고, 이쪽은 하늘이다.
+*/
+.wheel-const {
+  fill: none;
+  stroke: rgba(170, 205, 255, .42);
+  stroke-width: .7;
+  stroke-dasharray: 2.6 2.6;
+}
+.wheel-star { fill: #eaf4ff; }
+.wheel-star-halo { fill: rgba(150, 220, 255, .18); animation: wheel-twinkle 3.6s ease-in-out infinite; }
+@keyframes wheel-twinkle {
+  0%, 100% { opacity: .35; }
+  50%      { opacity: 1; }
+}
 
-/* 두께와 빛 — 원반과 함께 돌지 않는다 */
-.wheel-shade { fill: url(#wheel-shade); pointer-events: none; }
+/* ── 투영 장치 쪽 — 원반과 함께 돌지 않는다 ── */
+.wheel-scan { pointer-events: none; }
+/* 빛 한 줄기가 천천히 원반을 훑는다 — 관측 장비의 스윕이다 */
+.wheel-sweep {
+  transform-origin: 100px 100px;
+  animation: wheel-sweep 9s linear infinite;
+  pointer-events: none;
+}
+@keyframes wheel-sweep {
+  to { transform: rotate(360deg); }
+}
+/* 유리 돔 — 위에서 빛이 들어와 아래로 어두워진다 */
+.wheel-glass { fill: url(#wheel-glass); pointer-events: none; }
+
+/* 테 — 놋쇠 두 겹 대신 청록에서 금으로 넘어가는 홀로 링 */
+.wheel-rim {
+  fill: none;
+  stroke: url(#wheel-rim);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px rgba(127, 176, 255, .5));
+}
+.wheel-rim-inner { fill: none; stroke: rgba(150, 200, 255, .3); stroke-width: 1; }
+.wheel-tick { stroke: rgba(170, 210, 255, .45); stroke-width: .7; }
+.wheel-tick.major { stroke: rgba(230, 197, 131, .8); stroke-width: 1.2; }
 
 .wheel-label {
-  fill: #f4f8ff;
+  fill: #f6faff;
   font-family: var(--c-sans);
   font-weight: 700;
   letter-spacing: -.02em;
-  /* 어두운 칸과 밝은 칸에 같은 글자가 얹힌다 — 테두리를 깔아 어느 쪽에서도 읽히게 한다 */
-  stroke: rgba(5, 7, 12, .85);
-  stroke-width: 2.2px;
+  /* 밝은 칸과 어두운 칸에 같은 글자가 얹힌다 — 테두리를 깔아 어느 쪽에서도 읽히게 한다 */
+  stroke: rgba(4, 7, 14, .92);
+  stroke-width: 2.6px;
   paint-order: stroke fill;
 }
+
+.wheel-hub-halo { fill: rgba(95, 224, 205, .10); }
 .wheel-hub {
-  fill: var(--c-panel-2);
+  fill: rgba(6, 12, 22, .92);
   stroke: url(#wheel-rim);
-  stroke-width: 2.5;
+  stroke-width: 2;
 }
-.wheel-hub-ring { fill: none; stroke: rgba(230, 197, 131, .45); stroke-width: 1; }
-.wheel-hub-mark { fill: var(--c-gold); font-size: 9px; }
+.wheel-hub-ring { fill: none; stroke: rgba(230, 197, 131, .5); stroke-width: .8; }
+.wheel-hub-mark {
+  fill: var(--c-gold);
+  font-size: 11px;
+  filter: drop-shadow(0 0 5px rgba(230, 197, 131, .9));
+}
 
 .wheel-side { display: grid; gap: 12px; align-content: center; min-width: 0; }
 .wheel-go { justify-self: start; padding: 12px 22px; font-size: 1rem; }
