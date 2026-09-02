@@ -37,6 +37,41 @@ export interface PublicPair {
   createdAt: string;
 }
 
+/**
+ * 공개 전투 기록 한 건 — **로그인하지 않아도** 읽힌다 (0023 · public_records).
+ *
+ * 원본(BattleRecord)에서 골라 담은 것이다. 소지금 잔액 · 가방 · 운영진 메모 ·
+ * 시스템 로그는 담기지 않는다 — 남의 지갑은 공개할 것이 아니고, 시스템 로그는
+ * 판정 내부다. 「얻은 포인트」는 그 판의 성적이라 담는다.
+ */
+export interface PublicRecordPair {
+  pairId: string;
+  label: string;
+  hunterName: string;
+  constellationName: string;
+  affiliation: PairBond['affiliation'];
+  hunterHp: number;
+  hunterMaxHp: number;
+  injury: string;
+  constellationStage: string;
+  contract: { stage: string; value: number };
+  pointsEarned: number;
+}
+
+export interface PublicRecord {
+  id: string;
+  mode: string;
+  operation: { name: string; floor: number; threatLevel: string };
+  status: 'CLEARED' | 'FAILED';
+  rounds: number;
+  finishedAt: string;
+  bossName: string | null;
+  gimmick: { label: string; status: string } | null;
+  pairs: PublicRecordPair[];
+  /** 연출 로그만 */
+  log: Array<{ id: string; at: string; text: string }>;
+}
+
 export interface StorageAdapter {
   loadBattle(id: string): Promise<BattleState | null>;
   saveBattle(state: BattleState): Promise<void>;
@@ -87,6 +122,11 @@ export interface StorageAdapter {
 
   /* ── 공략 기록 ── */
   listRecords(): Promise<BattleRecord[]>;
+  /**
+   * 공개 기록 한 건. 주소만 알면 누구나 읽는다 — 커뮤니티에 붙이는 용도다.
+   * listRecords 는 로그인한 사람에게만 열리므로, 공개 화면은 이쪽을 쓴다.
+   */
+  getPublicRecord(id: string): Promise<PublicRecord | null>;
   saveRecord(record: BattleRecord): Promise<void>;
   deleteRecord(id: string): Promise<void>;
 

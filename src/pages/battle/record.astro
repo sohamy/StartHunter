@@ -1,0 +1,11 @@
+---
+import ConsoleLayout from '../../layouts/ConsoleLayout.astro';
+import RecordTerminal from '../../battle/ui/RecordTerminal.tsx';
+---
+
+<ConsoleLayout
+  title="RAID RECORD · 공략 기록"
+  description="헌터 관리국 공략 기록 — 끝난 전투 한 판의 결과와 연출 로그"
+>
+  <RecordTerminal client:only="react" />
+</ConsoleLayout>

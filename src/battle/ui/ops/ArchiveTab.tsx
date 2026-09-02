@@ -10,7 +10,7 @@ import { findItem } from '../../config/items';
 import { settle, type SettlementTarget } from '../../engine/record';
 import Collapsible from '../Collapsible';
 import { useOps } from './OpsContext';
-import { confirmed, shortTime } from './shared';
+import { ShareLink, confirmed, publicRecordUrl, shortTime } from './shared';
 import type { SheetRecord } from '../../store';
 import type { BattleRecord, BattleState, PairBond } from '../../types';
 
@@ -260,6 +260,13 @@ export default function ArchiveTab({
                       삭제
                     </button>
                   </div>
+
+                  {/*
+                    커뮤니티에 붙이는 주소. 시트에는 있는데 기록에는 없어서
+                    「우리 3층 클리어」를 남길 방법이 없었다.
+                    공개분에는 소지금 잔액과 가방이 담기지 않는다 (0023 · public_records).
+                  */}
+                  <ShareLink url={publicRecordUrl(record.id)} label="공개 기록 주소" />
 
                   <Collapsible label={`전투 로그 · ${record.log.length}건`}>
                     <ol className="log-list">

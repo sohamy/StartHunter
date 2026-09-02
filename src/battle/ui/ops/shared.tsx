@@ -30,9 +30,20 @@ export function publicSheetUrl(accountId: string): string {
   return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
 }
 
-/** 공개 시트 주소 한 줄 — 눈으로 확인하고, 눌러서 복사하고, 열어 볼 수 있게 한다. */
-export function PublicSheetLink({ accountId }: { accountId: string }) {
-  const url = publicSheetUrl(accountId);
+/** 공개 전투 기록 주소 — 커뮤니티에 그대로 붙일 수 있게 절대 주소로 만든다 */
+export function publicRecordUrl(recordId: string): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const path = `${base}/battle/record/?id=${encodeURIComponent(recordId)}`;
+  return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
+}
+
+/**
+ * 공개 주소 한 줄 — 눈으로 확인하고, 눌러서 복사하고, 열어 볼 수 있게 한다.
+ *
+ * 시트와 전투 기록이 같은 부품을 쓴다. 「주소를 남긴다」는 일은 어느 쪽이든 같은
+ * 동작인데, 화면마다 다르게 생기면 어느 버튼이 복사인지 매번 다시 찾게 된다.
+ */
+export function ShareLink({ url, label = '공개 주소' }: { url: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -48,7 +59,7 @@ export function PublicSheetLink({ accountId }: { accountId: string }) {
 
   return (
     <div className="share-row">
-      <span className="field-label">공개 주소</span>
+      <span className="field-label">{label}</span>
       <input className="ctl input share-url" value={url} readOnly onFocus={(e) => e.target.select()} />
       <button type="button" className="ctl small" onClick={() => void copy()}>
         {copied ? '복사됨' : '주소 복사'}
@@ -58,6 +69,10 @@ export function PublicSheetLink({ accountId }: { accountId: string }) {
       </a>
     </div>
   );
+}
+
+export function PublicSheetLink({ accountId }: { accountId: string }) {
+  return <ShareLink url={publicSheetUrl(accountId)} />;
 }
 /** 시트 전문(수치까지) 과 참가자에게 보이는 프로필 카드를 오간다 */
 export type SheetLayout = 'DETAIL' | 'PROFILE';

@@ -164,7 +164,12 @@ export type {
   RegisterInput,
   SheetRecord,
 } from './AccountAdapter';
-export type { PublicPair, StorageAdapter } from './StorageAdapter';
+export type {
+  PublicPair,
+  PublicRecord,
+  PublicRecordPair,
+  StorageAdapter,
+} from './StorageAdapter';
 export type { AuditAction, AuditDraft, AuditEntry, AuditPort } from './ports/AuditPort';
 export type {
   RouletteCatalog,

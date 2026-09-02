@@ -13,7 +13,12 @@
 
 import { SCHEMA_VERSION } from '../config/rules';
 import { requireSupabase } from './supabaseClient';
-import type { ExportEnvelope, PublicPair, StorageAdapter } from './StorageAdapter';
+import type {
+  ExportEnvelope,
+  PublicPair,
+  PublicRecord,
+  StorageAdapter,
+} from './StorageAdapter';
 import type {
   ActorSide,
   BattleRecord,
@@ -752,6 +757,33 @@ export class SupabaseStorageAdapter
   }
 
   /* ── 공략 기록 ── */
+
+  async getPublicRecord(id: string): Promise<PublicRecord | null> {
+    /* 표가 아니라 뷰를 읽는다 — 지갑과 운영 메모는 애초에 담기지 않는다 */
+    const { data } = await requireSupabase()
+      .from('public_records')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!data) return null;
+    return {
+      id: data.id as string,
+      mode: (data.mode as string) ?? 'DUEL',
+      operation: (data.operation as PublicRecord['operation']) ?? {
+        name: '',
+        floor: 0,
+        threatLevel: '',
+      },
+      status: data.status as PublicRecord['status'],
+      rounds: (data.rounds as number) ?? 0,
+      finishedAt: (data.finished_at as string) ?? new Date().toISOString(),
+      bossName: (data.boss_name as string | null) ?? null,
+      gimmick: (data.gimmick as PublicRecord['gimmick']) ?? null,
+      pairs: (data.pairs as PublicRecord['pairs']) ?? [],
+      log: (data.log as PublicRecord['log']) ?? [],
+    };
+  }
 
   async listRecords(): Promise<BattleRecord[]> {
     const { data, error } = await requireSupabase()

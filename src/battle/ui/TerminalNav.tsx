@@ -25,7 +25,9 @@ export type NavKey =
   | 'roster'
   | 'control'
   /** 남의 공개 시트 — 명부에서 들어온 자리이므로 명부를 켜 둔다 */
-  | 'public-sheet';
+  | 'public-sheet'
+  /** 공개 전투 기록 — 같은 이유로 명부를 켜 둔다 */
+  | 'record';
 
 interface NavItem {
   key: NavKey;
@@ -98,7 +100,8 @@ export default function TerminalNav({
 
   // 접속 여부를 확인하기 전에는 누구나 볼 수 있는 항목만 그린다
   const listed = ITEMS.filter((item) => !item.private || signedIn === true);
-  const active = current === 'public-sheet' ? 'roster' : current;
+  /* 링크로 들어오는 공개 화면들은 제 항목이 줄에 없다 — 명부를 켜 둔다 */
+  const active = current === 'public-sheet' || current === 'record' ? 'roster' : current;
 
   return (
     <nav className="term-nav" aria-label="단말 이동">

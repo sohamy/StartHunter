@@ -21,7 +21,12 @@ import type {
 import type { AuditDraft, AuditEntry, AuditPort } from './ports/AuditPort';
 import type { RouletteCatalog } from './ports/RoulettePort';
 import type { ShopCatalog } from './ports/ShopPort';
-import type { ExportEnvelope, PublicPair, StorageAdapter } from './StorageAdapter';
+import type {
+  ExportEnvelope,
+  PublicPair,
+  PublicRecord,
+  StorageAdapter,
+} from './StorageAdapter';
 
 const KEY_PREFIX = 'sh.battle.';
 const INDEX_KEY = 'sh.battle.index';
@@ -170,6 +175,44 @@ export class LocalStorageAdapter
   }
 
   /* ── 공략 기록 ── */
+
+  /*
+     로컬 모드에는 「공개」라는 것이 없다 — 저장소가 이 브라우저 안에만 있으므로
+     주소를 남에게 줘도 열리지 않는다. 그래도 화면이 같은 길을 타게 두려고
+     같은 모양으로 골라 돌려준다. 지갑을 빼는 규칙도 서버 뷰와 맞춘다.
+  */
+  async getPublicRecord(id: string): Promise<PublicRecord | null> {
+    const record = readJson<BattleRecord[]>(RECORDS_KEY, []).find((row) => row.id === id);
+    if (!record) return null;
+    if (record.status !== 'CLEARED' && record.status !== 'FAILED') return null;
+
+    return {
+      id: record.id,
+      mode: record.mode,
+      operation: record.operation,
+      status: record.status,
+      rounds: record.rounds,
+      finishedAt: record.finishedAt,
+      bossName: record.bossName,
+      gimmick: record.gimmick,
+      pairs: record.pairs.map((pair) => ({
+        pairId: pair.pairId,
+        label: pair.label,
+        hunterName: pair.hunterName,
+        constellationName: pair.constellationName,
+        affiliation: pair.affiliation,
+        hunterHp: pair.hunterHp,
+        hunterMaxHp: pair.hunterMaxHp,
+        injury: pair.injury,
+        constellationStage: pair.constellationStage,
+        contract: { stage: pair.contract.stage, value: pair.contract.value },
+        pointsEarned: pair.pointsEarned,
+      })),
+      log: record.log
+        .filter((entry) => entry.channel === 'ROLEPLAY')
+        .map((entry) => ({ id: entry.id, at: entry.at, text: entry.text })),
+    };
+  }
 
   async listRecords(): Promise<BattleRecord[]> {
     return readJson<BattleRecord[]>(RECORDS_KEY, [])
