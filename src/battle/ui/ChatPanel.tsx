@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDice, rollDice } from '../engine/dice';
 import { newUuid } from '../engine/id';
 import { getStorage } from '../store';
+import { buildTranscript, transcriptFileName } from './chatTranscript';
 import type { ActorSide, ChatKind, ChatMessage } from '../types';
 
 export interface ChatAuthor {
@@ -77,6 +78,7 @@ export default function ChatPanel({
   const [draft, setDraft] = useState('');
   const [view, setView] = useState<View>('PLAY');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
   const atBottom = useRef(true);
@@ -167,6 +169,35 @@ export default function ChatPanel({
     }
   };
 
+  /*
+     대화록 내보내기.
+
+     화면은 최근 것만 보여 주지만 여기서는 **채널에 남은 전부**를 받는다.
+     로그 보존이 커뮤니티 RP 의 결과물이므로, 화면에 뜬 만큼만 주면 뜻이 없다.
+
+     JSON 이 아니라 글로 뽑는다 — 받아 갈 사람은 그 글을 쓴 사람이고,
+     다시 불러들일 일이 없으므로 기계가 읽을 형식일 이유가 없다.
+  */
+  const saveTranscript = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const all = await storage.listMessages(channel, 5000);
+      const text = buildTranscript(all, { title });
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = transcriptFileName(title);
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '대화록을 받지 못했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <section className="panel chat">
       <div className="process-head">
@@ -175,6 +206,15 @@ export default function ChatPanel({
           {channel === 'GLOBAL' ? '전체 채널' : `전투 채널 · ${channel.slice(-6)}`} · 참가자와
           운영진이 함께 봅니다
         </span>
+        <button
+          type="button"
+          className="ctl small"
+          disabled={saving}
+          title="이 채널에 남은 글 전부를 글 파일로 받습니다"
+          onClick={() => void saveTranscript()}
+        >
+          {saving ? '엮는 중…' : '대화록 받기'}
+        </button>
       </div>
 
       {/* 진행과 잡담은 따로 본다. 판정은 양쪽에 함께 보인다. */}
