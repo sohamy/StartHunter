@@ -239,6 +239,34 @@ export class SupabaseAccountAdapter implements AccountAdapter, ShopCounter, Roul
     };
   }
 
+  async changePassword(currentPassword: string, nextPassword: string): Promise<void> {
+    const supabase = requireSupabase();
+    if (nextPassword.length < this.minPasswordLength) {
+      throw new AuthError(
+        'INVALID_INPUT',
+        `비밀번호는 ${this.minPasswordLength}자 이상 입력하세요.`,
+      );
+    }
+
+    const { data } = await supabase.auth.getUser();
+    const email = data.user?.email;
+    if (!email) throw new AuthError('NOT_FOUND', '로그인 상태가 아닙니다.');
+
+    /*
+       지금 비밀번호를 다시 확인한다.
+       updateUser 는 옛 비밀번호를 묻지 않으므로, 이 한 줄이 없으면 잠그지 않은 화면
+       앞에 앉은 사람이 남의 계정 비밀번호를 조용히 바꿔 갈 수 있다.
+    */
+    const { error: wrong } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPassword,
+    });
+    if (wrong) throw new AuthError('BAD_PASSWORD', '지금 비밀번호가 맞지 않습니다.');
+
+    const { error } = await supabase.auth.updateUser({ password: nextPassword });
+    if (error) throw new AuthError('INVALID_INPUT', error.message);
+  }
+
   async logout(): Promise<void> {
     await requireSupabase().auth.signOut();
   }

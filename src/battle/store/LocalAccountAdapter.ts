@@ -178,6 +178,29 @@ export class LocalAccountAdapter implements AccountAdapter, ShopCounter, Roulett
     return session;
   }
 
+  async changePassword(currentPassword: string, nextPassword: string): Promise<void> {
+    const session = await this.currentSession();
+    if (!session) throw new AuthError('NOT_FOUND', '로그인 상태가 아닙니다.');
+    if (nextPassword.length < this.minPasswordLength) {
+      throw new AuthError(
+        'INVALID_INPUT',
+        `비밀번호는 ${this.minPasswordLength}자 이상 입력하세요.`,
+      );
+    }
+
+    const accounts = readAccounts();
+    const account = accounts.find((row) => row.id === session.accountId);
+    if (!account) throw new AuthError('NOT_FOUND', '계정을 찾을 수 없습니다.');
+    if ((await hashPassword(currentPassword)) !== account.passwordHash) {
+      throw new AuthError('BAD_PASSWORD', '지금 비밀번호가 맞지 않습니다.');
+    }
+
+    const passwordHash = await hashPassword(nextPassword);
+    writeAccounts(
+      accounts.map((row) => (row.id === account.id ? { ...row, passwordHash } : row)),
+    );
+  }
+
   async logout(): Promise<void> {
     storage().removeItem(SESSION_KEY);
   }

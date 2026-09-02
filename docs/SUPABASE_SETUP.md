@@ -133,6 +133,62 @@ select handle, role from public.profiles order by created_at;
 
 참가자가 이 작업을 시도하면 RLS가 거부한다.
 
+## 3-1. 비밀번호를 잊은 참가자 구제
+
+**이 절차가 없으면 캐릭터가 사라진다.** 활동명은 `handleToEmail()` 이 가상 이메일로
+바꿔 넣는 값이라 실제로 받을 수 있는 주소가 아니다 — 그래서 **Supabase 의 메일
+재설정 기능이 닿지 않는다.** 시트 · 소지금 · 가방이 모두 계정에 붙어 있으므로,
+계정을 지우고 새로 만들면 그 사람의 캐릭터가 통째로 없어진다.
+
+앱 안에는 재발급 버튼을 두지 않았다. 남의 비밀번호를 바꾸는 함수를 상시로 열어 두면
+`is_operator()` 하나가 계정 탈취를 막는 유일한 방어선이 되기 때문이다. 1년에 몇 번 있을
+일이라 대시보드에서 처리한다.
+
+### 절차
+
+1. 참가자에게 **활동명**을 확인한다.
+2. Supabase 대시보드 → **SQL Editor** 에서 아래를 실행한다. 활동명과 임시 비밀번호를
+   바꿔 넣는다 (임시 비밀번호는 6자 이상, 아무 값이나 좋다).
+
+```sql
+update auth.users
+   set encrypted_password = crypt('임시비밀번호', gen_salt('bf')),
+       updated_at = now()
+ where raw_user_meta_data->>'handle' = '서윤';
+```
+
+3. 바뀐 줄이 **정확히 1개**인지 본다. 0이면 활동명이 틀린 것이고, 2 이상이면
+   같은 활동명이 둘 있다는 뜻이니 멈추고 확인한다.
+
+```sql
+select id, raw_user_meta_data->>'handle' as handle, updated_at
+  from auth.users
+ where raw_user_meta_data->>'handle' = '서윤';
+```
+
+4. 임시 비밀번호를 참가자에게 전한다. **공개 채널에 적지 않는다.**
+5. 참가자는 접속한 뒤 등록 단말(`/battle/join/`)의 **PASSPHRASE · 비밀번호** 칸에서
+   자기 비밀번호로 다시 바꾼다. 이 단계까지 안내해야 한다 — 임시 비밀번호가 그대로
+   남으면 그것을 아는 사람이 계속 들어올 수 있다.
+
+### 주의
+
+- `crypt` · `gen_salt` 는 `pgcrypto` 함수다. `extensions` 스키마에 있으므로 SQL 편집기에서
+  그냥 불린다. 안 잡히면 `extensions.crypt(...)` · `extensions.gen_salt('bf')` 로 적는다.
+- 이미 열려 있던 세션은 끊기지 않는다. 그 사람의 다른 기기에 로그인이 살아 있으면 그대로
+  유지된다. 계정을 도둑맞아서 재발급하는 상황이라면, 위 SQL 뒤에 세션도 끊는다.
+
+```sql
+delete from auth.sessions
+ where user_id = (
+   select id from auth.users
+    where raw_user_meta_data->>'handle' = '서윤'
+ );
+```
+
+- 활동명이 아니라 계정 id 를 알고 있다면 `where id = '<uuid>'` 로 바꿔 쓰는 편이 안전하다.
+  작전실 참가자 시트 카드에 그 값이 적혀 있다.
+
 ## 4. 로컬 실행
 
 `.env` 는 이미 만들어져 있다 (git에 올라가지 않는다).

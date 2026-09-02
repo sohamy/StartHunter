@@ -418,6 +418,103 @@ function SkillEditor({
   );
 }
 
+/**
+ * 비밀번호 변경 — 본인 창구.
+ *
+ * 활동명이 가상 이메일로 들어가 있어 **메일로 되찾는 길이 없다.** 그래서 이 칸이
+ * 자기 비밀번호를 손댈 수 있는 유일한 자리다. 아주 잊어버린 사람은 운영진이
+ * 임시 비밀번호를 내주고, 그 사람이 여기서 다시 자기 것으로 바꾼다.
+ */
+function PasswordChange({ minLength }: { minLength: number }) {
+  const accounts = useMemo(() => getAccounts(), []);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /* 막고 있는 것을 버튼 밑에 적어 둔다 — 눌러 보고 알게 하지 않는다 */
+  const problem = !current
+    ? '지금 쓰는 비밀번호를 입력하세요.'
+    : next.length < minLength
+      ? `새 비밀번호를 ${minLength}자 이상 입력하세요.`
+      : next !== again
+        ? '새 비밀번호 두 칸이 서로 다릅니다.'
+        : next === current
+          ? '지금 쓰는 것과 다른 비밀번호를 정하세요.'
+          : null;
+
+  const submit = async () => {
+    if (problem) return;
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      await accounts.changePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setAgain('');
+      setDone(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '바꾸지 못했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="form">
+      <label className="input-row">
+        <span className="field-label">지금 비밀번호</span>
+        <input
+          className="ctl input"
+          type="password"
+          autoComplete="current-password"
+          value={current}
+          onChange={(event) => setCurrent(event.target.value)}
+        />
+      </label>
+      <label className="input-row">
+        <span className="field-label">새 비밀번호</span>
+        <input
+          className="ctl input"
+          type="password"
+          autoComplete="new-password"
+          placeholder={`${minLength}자 이상`}
+          value={next}
+          onChange={(event) => setNext(event.target.value)}
+        />
+      </label>
+      <label className="input-row">
+        <span className="field-label">새 비밀번호 확인</span>
+        <input
+          className="ctl input"
+          type="password"
+          autoComplete="new-password"
+          value={again}
+          onChange={(event) => setAgain(event.target.value)}
+        />
+      </label>
+
+      <div className="btn-row">
+        <button
+          type="button"
+          className="ctl primary"
+          disabled={busy || Boolean(problem)}
+          onClick={() => void submit()}
+        >
+          {busy ? '바꾸는 중…' : '비밀번호 바꾸기'}
+        </button>
+      </div>
+
+      {problem && <p className="hint">{problem}</p>}
+      {done && <p className="notice ok">비밀번호를 바꿨습니다.</p>}
+      {error && <p className="notice warn">{error}</p>}
+    </div>
+  );
+}
+
 export default function JoinTerminal() {
   const accounts = useMemo(() => getAccounts(), []);
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -868,6 +965,15 @@ export default function JoinTerminal() {
         </section>
 
         <section className="panel">
+          <h2 className="panel-title">PASSPHRASE · 비밀번호</h2>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            활동명으로 접속하는 구조라 <b>메일로 되찾는 길이 없습니다.</b> 잊으면 관리국에
+            문의해 임시 비밀번호를 받고, 받은 뒤 여기서 다시 자기 것으로 바꾸세요.
+          </p>
+          <PasswordChange minLength={minPassword} />
+        </section>
+
+        <section className="panel">
           <h2 className="panel-title">DEPLOY</h2>
           <p className="hint" style={{ marginBottom: 12 }}>
             전투 단말에 접속하면 이 시트에서 파생된 수치로 페어가 편성됩니다.
@@ -966,6 +1072,16 @@ export default function JoinTerminal() {
           <button type="submit" className="confirm-btn" disabled={busy || !loginId || !loginPassword}>
             CONNECT
           </button>
+
+          {/*
+            잠긴 사람이 실제로 보는 자리는 여기다.
+            메일로 되찾는 길이 없으므로, 막다른 곳에 세워 두지 말고 갈 곳을 적어 준다.
+          */}
+          <p className="hint">
+            비밀번호를 잊으셨나요? 활동명으로 접속하는 구조라 메일로 되찾을 수 없습니다 —
+            <b> 관리국에 활동명을 알려 주시면 임시 비밀번호를 내드립니다.</b> 접속한 뒤에는
+            내 시트 화면에서 바로 바꾸실 수 있습니다.
+          </p>
         </form>
       ) : (
         <>

@@ -156,6 +156,16 @@ export interface AccountAdapter {
 
   register(input: RegisterInput): Promise<Account>;
   login(credentials: Credentials): Promise<Session>;
+  /**
+   * 비밀번호 변경 — 본인만.
+   *
+   * 지금 비밀번호를 함께 받아 다시 확인한다. 서버 구현의 updateUser 는 옛 비밀번호를
+   * 묻지 않으므로, 잠그지 않은 화면 앞에 앉은 사람이 조용히 바꿔 버릴 수 있다.
+   *
+   * 활동명이 가상 이메일로 들어가 있어 **메일로 되찾는 길은 없다.** 잊은 사람은
+   * 운영진이 resetPassword 로 임시 비밀번호를 내주고, 그 사람이 여기서 다시 바꾼다.
+   */
+  changePassword(currentPassword: string, nextPassword: string): Promise<void>;
   logout(): Promise<void>;
   currentSession(): Promise<Session | null>;
   /** 활동명 또는 내부 계정 id 로 조회한다. 둘 다 받아야 한다. */
